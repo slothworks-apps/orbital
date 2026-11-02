@@ -6,9 +6,12 @@
  * below is the web's own.
  *
  * An inline code span is pressable too, but only when the path is the whole
- * span (adr `a-code-span-that-is-a-path-is-pressable`).
+ * span (adr `a-code-span-that-is-a-path-is-pressable`) — and there a bare file
+ * name with no `/` counts as well, resolved only when it is pressed (spec
+ * 2026-11-02-bare-file-names-and-path-menu-design § The bare name).
  */
 import {
+  codeSpanBareName,
   codeSpanPath,
   findPathMatches,
   findPathMentions,
@@ -18,11 +21,13 @@ import {
 } from '@orbital/shared/paths'
 
 export {
+  codeSpanBareName,
   codeSpanPath,
   findMediaPaths,
   findPathMatches,
   findPathMentions,
   hasTextExtension,
+  isBareFileName,
   isImagePath,
   isMediaPath,
   isPdfPath,
@@ -69,7 +74,7 @@ function isParent(node: HastNode): node is HastParent | HastElement {
 }
 
 /** The `<a data-path data-line>` element the markdown `a` override recognizes. */
-function pathLinkElement(match: PathMatch, inCode = false): HastElement {
+function pathLinkElement(match: PathMatch, inCode = false, bare = false): HastElement {
   return {
     type: 'element',
     tagName: 'a',
@@ -82,6 +87,8 @@ function pathLinkElement(match: PathMatch, inCode = false): HastElement {
       // The button sits inside a code chip, which already sets the type
       // and the box.
       ...(inCode ? { dataCode: '' } : {}),
+      // A bare file name: where it lies is asked of the server on a press.
+      ...(bare ? { dataBare: '' } : {}),
       // A path no press can open — wrapped only when the plugin was asked
       // for every mention (`plain`): the override draws it as text, never
       // as a link.
@@ -95,8 +102,15 @@ function pathLinkElement(match: PathMatch, inCode = false): HastElement {
 function linkCodeSpan(code: HastElement, find: PathFinder): void {
   const [only] = code.children
   if (code.children.length !== 1 || only.type !== 'text') return
-  const match = codeSpanPath((only as HastText).value, find)
-  if (match) code.children = [pathLinkElement(match, true)]
+  const text = (only as HastText).value
+  const match = codeSpanPath(text, find)
+  if (match) {
+    code.children = [pathLinkElement(match, true)]
+    return
+  }
+  // A span that is one bare name and nothing else; in prose a name stays text.
+  const bare = codeSpanBareName(text)
+  if (bare) code.children = [pathLinkElement(bare, true, true)]
 }
 
 function splitTextNode(node: HastText, find: PathFinder): HastNode[] | null {
@@ -143,7 +157,8 @@ function walk(node: HastParent | HastElement, find: PathFinder): void {
 /**
  * Rehype plugin wrapping every prose path match in an `<a data-path>` the
  * markdown `components.a` override renders as a `PathButton`. An inline
- * code span that is exactly one path gets the same link inside it; text in
+ * code span that is exactly one path gets the same link inside it, and so
+ * does one that is exactly one bare file name, marked `data-bare`; text in
  * `pre` and existing `a` elements is never touched.
  *
  * `plain: true` also wraps the paths no press can open, marked `data-plain`,

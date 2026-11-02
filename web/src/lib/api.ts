@@ -1,4 +1,5 @@
 import type { McpjsonDecisions, McpjsonServer } from './mcpjson'
+import { NOT_A_NAME, type FindFilesAnswer, type FoundFile } from './findByName'
 import type {
   ApiSession,
   AttachmentUpload,
@@ -871,6 +872,35 @@ export const api = {
   },
 
   /**
+   * Where a bare file name lies in a session's trees (spec
+   * 2026-11-02-bare-file-names-and-path-menu-design § The server): every
+   * match, absolute, with its path relative to the tree it was found in.
+   * `NOT_A_NAME` when the server would not take the name (its 400), which the
+   * press answers as it does no match; `null` when the lookup was not served
+   * — a Mac older than the route — which the press answers by opening the
+   * name as written. Through the relay on the phone.
+   */
+  async findFiles(sessionId: string, name: string, cwd?: string): Promise<FindFilesAnswer | typeof NOT_A_NAME | null> {
+    const params = new URLSearchParams({ session: sessionId, name })
+    if (cwd) params.set('cwd', cwd)
+    const response = await apiFetch(`/api/files/find?${params}`)
+    if (response.status === 400) {
+      const body = (await response.json().catch(() => null)) as { error?: unknown } | null
+      if (body?.error === 'not_a_name') return NOT_A_NAME
+    }
+    if (!response.ok) return null
+    const data = (await response.json()) as { matches?: unknown; more?: unknown }
+    if (!Array.isArray(data.matches)) return null
+    const matches = data.matches.flatMap((m): FoundFile[] => {
+      const it = m as Partial<FoundFile> | null
+      return it && typeof it.path === 'string' && typeof it.relative === 'string'
+        ? [{ path: it.path, relative: it.relative, touched: it.touched === true }]
+        : []
+    })
+    return { matches, more: typeof data.more === 'number' ? data.more : 0 }
+  },
+
+  /**
    * The undecided servers of a project's `.mcp.json`, for the New session
    * question (spec 2026-10-08-mcpjson-approval-design). Through the relay on
    * the phone.
@@ -933,11 +963,12 @@ export const api = {
    * when there was no editor to reveal it in — which is the ordinary state
    * of a machine, not a failure worth reporting.
    */
-  async ideOpenFile(sessionId: string, path: string, line: number | null): Promise<boolean> {
+  async ideOpenFile(sessionId: string, path: string, line: number | null, editor?: string): Promise<boolean> {
     const response = await apiFetch(apiPath`/api/sessions/${sessionId}/ide/open-file`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, ...(line !== null ? { line } : {}) }),
+      // `editor`, an id off the session's `ides`: that editor rather than the last-used one.
+      body: JSON.stringify({ path, ...(line !== null ? { line } : {}), ...(editor ? { editor } : {}) }),
     })
     if (response.status === 404) return false
     if (!response.ok) {

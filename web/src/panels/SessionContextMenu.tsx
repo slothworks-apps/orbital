@@ -1,10 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { copyToClipboard } from '../lib/clipboard'
 import { detachSession, hasDesktopBridge } from '../lib/desktop'
 import { machineOffline } from '../lib/devices'
-import { reportError } from '../lib/errors'
+import { copyPathOrReport } from '../lib/errors'
 import { primaryTag } from '../lib/primaryTag'
 import { contextMenuGroups, type ContextAction } from '../lib/sessionContextMenu'
 import { tagColor, workingDirOf } from '../lib/types'
@@ -102,17 +101,6 @@ export function SessionMenuHost({ children }: { children: ReactNode }) {
   )
 }
 
-/**
- * The working directory to the clipboard. The menu has closed by then and
- * nothing in the app draws a copy receipt, so a copy that did not land is
- * said and recorded (adr errors-are-recorded-not-announced) rather than
- * dropped.
- */
-async function copyPath(path: string): Promise<void> {
-  if (await copyToClipboard(path)) return
-  reportError(new Error('Could not copy the path to the clipboard'), 'Could not copy the path to the clipboard')
-}
-
 /** A tag's dot, as `Select` draws one beside a tag option. */
 function TagDot({ tag }: { tag: Tag | undefined }) {
   if (!tag) return null
@@ -181,7 +169,7 @@ function SessionMenu({
           onSelect: () => void setSessionPinned(id, !pinned),
         }
       case 'copy-path':
-        return { key: action, label: 'Copy path', icon: <CopyGlyph />, disabled, onSelect: () => void copyPath(path) }
+        return { key: action, label: 'Copy path', icon: <CopyGlyph />, disabled, onSelect: () => void copyPathOrReport(path) }
       case 'takeover':
         return { key: action, label: 'Take over', disabled, onSelect: () => askToTakeOver(id) }
       case 'clear':

@@ -76,6 +76,111 @@ describe('PathButton', () => {
 })
 
 // ---------------------------------------------------------------------------
+// PathButton — a bare name, and the right-click
+// ---------------------------------------------------------------------------
+
+describe('PathButton on a bare name', () => {
+  const match = (relative: string, touched = false) => ({ path: `/home/tomin/work/platform/web/${relative}`, relative, touched })
+
+  beforeEach(() => {
+    const session = makeSession({ id: 's1' })
+    useOrbital.setState((s) => ({ sessions: { ...s.sessions, s1: session }, ui: { ...s.ui, selectedId: 's1' } }))
+  })
+
+  it('opens the one match by its full path, carrying the line', async () => {
+    vi.mocked(api.findFiles).mockResolvedValue({ matches: [match('src/lib/db/findAll.ts')], more: 0 })
+    render(<PathButton path="findAll.ts" line={12} variant="code" bare />)
+    fireEvent.click(screen.getByRole('button'))
+    expect(api.findFiles).toHaveBeenCalledWith('s1', 'findAll.ts', undefined)
+    await waitFor(() =>
+      expect(useOrbital.getState().ui.fileViewer).toMatchObject({ path: match('src/lib/db/findAll.ts').path, line: 12 }),
+    )
+  })
+
+  it('opens the name as written when a Mac without the lookup refuses it', async () => {
+    vi.mocked(api.findFiles).mockResolvedValue(null)
+    render(<PathButton path="findAll.ts" variant="code" bare />)
+    fireEvent.click(screen.getByRole('button'))
+    await waitFor(() => expect(useOrbital.getState().ui.fileViewer).toMatchObject({ path: 'findAll.ts' }))
+  })
+
+  it('opens a chooser for several matches, in the server’s order, and a pick opens that file', async () => {
+    vi.mocked(api.findFiles).mockResolvedValue({
+      matches: [match('src/lib/db/findAll.ts', true), match('src/lib/cache/findAll.ts')],
+      more: 0,
+    })
+    render(<PathButton path="findAll.ts" variant="code" bare />)
+    fireEvent.click(screen.getByRole('button'))
+    const rows = await screen.findAllByRole('menuitem')
+    expect(rows.map((row) => row.getAttribute('aria-label'))).toEqual(['src/lib/db/findAll.ts', 'src/lib/cache/findAll.ts'])
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
+    fireEvent.click(rows[1])
+    expect(useOrbital.getState().ui.fileViewer).toMatchObject({ path: match('src/lib/cache/findAll.ts').path })
+  })
+
+  it('lists every match once its +N more row is picked, and counts only what the server left out', async () => {
+    const many = Array.from({ length: 9 }, (_, i) => match(`p${i}/index.ts`))
+    vi.mocked(api.findFiles).mockResolvedValue({ matches: many, more: 4 })
+    render(<PathButton path="index.ts" variant="code" bare />)
+    fireEvent.click(screen.getByRole('button'))
+    const rows = await screen.findAllByRole('menuitem')
+    expect(rows).toHaveLength(7)
+    expect(rows[6]).toHaveAccessibleName('+7 more')
+    fireEvent.click(rows[6])
+    expect(screen.getAllByRole('menuitem')).toHaveLength(9)
+    expect(screen.getByText('+4 more')).toBeInTheDocument()
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
+  })
+
+  it('says there is no such file in the same popup, with nothing to pick', async () => {
+    vi.mocked(api.findFiles).mockResolvedValue({ matches: [], more: 0 })
+    render(<PathButton path="findAll.tsx" variant="code" bare />)
+    fireEvent.click(screen.getByRole('button'))
+    expect(await screen.findByText('no file by that name under web/')).toBeInTheDocument()
+    expect(screen.queryAllByRole('menuitem')).toHaveLength(0)
+  })
+
+  it('on a right-click shows the chooser first, and a pick swaps in its actions with Back', async () => {
+    vi.mocked(api.findFiles).mockResolvedValue({
+      matches: [match('src/lib/db/findAll.ts', true), match('src/lib/cache/findAll.ts')],
+      more: 0,
+    })
+    render(<PathButton path="findAll.ts" variant="code" bare />)
+    const notDefault = fireEvent.contextMenu(screen.getByRole('button'))
+    expect(notDefault).toBe(false)
+    const rows = await screen.findAllByRole('menuitem')
+    fireEvent.click(rows[0])
+    const actions = screen.getAllByRole('menuitem').map((row) => row.textContent)
+    expect(actions[0]).toContain('Back')
+    expect(actions).toEqual(expect.arrayContaining(['‹Back', 'Copy path', 'Copy relative path']))
+  })
+})
+
+describe('PathButton right-click', () => {
+  beforeEach(() => {
+    const session = makeSession({ id: 's1' })
+    useOrbital.setState((s) => ({ sessions: { ...s.sessions, s1: session }, ui: { ...s.ui, selectedId: 's1' } }))
+  })
+
+  it('opens the menu for the located file, and Copy relative path measures from the working tree', async () => {
+    vi.mocked(api.locateFile).mockResolvedValue('/home/tomin/work/platform/web/src/App.tsx')
+    render(<PathButton path="src/App.tsx" />)
+    expect(fireEvent.contextMenu(screen.getByRole('button'))).toBe(false)
+    const labels = (await screen.findAllByRole('menuitem')).map((row) => row.textContent)
+    expect(labels).toEqual(['Copy path', 'Copy relative path', 'Mention in reply'])
+    expect(screen.getAllByRole('separator')).toHaveLength(1)
+  })
+
+  it('without a located file offers the path as written, with no relative row', async () => {
+    vi.mocked(api.locateFile).mockResolvedValue(null)
+    render(<PathButton path="src/App.tsx" />)
+    fireEvent.contextMenu(screen.getByRole('button'))
+    const labels = (await screen.findAllByRole('menuitem')).map((row) => row.textContent)
+    expect(labels).toEqual(['Copy path', 'Mention in reply'])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // FileViewer
 // ---------------------------------------------------------------------------
 

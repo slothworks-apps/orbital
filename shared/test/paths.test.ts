@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { hasTextExtension, isMediaPath, isPdfPath, isPressablePath, mediaPathsInReply } from '../src/paths.js';
+import {
+  codeSpanBareName,
+  codeSpanPath,
+  findPathMatches,
+  hasTextExtension,
+  isBareFileName,
+  isMediaPath,
+  isPdfPath,
+  isPressablePath,
+  mediaPathsInReply,
+} from '../src/paths.js';
 
 describe('media paths', () => {
   it('recognises a PDF as media, but never as text, and pressable like an image', () => {
@@ -78,5 +88,45 @@ describe('mediaPathsInReply', () => {
 
   it('skips a URL', () => {
     expect(mediaPathsInReply('from https://example.com/a/b.png')).toEqual([]);
+  });
+});
+
+describe('codeSpanBareName', () => {
+  it('takes a span that is one file name, with its line, and ignores the column', () => {
+    expect(codeSpanBareName('findAll.ts')).toEqual({ index: 0, length: 10, text: 'findAll.ts', path: 'findAll.ts', line: null });
+    expect(codeSpanBareName(' findAll.ts:42 ')).toEqual({ index: 0, length: 13, text: 'findAll.ts:42', path: 'findAll.ts', line: 42 });
+    expect(codeSpanBareName('findAll.ts:42:7')).toMatchObject({ path: 'findAll.ts', line: 42, text: 'findAll.ts:42:7' });
+    expect(codeSpanBareName('shot.PNG')?.path).toBe('shot.PNG');
+    expect(codeSpanBareName('report.pdf')?.path).toBe('report.pdf');
+  });
+
+  it('takes a name whose extension is whitelisted even when it reads as a word, since only a span gets here', () => {
+    expect(codeSpanBareName('Node.js')?.path).toBe('Node.js');
+  });
+
+  it('refuses a command, a path, a version, a dotfile, dots alone and a trailing dot', () => {
+    for (const span of ['cat findAll.ts', 'web/src/App.tsx', '1.2', '.env', '.gitignore', '.', '..', 'findAll.ts.',
+      'findAll', 'font.woff2', 'a\\b.ts', 'findAll.ts:', 'findAll.ts:x', '']) {
+      expect(codeSpanBareName(span), span).toBeNull();
+    }
+  });
+
+  it('leaves a span with a directory to codeSpanPath, unchanged', () => {
+    expect(codeSpanPath('findAll.ts')).toBeNull();
+    expect(codeSpanPath('web/src/App.tsx:3')?.line).toBe(3);
+  });
+
+  it('never makes a bare name in prose or in a reply\'s media a path', () => {
+    expect(findPathMatches('Built with Node.js and findAll.ts.')).toEqual([]);
+    expect(mediaPathsInReply('Saved `shot.png` and shot.png.')).toEqual([]);
+  });
+});
+
+describe('isBareFileName', () => {
+  it('accepts a file name alone, never one with a directory, a line or a separator', () => {
+    expect(isBareFileName('index.ts')).toBe(true);
+    for (const name of ['index.ts:3', 'a/index.ts', 'a\\index.ts', '..', '.', '.env', 'index', 'in dex.ts']) {
+      expect(isBareFileName(name), name).toBe(false);
+    }
   });
 });

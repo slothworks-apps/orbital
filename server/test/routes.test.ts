@@ -3,11 +3,13 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, chmodSync, copyFileSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { FILE_COMPLETE_MAX } from '../src/files/complete.js';
+import { FIND_LIST_MAX, ListingCache } from '../src/files/findByName.js';
 import { DIRS_MAX } from '../src/files/directory.js';
 import { OUTPUT_TAIL_BYTES } from '../src/files/taskOutput.js';
 import { ATTACHMENT_MAX_BYTES, FILE_ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
@@ -171,6 +173,7 @@ function makeApp(opts: {
   createIssue?: RouteContext['createIssue']; findSimilarIssues?: RouteContext['findSimilarIssues'];
   checkDuplicates?: RouteContext['checkDuplicates']; endCli?: RouteContext['endCli'];
   sharedSettings?: (db: OrbitalDb) => RouteContext['sharedSettings']; controlKey?: string;
+  fileListings?: ListingCache;
 } = {}) {
   const db = openTmpDb('api');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
@@ -276,6 +279,7 @@ function makeApp(opts: {
     recentTools,
     git: gitStore,
     ide: opts.ide ?? ideStore,
+    fileListings: opts.fileListings,
     branchStatus: opts.branchStatus ?? branchStatusStore,
     subagentTranscripts,
     errors,
@@ -2880,6 +2884,135 @@ describe('GET /api/files/locate', () => {
   });
 });
 
+describe('GET /api/files/find', () => {
+  const find = (app: FastifyInstance, session: string, name: string) =>
+    app.inject({
+      method: 'GET',
+      url: `/api/files/find?session=${encodeURIComponent(session)}&name=${encodeURIComponent(name)}`,
+    });
+
+  /** A session in a fresh directory, with an optional transcript naming `named`. */
+  function sessionIn(cwd: string, named: string[] = [], fileListings?: ListingCache) {
+    const projectsDir = makeTmpDir('find-projects');
+    mkdirSync(join(projectsDir, 'p'), { recursive: true });
+    writeFileSync(
+      join(projectsDir, 'p', 'sf.jsonl'),
+      named.map((path) => JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: path } }] },
+      }) + '\n').join(''),
+    );
+    const { app, db } = makeApp({ projectsDir, fileListings });
+    db.insert(sessions)
+      .values({ id: 'sf', projectDir: 'p', cwd, title: 'find', lastAt: 300, source: 'web', permissionMode: null })
+      .run();
+    return app;
+  }
+
+  function write(root: string, rel: string): void {
+    mkdirSync(join(root, rel, '..'), { recursive: true });
+    writeFileSync(join(root, rel), 'x');
+  }
+
+  it('400s what is not a bare name, and 404s an unknown session', async () => {
+    const app = sessionIn(makeTmpDir('find'));
+    for (const url of ['/api/files/find', '/api/files/find?session=sf', '/api/files/find?name=a.ts']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode).toBe(400);
+    }
+    for (const name of ['src/a.ts', '../a.ts', '..', '.', 'a\\b.ts', '/etc/hosts', '.env', 'a.ts:3', 'README', 'font.woff2']) {
+      const res = await find(app, 'sf', name);
+      expect(res.statusCode, name).toBe(400);
+      expect(res.json()).toEqual({ error: 'not_a_name' });
+    }
+    expect((await find(app, 'nope', 'a.ts')).statusCode).toBe(404);
+  });
+
+  it('lists a git tree\'s tracked and new files by name, leaving out ignored ones', async () => {
+    const cwd = makeTmpDir('find-git');
+    execFileSync('git', ['init', '-q'], { cwd });
+    writeFileSync(join(cwd, '.gitignore'), 'node_modules\ngen/\n');
+    write(cwd, 'src/index.ts');
+    write(cwd, 'web/src/lib/index.ts');
+    write(cwd, 'node_modules/pkg/index.ts');
+    write(cwd, 'gen/index.ts');
+    execFileSync('git', ['add', 'src/index.ts', '.gitignore'], { cwd });
+    // Untracked, not ignored: a file the agent has just written.
+    write(cwd, 'index.ts');
+    const res = await find(sessionIn(cwd), 'sf', 'index.ts');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      matches: [
+        { path: join(cwd, 'index.ts'), relative: 'index.ts', touched: false },
+        { path: join(cwd, 'src/index.ts'), relative: 'src/index.ts', touched: false },
+        { path: join(cwd, 'web/src/lib/index.ts'), relative: 'web/src/lib/index.ts', touched: false },
+      ],
+      more: 0,
+    });
+  });
+
+  it('walks a directory outside git, skipping dependencies, and puts what the session touched first', async () => {
+    const cwd = makeTmpDir('find-walk');
+    write(cwd, 'a.md');
+    write(cwd, 'deep/er/a.md');
+    write(cwd, 'node_modules/x/a.md');
+    const res = await find(sessionIn(cwd, [join(cwd, 'deep/er/a.md')]), 'sf', 'a.md');
+    expect(res.json().matches).toEqual([
+      { path: join(cwd, 'deep/er/a.md'), relative: 'deep/er/a.md', touched: true },
+      { path: join(cwd, 'a.md'), relative: 'a.md', touched: false },
+    ]);
+  });
+
+  it('drops a symlink out of the sandbox, and a directory that carries the name', async () => {
+    const cwd = makeTmpDir('find-link');
+    const outside = makeTmpDir('find-outside');
+    writeFileSync(join(outside, 'secret.ts'), 'x');
+    symlinkSync(join(outside, 'secret.ts'), join(cwd, 'secret.ts'));
+    mkdirSync(join(cwd, 'dir.ts'));
+    write(cwd, 'dir.ts/inner.ts');
+    const app = sessionIn(cwd);
+    expect((await find(app, 'sf', 'secret.ts')).json()).toEqual({ matches: [], more: 0 });
+    expect((await find(app, 'sf', 'dir.ts')).json()).toEqual({ matches: [], more: 0 });
+  });
+
+  it('answers FIND_LIST_MAX matches, shortest path first, and counts the rest', async () => {
+    const cwd = makeTmpDir('find-many');
+    const total = FIND_LIST_MAX + 3;
+    for (let i = 0; i < total; i++) write(cwd, `d${i}/x.ts`);
+    const body = (await find(sessionIn(cwd), 'sf', 'x.ts')).json();
+    expect(body.matches).toHaveLength(FIND_LIST_MAX);
+    expect(body.matches[0].relative).toBe('d0/x.ts');
+    expect(body.more).toBe(3);
+  });
+
+  it('does not let a tree\'s own git config run a command while listing it', async () => {
+    const cwd = makeTmpDir('find-fsmonitor');
+    execFileSync('git', ['init', '-q'], { cwd });
+    write(cwd, 'a.ts');
+    execFileSync('git', ['add', 'a.ts'], { cwd });
+    const marker = join(makeTmpDir('find-fsmonitor-marker'), 'ran');
+    const hook = join(cwd, 'hook.sh');
+    writeFileSync(hook, `#!/bin/sh\ntouch '${marker}'\n`);
+    chmodSync(hook, 0o755);
+    execFileSync('git', ['config', 'core.fsmonitor', hook], { cwd });
+    const res = await find(sessionIn(cwd), 'sf', 'a.ts');
+    expect(res.json().matches.map((m: { relative: string }) => m.relative)).toEqual(['a.ts']);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('never lists the home directory', async () => {
+    const listed: string[] = [];
+    const listings = new ListingCache({
+      list: async (dir) => {
+        listed.push(dir);
+        return ['a.ts'];
+      },
+    });
+    const res = await find(sessionIn(homedir(), [], listings), 'sf', 'a.ts');
+    expect(res.json()).toEqual({ matches: [], more: 0 });
+    expect(listed).toEqual([]);
+  });
+});
+
 describe('GET /api/sessions/:id/media', () => {
   it('404s an unknown session', async () => {
     const { app } = makeApp();
@@ -4214,6 +4347,19 @@ describe('GET /api/sessions/:id/ide/open-files', () => {
       payload: { path: '/w/y/secret.ts' },
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it('sends the file to the editor an id names, and refuses an id that is not one', async () => {
+    const { app } = makeApp({ ide: ideOn('/w/x', 'ok') });
+    const open = (editor: unknown) => app.inject({
+      method: 'POST', url: '/api/sessions/s1/ide/open-file', payload: { path: '/w/x/src/a.ts', editor },
+    });
+    expect((await open('60108')).statusCode).toBe(204);
+    expect((await open('1')).statusCode).toBe(404);
+    expect((await open(60108)).statusCode).toBe(400);
+    expect((await open('')).statusCode).toBe(400);
+    const shape = await app.inject({ method: 'GET', url: '/api/sessions/s1' });
+    expect(shape.json().session.ides).toEqual([{ id: '60108', ideName: 'WebStorm', workspaceRoot: '/w/x' }]);
   });
 
   it('400s a request with no path, and 404s one with no editor', async () => {

@@ -193,6 +193,59 @@ describe('rehypePathLinks', () => {
     expect(link.properties).toMatchObject({ dataPath: 'docs/x.md', dataLine: '3', dataCode: '' })
     expect(link.children).toEqual([textNode('docs/x.md:3')])
   })
+
+  it('links a code span that is one bare file name, marked bare, with its line', () => {
+    const tree = {
+      type: 'root',
+      children: [el('p', [el('code', [textNode('findAll.ts:42')])])],
+    } as HastRoot
+    runPlugin(tree)
+
+    const code = (tree.children[0] as ReturnType<typeof el>).children[0] as ReturnType<typeof el>
+    const link = code.children[0] as { tagName: string; properties: Record<string, unknown>; children: unknown[] }
+    expect(link.tagName).toBe('a')
+    expect(link.properties).toMatchObject({ dataPath: 'findAll.ts', dataLine: '42', dataCode: '', dataBare: '' })
+    expect(link.children).toEqual([textNode('findAll.ts:42')])
+  })
+
+  it('does not mark a span with a directory bare', () => {
+    const tree = {
+      type: 'root',
+      children: [el('p', [el('code', [textNode('src/findAll.ts')])])],
+    } as HastRoot
+    runPlugin(tree)
+    const code = (tree.children[0] as ReturnType<typeof el>).children[0] as ReturnType<typeof el>
+    const link = code.children[0] as { properties: Record<string, unknown> }
+    expect(link.properties.dataBare).toBeUndefined()
+  })
+
+  it('leaves a bare name in prose, and a span that is more than the name, as text', () => {
+    const tree = {
+      type: 'root',
+      children: [
+        el('p', [textNode('built on Node.js and findAll.ts')]),
+        el('p', [el('code', [textNode('cat findAll.ts')])]),
+        el('p', [el('code', [textNode('Makefile')])]),
+      ],
+    } as HastRoot
+    runPlugin(tree)
+    expect((tree.children[0] as ReturnType<typeof el>).children).toEqual([textNode('built on Node.js and findAll.ts')])
+    const span = (i: number) => ((tree.children[i] as ReturnType<typeof el>).children[0] as ReturnType<typeof el>).children
+    expect(span(1)).toEqual([textNode('cat findAll.ts')])
+    expect(span(2)).toEqual([textNode('Makefile')])
+  })
+
+  it('links a bare name in a span for the phone too (plain)', () => {
+    const tree = {
+      type: 'root',
+      children: [el('p', [el('code', [textNode('README.md')])])],
+    } as HastRoot
+    rehypePathLinks({ plain: true })(tree)
+    const code = (tree.children[0] as ReturnType<typeof el>).children[0] as ReturnType<typeof el>
+    const link = code.children[0] as { properties: Record<string, unknown> }
+    expect(link.properties).toMatchObject({ dataPath: 'README.md', dataBare: '' })
+    expect(link.properties.dataPlain).toBeUndefined()
+  })
 })
 
 describe('codeSpanPath', () => {

@@ -6,6 +6,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [0.23.0] — 2026-11-01
 ### Added
+- A file name Claude writes on its own in a code chip, like `findAll.ts`, opens when you tap it; when several files have that name, a sheet lists them to pick from. Needs Orbital 0.46.0 or later on the Mac; before that the name stays plain text.
 - New session: the directory field opens on your last directory; tap into it for the ten most recent, and type any part of a path to find every directory a session has run in.
 - A row under the transcript says when a project's hook holds a session; a Stop hook's row has a Cancel that stops it and answers a message waiting for it at once, and messages waiting behind a hook are marked as waiting. Needs Orbital for Mac 0.46.0 or later.
 ### Fixed

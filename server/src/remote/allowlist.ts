@@ -99,8 +99,11 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['POST', '/api/sessions/:id/mcp/:name/login', 'sessions'],
   ['POST', '/api/sessions/:id/mcp/:name/reconnect', 'sessions'],
   ['GET', '/api/stats/sessions/:id', 'sessions'],
-  // The detail panel's file preview and the composer's `@` and `/` completion.
+  // The detail panel's file preview, a bare file name's lookup (spec
+  // 2026-11-02-bare-file-names-and-path-menu-design) and the composer's `@`
+  // and `/` completion.
   ['GET', '/api/files', 'sessions'],
+  ['GET', '/api/files/find', 'sessions'],
   ['GET', '/api/files/complete', 'sessions'],
   ['GET', '/api/commands/content', 'sessions'],
   ['GET', '/api/tags', 'sessions'],

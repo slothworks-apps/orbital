@@ -481,6 +481,72 @@ export function FolderGlyph() {
 }
 
 /**
+ * Open in ‹editor›: a source page with a gutter — a closed square with every
+ * mark inside it, which is what keeps it apart from `DetachGlyph`'s open
+ * corner (canvas `Feature - Path menu glyphs` 1g, EDITORGLYPH: 12×12 r2,
+ * gutter at x 2, code 5×1 at (4,2) and 3×1 at (5,5)). One glyph for every
+ * editor; the row's label names which. The canvas draws 1g's strokes at 1px;
+ * the column's shipped weight, `STROKE`, is the one kept (1g: "where they
+ * differ from the shipped components, the code is correct").
+ */
+export function EditorGlyph() {
+  const mark = 'absolute block bg-current'
+  return (
+    <span
+      aria-hidden
+      className="relative box-border block rounded-[2px]"
+      style={{ width: '12px', height: '12px', border: `${STROKE} solid currentColor` }}
+    >
+      <span className={mark} style={{ left: '2px', top: 0, bottom: 0, width: STROKE }} />
+      <span className={mark} style={{ left: '4px', top: '2px', width: '5px', height: STROKE }} />
+      <span className={mark} style={{ left: '5px', top: '5px', width: '3px', height: STROKE }} />
+    </span>
+  )
+}
+
+/**
+ * Mention in reply: the composer's field with a mention chip in it and the
+ * caret after it — the column's one wide, short glyph (canvas `Feature - Path
+ * menu glyphs` 1g, MENTIONGLYPH: a 12×8 field at y 2, chip 5×2 at (1,2),
+ * caret 1×4 at (7.5,1)).
+ */
+export function MentionGlyph() {
+  return (
+    <span aria-hidden className="relative block" style={{ width: '12px', height: '12px' }}>
+      <span
+        className="absolute left-0 box-border block rounded-[2px]"
+        style={{ top: '2px', width: '12px', height: '8px', border: `${STROKE} solid currentColor` }}
+      >
+        <span className="absolute block rounded-[.5px] bg-current" style={{ left: '1px', top: '2px', width: '5px', height: '2px' }} />
+        <span className="absolute block bg-current" style={{ left: '7.5px', top: '1px', width: STROKE, height: '4px' }} />
+      </span>
+    </span>
+  )
+}
+
+/**
+ * A file's page, by where it is drawn: the desktop chooser's rows (canvas
+ * `Feature - Path menu glyphs` 1g, FILEGLYPH: 9×12, r1.5) and the phone
+ * sheet's (1f: 10×13 at the sheet's 1.3px stroke, r2).
+ */
+const PAGE_GLYPH = {
+  menu: { width: '9px', height: '12px', stroke: STROKE, radius: 'rounded-[1.5px]' },
+  sheet: { width: '10px', height: '13px', stroke: '1.3px', radius: 'rounded-[2px]' },
+} as const
+
+/** A file: one page — the bare-name chooser's rows. */
+export function PageGlyph({ size = 'menu' }: { size?: keyof typeof PAGE_GLYPH }) {
+  const { width, height, stroke, radius } = PAGE_GLYPH[size]
+  return (
+    <span
+      aria-hidden
+      className={['box-border block', radius].join(' ')}
+      style={{ width, height, border: `${stroke} solid currentColor` }}
+    />
+  )
+}
+
+/**
  * Cut: scissors — two rings in the bottom corners, each blade meeting its
  * ring on the outer side (canvas `Feature - Path menu glyphs` 1h).
  */

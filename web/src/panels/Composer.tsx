@@ -40,6 +40,7 @@ import { lineCountLabel, selectionId } from '../lib/ideSelection'
 import { useIdeReadout } from '../lib/useIdeReadout'
 import type { CompletionKey, IdeContext, SlashCommand } from '../lib/types'
 import { completionKeyId } from '../lib/completionKey'
+import { takeComposerInsert, useComposerInsert } from '../store/composerInsert'
 
 /**
  * The prompt composer — one control, two homes (spec:
@@ -647,6 +648,26 @@ export function Composer({
     }),
     [editor, locked],
   )
+
+  // The path menu's Mention in reply (`store/composerInsert`): only the
+  // panel's composer of that session takes it — at the caret, as a word of
+  // its own, already confirmed — and takes focus so the reply goes on there.
+  const insertsFor = variant === 'panel' && 'session' in sessionKey ? sessionKey.session : null
+  const insert = useComposerInsert((s) =>
+    insertsFor !== null && s.request?.sessionId === insertsFor ? s.request : null,
+  )
+  useEffect(() => {
+    if (!insert || !editor || editor.isDestroyed) return
+    takeComposerInsert(insert.id)
+    if (locked) return
+    const { state } = editor
+    const { $from, from, to } = state.selection
+    const before = $from.parent.textBetween(0, $from.parentOffset, undefined, '\n')
+    const lead = before === '' || /\s$/.test(before) ? '' : ' '
+    setResolved((prev) => new Set(prev).add(insert.path))
+    editor.view.dispatch(state.tr.insertText(`${lead}${insert.text} `, from, to))
+    editor.commands.focus()
+  }, [insert, editor, locked])
 
   // The editor slot's two rates, run once for the slot and the hint line both
   // (spec 2026-09-23-ide-bridge-design § The slot and the lip).

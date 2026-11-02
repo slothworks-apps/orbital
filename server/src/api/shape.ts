@@ -16,7 +16,7 @@ import type { BranchStatusStore } from '../git/branchStatusStore.js';
 import type { OtherTree, SessionPlaces, WorkingTrees } from '../git/workingTrees.js';
 import type { BranchStatus } from '../git/branchStatus.js';
 import type { IdeStore } from '../ide/store.js';
-import type { IdeContext } from '../ide/protocol.js';
+import type { IdeContext, IdeEditor } from '../ide/protocol.js';
 import type { LimitsService } from '../limits/service.js';
 import type { LimitWait } from '../limits/logic.js';
 import type { LoginService, LoginWait } from '../login/service.js';
@@ -199,6 +199,15 @@ export interface ApiSession {
    * `GET /api/sessions/:id/ide/open-files` instead.
    */
   ide: IdeContext | null;
+  /**
+   * Every connected editor with this session's workspace open, the one `ide`
+   * names first and the rest by last use — one "Open in" row each in a
+   * path's menu (spec 2026-11-02-bare-file-names-and-path-menu-design § Every
+   * editor, not just the last used). `ide` keeps its meaning; this is beside
+   * it, so a client that does not read it sees nothing change. Empty when
+   * there is no editor.
+   */
+  ides: IdeEditor[];
   /**
    * The compaction running in this session right now, or null. In memory
    * only, and only ever set for a session this process runs: a terminal
@@ -417,6 +426,7 @@ export function toApiSession(
     git: ctx.git.locate(workingDir),
     ...branchOf(ctx, workingDir),
     ide: ctx.ide.locate(workingDir),
+    ides: ctx.ide.editors(workingDir),
     compacting: ctx.runner.compacting(row.id),
     lastCompactionFailed: lastCompactionFailed(ctx.db, row.id),
     lastCompacted: ctx.runner.lastCompacted(row.id),

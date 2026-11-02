@@ -227,6 +227,7 @@ type AnchorProps = ComponentPropsWithoutRef<'a'> & {
   'data-line'?: string
   'data-code'?: string
   'data-plain'?: string
+  'data-bare'?: string
 }
 
 /**
@@ -251,6 +252,7 @@ function MarkdownLink({ children, node: _node, ...rest }: AnchorProps & { node?:
         line={rawLine !== undefined ? Number(rawLine) : null}
         variant={rest['data-code'] !== undefined ? 'code' : 'prose'}
         suffix={text.startsWith(path) ? text.slice(path.length) : undefined}
+        bare={rest['data-bare'] !== undefined}
       />
     )
   }

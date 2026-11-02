@@ -89,6 +89,19 @@ export interface IdeContext {
   selection: IdeSelection | null;
 }
 
+/**
+ * One connected editor that has a session's workspace open — every one of
+ * them, not only the one `IdeContext` names (spec
+ * 2026-11-02-bare-file-names-and-path-menu-design § Every editor, not just the
+ * last used). `id` is what `POST /api/sessions/:id/ide/open-file` takes to
+ * address it; opaque to a client.
+ */
+export interface IdeEditor {
+  id: string;
+  ideName: string;
+  workspaceRoot: string;
+}
+
 /** The port a lock file's name carries, or null when it is not a lock. */
 export function lockPortOf(fileName: string): number | null {
   const match = LOCK_FILE.exec(fileName);

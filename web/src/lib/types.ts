@@ -244,6 +244,14 @@ export interface ApiSession {
    */
   ide?: IdeContext | null
   /**
+   * Every connected editor with this session's workspace open, the one `ide`
+   * names first and the rest by last use — one Open in row each in a path's
+   * menu (spec 2026-11-02-bare-file-names-and-path-menu-design § Every editor,
+   * not just the last used). Optional: an older server does not send it, and
+   * then `ide` is the only editor known. Mirrors `server/src/api/shape.ts`.
+   */
+  ides?: IdeEditor[]
+  /**
    * The compaction running in this session right now, or null — only ever
    * set for a session Orbital runs (spec 2026-09-28-context-compaction-design
    * § Live state). Mirrors `server/src/api/shape.ts`.
@@ -531,6 +539,17 @@ export interface IdeContext {
   ideName: string
   workspaceRoot: string
   selection: IdeSelection | null
+}
+
+/**
+ * One connected editor with a session's workspace open. `id` is what
+ * `POST /api/sessions/:id/ide/open-file` takes to address it; opaque here.
+ * Mirrors `IdeEditor` in `server/src/ide/protocol.ts`.
+ */
+export interface IdeEditor {
+  id: string
+  ideName: string
+  workspaceRoot: string
 }
 
 /** How severe the editor thinks one of its findings is. */
@@ -1502,6 +1521,7 @@ export type ErrorKind =
   | 'rewind_failed'
   | 'session_id_collision'
   | 'thumbnail_failed'
+  | 'file_listing_failed'
 
 export interface ErrorRecord {
   id: number

@@ -13,7 +13,13 @@
  * are the expensive kind (canvas 8b).
  *
  * An inline code span is pressable too, but only when the path is the whole
- * span (adr `a-code-span-that-is-a-path-is-pressable`).
+ * span (adr `a-code-span-that-is-a-path-is-pressable`). There, and only
+ * there, a path needs no `/`: a span that is one bare file name
+ * (`` `findAll.ts:42` ``) is pressable as well, and the server finds where the
+ * name lies when it is pressed (spec
+ * 2026-11-02-bare-file-names-and-path-menu-design § The bare name). Prose
+ * keeps the `/` rule, so `Node.js` in a sentence stays text, and the media a
+ * reply names (`mediaPathsInReply`) never includes a bare name.
  */
 
 /**
@@ -177,6 +183,44 @@ export function codeSpanPath(text: string, find: PathFinder = findPathMatches): 
   if (matches.length !== 1) return null;
   const [match] = matches;
   return match.index === 0 && match.length === trimmed.length ? match : null;
+}
+
+/** A whole bare name: one path segment, no `/`. */
+const BARE_NAME = new RegExp(`^${SEGMENT}$`);
+/** A bare name with its optional `:line[:col]`, the name and the line captured. */
+const BARE_NAME_HIT = new RegExp(`^(${SEGMENT})(?::(\\d+)(?::\\d+)?)?$`);
+
+/**
+ * True when `name` is one file name a press can open, without a directory:
+ * path characters only (so no `/` and no `\`), not `.` or `..`, and an
+ * extension `isPressablePath` accepts. A dotfile (`.env`) has no extension
+ * and does not qualify, as it does not in a path. What `GET /api/files/find`
+ * takes as its `name`.
+ */
+export function isBareFileName(name: string): boolean {
+  return BARE_NAME.test(name) && name !== '.' && name !== '..' && isPressablePath(name);
+}
+
+/**
+ * The bare file name an inline code span stands for, or null — the span's
+ * whole trimmed content is one name `isBareFileName` accepts, optionally
+ * followed by `:line` or `:line:col` (spec
+ * 2026-11-02-bare-file-names-and-path-menu-design § What counts). For a span
+ * only, never prose: `` `cat findAll.ts` `` is a command and stays quoted, and
+ * a span with a `/` is `codeSpanPath`'s. `path` is the name alone, which is
+ * what the lookup takes.
+ */
+export function codeSpanBareName(text: string): PathMatch | null {
+  const trimmed = text.trim();
+  const m = BARE_NAME_HIT.exec(trimmed);
+  if (!m || !isBareFileName(m[1])) return null;
+  return {
+    index: 0,
+    length: trimmed.length,
+    text: trimmed,
+    path: m[1],
+    line: m[2] === undefined ? null : Number(m[2]),
+  };
 }
 
 // ---------------------------------------------------------------------------

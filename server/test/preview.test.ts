@@ -5,7 +5,7 @@ import {
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
 import {
-  NamedPathCache, namedInTranscript, readFilePreview, resolveForSession, sessionTranscriptFiles,
+  NamedPathCache, namedAmongInTranscript, namedInTranscript, readFilePreview, resolveForSession, sessionTranscriptFiles,
   FILE_PREVIEW_MAX_BYTES,
 } from '../src/files/preview.js';
 import { subagentDirOf } from '../src/walkthrough/subagents.js';
@@ -233,6 +233,32 @@ describe('namedInTranscript', () => {
   it('skips a transcript that is not there', () => {
     const t = makeTranscript(line('/tmp/x'));
     expect(namedInTranscript([join(makeTmpDir('named'), 'gone.jsonl'), t], '/tmp/x')).toBe(true);
+  });
+});
+
+describe('namedAmongInTranscript', () => {
+  it('names exactly the paths namedInTranscript names, one by one', async () => {
+    const home = '/Users/someone';
+    const quoted = '/tmp/say "cheese"/réport.md';
+    const ascii = JSON.stringify(quoted).replace(/[\u0080-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+    const t = makeTranscript(
+      line('Saved to /tmp/shot.png. Kept /tmp/keep.png.bak, made /tmp/ab, then /tmp/a') +
+      line('/private/tmp/x and ~/tmp/y; wrote ~/notes/a.md and /Users/someone/notes/b.md') +
+      line('Saved to:\n/tmp/nl.png and notes.md') +
+      `{"text":${ascii}}\n`,
+    );
+    const dir = subagentDirOf(t);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'agent-a1.jsonl'), line('wrote /tmp/agent-out.txt'));
+    const files = sessionTranscriptFiles(t);
+    const paths = [
+      '/tmp/shot.png', '/tmp/keep.png', '/tmp/ab', '/tmp/a', '/tmp/abc', '/tmp/x', '/tmp/y',
+      '/Users/someone/notes/a.md', '~/notes/b.md', '/tmp/nl.png', 'notes.md', quoted, '/tmp/agent-out.txt',
+      '/tmp/other.png', '/',
+    ];
+    const expected = new Set(paths.filter((path) => namedInTranscript(files, path, home)));
+    expect(expected.size).toBeGreaterThan(5);
+    expect(await namedAmongInTranscript(files, paths, home)).toEqual(expected);
   });
 });
 
