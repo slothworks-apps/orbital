@@ -479,3 +479,59 @@ export function FolderGlyph() {
     </span>
   )
 }
+
+/**
+ * Cut: scissors — two rings in the bottom corners, each blade meeting its
+ * ring on the outer side (canvas `Feature - Path menu glyphs` 1h).
+ */
+export function CutGlyph() {
+  const ring = 'absolute box-border block rounded-full'
+  const blade = 'absolute block bg-current'
+  return (
+    <span aria-hidden className="relative block" style={{ width: '12px', height: '12px' }}>
+      <span className={ring} style={{ left: 0, top: '8px', width: '4px', height: '4px', border: `${STROKE} solid currentColor` }} />
+      <span className={ring} style={{ left: '8px', top: '8px', width: '4px', height: '4px', border: `${STROKE} solid currentColor` }} />
+      <span className={blade} style={{ left: '1.44px', top: '3.76px', width: '11.46px', height: STROKE, transform: 'rotate(-48deg)' }} />
+      <span className={blade} style={{ left: '-.9px', top: '3.76px', width: '11.46px', height: STROKE, transform: 'rotate(48deg)' }} />
+    </span>
+  )
+}
+
+/** Paste: a clipboard — a board with a solid clip on its top edge (1h). */
+export function PasteGlyph() {
+  return (
+    <span aria-hidden className="relative block" style={{ width: '12px', height: '12px' }}>
+      <span
+        className="absolute box-border block rounded-[2px]"
+        style={{ left: '1px', top: '1px', width: '10px', height: '11px', border: `${STROKE} solid currentColor` }}
+      />
+      <span className="absolute block rounded-[1px] bg-current" style={{ left: '4px', top: 0, width: '4px', height: '3px' }} />
+    </span>
+  )
+}
+
+/**
+ * Select All: four corner brackets with no box between them, around two
+ * filled bars that are the selected text (1h).
+ */
+export function SelectAllGlyph() {
+  const bar = 'absolute block bg-current'
+  const corners = [
+    { left: 0, top: 0 },
+    { right: 0, top: 0 },
+    { left: 0, bottom: 0 },
+    { right: 0, bottom: 0 },
+  ]
+  return (
+    <span aria-hidden className="relative block" style={{ width: '12px', height: '12px' }}>
+      {corners.map((at, i) => (
+        <span key={i}>
+          <span className={bar} style={{ ...at, width: '3px', height: STROKE }} />
+          <span className={bar} style={{ ...at, width: STROKE, height: '3px' }} />
+        </span>
+      ))}
+      <span className={bar} style={{ left: '3px', top: '3px', width: '6px', height: '2px' }} />
+      <span className={bar} style={{ left: '3px', top: '7px', width: '4px', height: '2px' }} />
+    </span>
+  )
+}

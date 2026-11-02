@@ -14,6 +14,8 @@ export interface ContextMenuProps {
   widthPx?: number
   /** Names the rows on show; changing it swaps them in place (`MenuPopup`'s `view`). */
   view?: string
+  /** Leave focus where it is (`MenuPopup`'s `keepsFocus`). */
+  keepsFocus?: boolean
 }
 
 /** A zero-size rect at a point. Built by hand: jsdom has no `DOMRect` constructor to lean on. */
@@ -32,7 +34,7 @@ function pointRect(x: number, y: number): DOMRect {
  * opening, so the owner keys it on the point. Closing hands focus back to
  * whatever held it before the menu took it.
  */
-export function ContextMenu({ at, entries, onClose, widthPx, view, ...aria }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onClose, widthPx, view, keepsFocus, ...aria }: ContextMenuProps) {
   const id = useId()
   const { x, y } = at
   const anchorRef = useRef<PopupAnchor | null>(null)
@@ -59,6 +61,7 @@ export function ContextMenu({ at, entries, onClose, widthPx, view, ...aria }: Co
       widthPx={widthPx}
       initial="first"
       view={view}
+      keepsFocus={keepsFocus}
       onClose={close}
     />
   )

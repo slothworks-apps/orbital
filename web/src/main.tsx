@@ -14,6 +14,7 @@ import { Unauthorized } from './ui/Unauthorized'
 import { useUnauthorized } from './lib/unauthorized'
 import { parseStatsRoute } from './stats/route'
 import { parseLimitsRoute } from './limits/route'
+import { installTextMenu } from './ui/TextContextMenu'
 import { parseSessionWindowRoute } from './lib/sessionWindowRoute'
 import { parseWalkthroughRoute } from './walkthrough/route'
 import { TEXT_SCALES_STORAGE_KEY, applyTextScales, rememberedTextScales, textScales } from './lib/textScale'
@@ -218,6 +219,13 @@ const walkthroughId = parseWalkthroughRoute(window.location.pathname)
  * is a no-op past the first call anyway (spec: 2026-09-23-shortcuts-design § 4).
  */
 installKeyListener()
+
+/**
+ * The context menu on selected text and in fields (spec
+ * 2026-11-02-text-context-menu-design): one document listener for every
+ * page, installed here for the key listener's reason.
+ */
+installTextMenu()
 
 /**
  * The desktop menu's other half: a picked item (or its accelerator) arrives

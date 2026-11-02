@@ -236,6 +236,14 @@ export interface MenuPopupProps {
   onClose: (restoreFocus: boolean) => void
   /** A press on this element is not a press outside (`MenuButton`'s trigger). */
   insideRef?: RefObject<Element | null>
+  /**
+   * Leave focus where it is: the rows light under the pointer instead of
+   * taking focus, and a press on one does not move focus either. For a menu
+   * over a text field (the text context menu), which would otherwise blur
+   * the field — and a field that commits or closes on blur is gone before
+   * any row runs. Its keys are Escape alone.
+   */
+  keepsFocus?: boolean
 }
 
 /**
@@ -256,8 +264,11 @@ export function MenuPopup({
   view,
   onClose,
   insideRef,
+  keepsFocus = false,
   ...aria
 }: MenuPopupProps) {
+  // The row under the pointer, when rows do not take focus (`keepsFocus`).
+  const [pointed, setPointed] = useState<string | null>(null)
   const popupRef = useRef<HTMLDivElement | null>(null)
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const search = useRef({ query: '', at: 0 })
@@ -295,8 +306,14 @@ export function MenuPopup({
   // Into the menu on open. A layout effect, so the first row already holds
   // focus in the frame the menu appears.
   useLayoutEffect(() => {
-    if (items.length === 0) return
-    focusRow(itemRefs.current[initial === 'first' ? 0 : items.length - 1])
+    if (items.length === 0 || keepsFocus) return
+    // A disabled row does nothing, so it is not where the menu starts
+    // (canvas `Feature - Path menu glyphs` 1h); a menu of nothing but
+    // disabled rows still takes focus, on its end row.
+    const order = items.map((_, i) => i)
+    if (initial === 'last') order.reverse()
+    const start = order.find((i) => !items[i].disabled) ?? order[0]
+    focusRow(itemRefs.current[start])
     // Only on opening: re-running on every render would yank focus back to
     // the first row under a pointer that has moved on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -418,10 +435,12 @@ export function MenuPopup({
         id={id}
         role="menu"
         aria-label={aria['aria-label']}
+        // Focusable, so a pointer over a disabled row can take focus off the lit one.
+        tabIndex={-1}
         onKeyDown={handleMenuKeyDown}
         // 23c form 4's gap between rows. `relative` makes the list the
         // rows' offset parent, which the ceiling is measured against.
-        className="relative flex min-h-0 flex-col gap-0.5 overflow-y-auto"
+        className="relative flex min-h-0 flex-col gap-0.5 overflow-y-auto outline-none"
       >
         {entries.map((entry, i) => {
           if (entry === MENU_SEPARATOR) {
@@ -471,9 +490,22 @@ export function MenuPopup({
               // hover starts where the eye is. Without scrolling: a
               // list that moved under the pointer would hand the
               // highlight to the next row.
+              // A disabled row does not answer the pointer (canvas
+              // `Feature - Path menu glyphs` 1h): the list takes focus
+              // instead, so no row is lit.
               onMouseMove={(e) => {
-                if (document.activeElement !== e.currentTarget) e.currentTarget.focus({ preventScroll: true })
+                if (keepsFocus) {
+                  setPointed(entry.disabled ? null : entry.key)
+                  return
+                }
+                const to = entry.disabled ? listRef.current : e.currentTarget
+                if (to && document.activeElement !== to) to.focus({ preventScroll: true })
               }}
+              onMouseLeave={keepsFocus ? () => setPointed(null) : undefined}
+              // Pressing a row would move focus to it — out of the field
+              // a `keepsFocus` menu was opened over.
+              onMouseDown={keepsFocus ? (e) => e.preventDefault() : undefined}
+              data-pointed={keepsFocus && pointed === entry.key ? '' : undefined}
               // 23c form 4's rows: padding, radius, gap, the icon column
               // and the label's type. The canvas lights the first row at
               // the strip's hover fill — that is the focused row. 25a/25c
@@ -485,6 +517,7 @@ export function MenuPopup({
                 'text-ink-200/90 focus:bg-line/9 focus:text-ink-100',
                 'aria-[current=true]:not-focus:bg-line/10',
                 'aria-disabled:cursor-default aria-disabled:opacity-50',
+                'data-[pointed]:bg-line/9 data-[pointed]:text-ink-100',
               ].join(' ')}
             >
               {entry.body !== undefined ? (
@@ -493,7 +526,7 @@ export function MenuPopup({
                 <>
                   <span
                     aria-hidden
-                    className="grid w-5 shrink-0 place-items-center text-ink-500/70 group-focus:text-ink-500/85"
+                    className="grid w-5 shrink-0 place-items-center text-ink-500/70 group-focus:text-ink-500/85 group-data-[pointed]:text-ink-500/85"
                   >
                     {entry.icon}
                   </span>
