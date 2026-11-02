@@ -48,11 +48,15 @@ export interface FileOpenHandlers {
   open(target: FileOpenTarget): void
   longPress?(path: string): void
   /**
-   * Whether a bare file name is pressable here at all: the lookup it needs is
-   * served. Absent means it is. False draws the name as plain text, as before
-   * bare names were pressable — the phone, against a Mac older than the route.
+   * A hook: whether a bare file name is pressable here at all, the lookup it
+   * needs being served. Absent means it is. False draws the name as plain
+   * text, as before bare names were pressable — the phone, against a Mac
+   * older than the route. A hook rather than a read, because the answer can
+   * change while the transcript is on screen (the Mac's hello arrives); it is
+   * called by every path button, so it selects a boolean and redraws a button
+   * only when that flips. `bare` false asks nothing.
    */
-  findsByName?(): boolean
+  useFindsByName?(bare: boolean): boolean
   /** Shows the matches, or the fact that there are none, of a bare name's lookup. */
   choose?(choice: FileChoice): void
 }
@@ -66,6 +70,14 @@ export function configureFileOpen(next: FileOpenHandlers | null): void {
 
 export function fileOpenHandlers(): FileOpenHandlers | null {
   return handlers
+}
+
+const SERVED = () => true
+
+/** `FileOpenHandlers.useFindsByName`, or true when nothing is configured: the desktop's own server serves the lookup. */
+export function useFindsByName(bare: boolean): boolean {
+  // `handlers` is set once at start-up, so every render calls the same hook.
+  return (handlers?.useFindsByName ?? SERVED)(bare)
 }
 
 /**

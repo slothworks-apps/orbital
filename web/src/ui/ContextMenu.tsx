@@ -20,6 +20,8 @@ export interface ContextMenuProps {
   widthPx?: number
   /** A floor under the popup's content width. */
   minWidthPx?: number
+  /** Rows past which the list scrolls (`MenuPopup`'s `maxRows`). */
+  maxRows?: number
   /** Names the rows on show; changing it swaps them in place (`MenuPopup`'s `view`). */
   view?: string
   /** Leave focus where it is (`MenuPopup`'s `keepsFocus`). */
@@ -47,7 +49,7 @@ function pointRect(x: number, y: number): DOMRect {
  * opening, so the owner keys it on the point. Closing hands focus back to
  * whatever held it before the menu took it.
  */
-export function ContextMenu({ at, entries, onClose, widthPx, minWidthPx, view, onBack, keepsFocus, ...aria }: ContextMenuProps) {
+export function ContextMenu({ at, entries, onClose, widthPx, minWidthPx, maxRows, view, onBack, keepsFocus, ...aria }: ContextMenuProps) {
   const id = useId()
   const anchorRef = useRef<PopupAnchor | null>(null)
   const under = at instanceof Element
@@ -76,6 +78,7 @@ export function ContextMenu({ at, entries, onClose, widthPx, minWidthPx, view, o
       // At the pointer itself: the menu starts where the click was.
       position={{ gap: under ? UNDER_GAP_PX : 0, align: 'left', minWidth: minWidthPx }}
       widthPx={widthPx}
+      maxRows={maxRows}
       initial="first"
       view={view}
       keepsFocus={keepsFocus}

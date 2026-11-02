@@ -5,9 +5,9 @@ import type { MediaItem } from '../lib/types'
 import type { MediaTarget } from '../lib/media'
 import { isToolFrame, matchMediaItem, mediaClock, mediaSourceKey, mediaSourceLabel, positionIn, stepIndex } from '../lib/media'
 import { api } from '../lib/api'
-import { copyImageToClipboard, copyToClipboard } from '../lib/clipboard'
+import { copyImageToClipboard } from '../lib/clipboard'
 import { canShowInFolder, showInFolder } from '../lib/desktop'
-import { reportError } from '../lib/errors'
+import { copyPathOrReport, reportFailure } from '../lib/errors'
 import { useMediaSourceUrl } from '../lib/images'
 import { isPdfPath } from '../lib/pathLinks'
 import { useHiddenSources, useMedia } from '../store/media'
@@ -496,11 +496,6 @@ function Stage({
   ) : null
 }
 
-/** What could not be done reaches the user the way the session menu's Copy path does (adr errors-are-recorded-not-announced). */
-function failed(message: string): void {
-  reportError(new Error(message), message)
-}
-
 /**
  * The image's right-click menu (spec 2026-10-26-media-viewer-context-menu-design):
  * Copy image always; Copy path and Show in Finder for a file a session named,
@@ -531,7 +526,7 @@ function ImageMenu({
       label: 'Copy image',
       icon: <ImageGlyph />,
       onSelect: () =>
-        void copyImageToClipboard(url).then((ok) => ok || failed('Could not copy the image to the clipboard')),
+        void copyImageToClipboard(url).then((ok) => ok || reportFailure('Could not copy the image to the clipboard')),
     },
   ]
   if (path) {
@@ -544,7 +539,7 @@ function ImageMenu({
           // A path already absolute is copied as the session wrote it; the
           // server's answer is the real one (`/tmp` read as `/private/tmp`).
           const absolute = path.startsWith('/') ? path : ((await locate()) ?? path)
-          if (!(await copyToClipboard(absolute))) failed('Could not copy the path to the clipboard')
+          await copyPathOrReport(absolute)
         })(),
     })
     if (canShowInFolder() && local) {
@@ -553,7 +548,7 @@ function ImageMenu({
         label: 'Show in Finder',
         icon: <FolderGlyph />,
         onSelect: () =>
-          void locate().then((found) => (found ? showInFolder(found) : failed('Could not find the file on disk'))),
+          void locate().then((found) => (found ? showInFolder(found) : reportFailure('Could not find the file on disk'))),
       })
     }
   }

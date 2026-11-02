@@ -3,6 +3,7 @@ import type { FileChoice } from '../../lib/fileOpen'
 import { matchCount, shownMatches, splitDir } from '../../lib/findByName'
 import { SHEET_LABEL } from '../menu/TagSheet'
 import { BottomSheet, SheetPresence } from '../ui'
+import { PageGlyph } from '../../ui/UtilityButton'
 
 /**
  * A bare name's matches on the phone (spec
@@ -10,7 +11,8 @@ import { BottomSheet, SheetPresence } from '../ui'
  * `Feature - Path menu glyphs` 1f): the 10i ⋯ sheet — same handle, mono
  * title, 52 px rows. A tap on a row opens that file's text preview; a tap on
  * the scrim only closes the sheet. It picks a file and offers no actions:
- * copying is the long-press on the chip, as before.
+ * copying is the long-press on the chip, as before. The sheet scrolls, so it
+ * lists every match the server returned; only the ones past those are a count.
  */
 
 export const useFileChoice = create<{ shown: FileChoice | null }>(() => ({ shown: null }))
@@ -26,11 +28,6 @@ function close(): void {
 export function FileChoiceSheet() {
   const shown = useFileChoice((s) => s.shown)
   return <SheetPresence>{shown && <ChoiceSheet shown={shown} />}</SheetPresence>
-}
-
-/** 1f's page: 10×13 at the sheet's stroke. */
-function PageMark() {
-  return <span className="box-border block h-[13px] w-2.5 rounded-[2px] border-[1.3px] border-ink-500/75" />
 }
 
 /** 1f's inert line under the rows: `+N more`, or the one fact a choice without rows has. */
@@ -52,7 +49,7 @@ function ChoiceSheet({ shown }: { shown: FileChoice }) {
   let head = choice.name
   let body
   if (choice.kind === 'matches') {
-    const { rows, more } = shownMatches(choice)
+    const { rows, more } = shownMatches(choice, true)
     const count = matchCount(choice)
     head = `${choice.name} · ${count} ${count === 1 ? 'match' : 'matches'}`
     body = (
@@ -70,8 +67,8 @@ function ChoiceSheet({ shown }: { shown: FileChoice }) {
               }}
               className="flex h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left text-ink-100"
             >
-              <span aria-hidden className="grid w-5 flex-none place-items-center">
-                <PageMark />
+              <span aria-hidden className="grid w-5 flex-none place-items-center text-ink-500/75">
+                <PageGlyph size="sheet" />
               </span>
               <span className="min-w-0 flex-1 truncate font-mono fs-13">
                 <span className="text-ink-900/65">{dir}</span>
@@ -90,13 +87,14 @@ function ChoiceSheet({ shown }: { shown: FileChoice }) {
     body = (
       <>
         <Fact text={`${choice.device} didn't answer`} inset={false} />
+        {/* 1f draws no give-up state; the row is 1f's matches row (52 px, gap 12, 0 10px, r10, the sheet's 14 px ink), label in place of the path. */}
         <button
           type="button"
           onClick={() => {
             close()
             shown.retry()
           }}
-          className="flex h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left fs-15 text-ink-100"
+          className="flex h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left fs-14 text-ink-100"
         >
           <span aria-hidden className="w-5 flex-none" />
           Try again

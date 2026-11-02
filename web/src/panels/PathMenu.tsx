@@ -1,9 +1,8 @@
 import { useState } from 'react'
-import { copyToClipboard } from '../lib/clipboard'
 import { canShowInFolder, showInFolder } from '../lib/desktop'
 import { deviceLock } from '../lib/devices'
-import { reportError } from '../lib/errors'
-import { matchCount, shownMatches, splitDir, type FoundFile, type NameChoice } from '../lib/findByName'
+import { copyPathOrReport, reportFailure } from '../lib/errors'
+import { CHOOSER_ROWS, matchCount, shownMatches, splitDir, type FoundFile, type NameChoice } from '../lib/findByName'
 import { editorsFor, mentionOf, pathMenuGroups, type PathAction } from '../lib/pathMenu'
 import { isReadOnly, workingDirOf } from '../lib/types'
 import { mentionInReply } from '../store/composerInsert'
@@ -20,7 +19,9 @@ import { CopyGlyph, EditorGlyph, FolderGlyph, MentionGlyph, PageGlyph } from '..
  * opens the chooser alone, and picking a match opens it; a right-click opens
  * the actions, or the chooser first on a name with several matches, where
  * picking swaps the actions in with Back (1d), as the session menu's Change
- * tag does.
+ * tag does. Past `CHOOSER_ROWS` matches the chooser's last row counts the
+ * rest, and picking it swaps in every match, scrolling `CHOOSER_ROWS` at a
+ * time (spec § The chooser).
  */
 
 /** The popup's floor (canvas 1a/1b: `min-width: 232px`). */
@@ -54,11 +55,6 @@ export interface PathMenuProps {
   onClose: () => void
 }
 
-/** What could not be done reaches the user as the media viewer's menu says it (adr errors-are-recorded-not-announced). */
-function failed(message: string): void {
-  reportError(new Error(message), message)
-}
-
 /** 1c's file row: the page, the folder dimmed and the name in full ink, `touched` in the key column. */
 function FileRow({ file }: { file: FoundFile }) {
   const { dir, name } = splitDir(file.relative)
@@ -90,6 +86,8 @@ export function PathMenu({ at, sessionId, line, start, picks, onOpen, onRetry, o
   const canMention = useCanMention(sessionId)
   /** The match picked in the chooser, whose actions are on show; null before a pick. */
   const [picked, setPicked] = useState<FoundFile | null>(null)
+  /** The chooser lists every match: its `+N more` row was picked. Back from a pick returns to it. */
+  const [all, setAll] = useState(false)
 
   const file: LocatedFile | null =
     start.kind === 'file'
@@ -116,7 +114,7 @@ export function PathMenu({ at, sessionId, line, start, picks, onOpen, onRetry, o
         { key: 'retry', label: 'Try again', onSelect: onRetry },
       ]
     }
-    const { rows, more } = shownMatches(choice)
+    const { rows, more, expands } = shownMatches(choice, all)
     const count = matchCount(choice)
     return [
       { heading: `${choice.name} · ${count} ${count === 1 ? 'match' : 'matches'}`, caption: true },
@@ -129,8 +127,21 @@ export function PathMenu({ at, sessionId, line, start, picks, onOpen, onRetry, o
           onSelect: () => (picks === 'actions' ? setPicked(match) : onOpen(match)),
         }),
       ),
-      ...(more > 0 ? [{ note: `+${more} more`, inset: true }] : []),
+      ...(more === 0 ? [] : expands ? [moreItem(more)] : [{ note: `+${more} more`, inset: true }]),
     ]
+  }
+
+  /** 1c's `+N more`, as 1c draws it but pickable: it swaps the full list in. */
+  function moreItem(more: number): MenuItem {
+    const label = `+${more} more`
+    return {
+      key: 'more',
+      label,
+      // 1c: the `more` note's type and inset (`MenuNote`), less the row's own padding; the row's focus fill is what says it can be picked.
+      body: <span className="block pl-[30px] font-mono fs-10.5 text-ink-900/50">{label}</span>,
+      keepsOpen: true,
+      onSelect: () => setAll(true),
+    }
   }
 
   function actionEntries(target: LocatedFile): MenuEntry[] {
@@ -161,36 +172,32 @@ export function PathMenu({ at, sessionId, line, start, picks, onOpen, onRetry, o
           key: 'copy-path',
           label: 'Copy path',
           icon: <CopyGlyph />,
-          onSelect: () =>
-            void copyToClipboard(target.path).then((ok) => ok || failed('Could not copy the path to the clipboard')),
+          onSelect: () => void copyPathOrReport(target.path),
         }
       case 'copy-relative':
         return {
           key: 'copy-relative',
           label: 'Copy relative path',
           icon: <CopyGlyph />,
-          onSelect: () =>
-            void copyToClipboard(target.relative ?? target.path).then(
-              (ok) => ok || failed('Could not copy the path to the clipboard'),
-            ),
+          onSelect: () => void copyPathOrReport(target.relative ?? target.path),
         }
       case 'editor':
         return {
-          key: `editor-${action.id ?? action.name}`,
+          key: `editor-${action.id}`,
           label: `Open in ${action.name}`,
           icon: <EditorGlyph />,
           onSelect: () =>
             void useOrbital
               .getState()
-              .openInIde(target.path, line, action.id ?? undefined)
-              .then((ok) => (ok ? onEditorOpened(action.name) : failed(`Could not open the file in ${action.name}`))),
+              .openInIde(target.path, line, action.id)
+              .then((ok) => (ok ? onEditorOpened(action.name) : reportFailure(`Could not open the file in ${action.name}`))),
         }
       case 'finder':
         return {
           key: 'show-in-finder',
           label: 'Show in Finder',
           icon: <FolderGlyph />,
-          onSelect: () => (target.located ? showInFolder(target.path) : failed('Could not find the file on disk')),
+          onSelect: () => (target.located ? showInFolder(target.path) : reportFailure('Could not find the file on disk')),
         }
       case 'mention':
         return {
@@ -212,7 +219,9 @@ export function PathMenu({ at, sessionId, line, start, picks, onOpen, onRetry, o
       aria-label={file ? `Actions for ${file.relative ?? file.path}` : `Files named ${name}`}
       onClose={onClose}
       minWidthPx={PATH_MENU_MIN_PX}
-      view={file ? `actions:${file.path}` : 'choose'}
+      view={file ? `actions:${file.path}` : all ? 'choose-all' : 'choose'}
+      // The full list scrolls; the capped one shows its rows and the `+N more` row whole.
+      maxRows={!file && all ? CHOOSER_ROWS : undefined}
       onBack={picked ? () => setPicked(null) : undefined}
     />
   )

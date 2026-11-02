@@ -524,13 +524,24 @@ export function MentionGlyph() {
   )
 }
 
-/** A file: one page (canvas `Feature - Path menu glyphs` 1g, FILEGLYPH: 9×12, r1.5) — the bare-name chooser's rows. */
-export function PageGlyph() {
+/**
+ * A file's page, by where it is drawn: the desktop chooser's rows (canvas
+ * `Feature - Path menu glyphs` 1g, FILEGLYPH: 9×12, r1.5) and the phone
+ * sheet's (1f: 10×13 at the sheet's 1.3px stroke, r2).
+ */
+const PAGE_GLYPH = {
+  menu: { width: '9px', height: '12px', stroke: STROKE, radius: 'rounded-[1.5px]' },
+  sheet: { width: '10px', height: '13px', stroke: '1.3px', radius: 'rounded-[2px]' },
+} as const
+
+/** A file: one page — the bare-name chooser's rows. */
+export function PageGlyph({ size = 'menu' }: { size?: keyof typeof PAGE_GLYPH }) {
+  const { width, height, stroke, radius } = PAGE_GLYPH[size]
   return (
     <span
       aria-hidden
-      className="box-border block rounded-[1.5px]"
-      style={{ width: '9px', height: '12px', border: `${STROKE} solid currentColor` }}
+      className={['box-border block', radius].join(' ')}
+      style={{ width, height, border: `${stroke} solid currentColor` }}
     />
   )
 }

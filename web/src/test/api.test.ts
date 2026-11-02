@@ -8,6 +8,7 @@ import {
   type Tag,
   type TagRule,
 } from '../lib/api'
+import { NOT_A_NAME } from '../lib/findByName'
 
 // Mock fetch
 let fetchMock: Mock<typeof fetch>
@@ -952,5 +953,16 @@ describe('server update', () => {
     expect(await api.cancelServerUpdate()).toEqual({ ok: false, error: 'not_waiting' })
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'updating' }), { status: 409 }))
     await expect(api.cancelServerUpdate()).rejects.toBeInstanceOf(ApiError)
+  })
+})
+
+describe('api.findFiles', () => {
+  it('reads a name the server will not take as no match, and a Mac without the route as not served', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'not_a_name' }), { status: 400 }))
+    expect(await api.findFiles('s1', 'a.ts')).toBe(NOT_A_NAME)
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'not_found' }), { status: 404 }))
+    expect(await api.findFiles('s1', 'a.ts')).toBeNull()
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'missing_params' }), { status: 400 }))
+    expect(await api.findFiles('s1', 'a.ts')).toBeNull()
   })
 })

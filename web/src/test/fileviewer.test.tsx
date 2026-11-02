@@ -104,9 +104,9 @@ describe('PathButton on a bare name', () => {
     await waitFor(() => expect(useOrbital.getState().ui.fileViewer).toMatchObject({ path: 'findAll.ts' }))
   })
 
-  it('opens a chooser for several matches, touched first, and a pick opens that file', async () => {
+  it('opens a chooser for several matches, in the server’s order, and a pick opens that file', async () => {
     vi.mocked(api.findFiles).mockResolvedValue({
-      matches: [match('src/lib/cache/findAll.ts'), match('src/lib/db/findAll.ts', true)],
+      matches: [match('src/lib/db/findAll.ts', true), match('src/lib/cache/findAll.ts')],
       more: 0,
     })
     render(<PathButton path="findAll.ts" variant="code" bare />)
@@ -116,6 +116,20 @@ describe('PathButton on a bare name', () => {
     expect(useOrbital.getState().ui.fileViewer).toBeNull()
     fireEvent.click(rows[1])
     expect(useOrbital.getState().ui.fileViewer).toMatchObject({ path: match('src/lib/cache/findAll.ts').path })
+  })
+
+  it('lists every match once its +N more row is picked, and counts only what the server left out', async () => {
+    const many = Array.from({ length: 9 }, (_, i) => match(`p${i}/index.ts`))
+    vi.mocked(api.findFiles).mockResolvedValue({ matches: many, more: 4 })
+    render(<PathButton path="index.ts" variant="code" bare />)
+    fireEvent.click(screen.getByRole('button'))
+    const rows = await screen.findAllByRole('menuitem')
+    expect(rows).toHaveLength(7)
+    expect(rows[6]).toHaveAccessibleName('+7 more')
+    fireEvent.click(rows[6])
+    expect(screen.getAllByRole('menuitem')).toHaveLength(9)
+    expect(screen.getByText('+4 more')).toBeInTheDocument()
+    expect(useOrbital.getState().ui.fileViewer).toBeNull()
   })
 
   it('says there is no such file in the same popup, with nothing to pick', async () => {

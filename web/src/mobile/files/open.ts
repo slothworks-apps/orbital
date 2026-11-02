@@ -2,7 +2,7 @@ import { copyToClipboard } from '../../lib/clipboard'
 import { configureFileOpen, type FileOpenTarget } from '../../lib/fileOpen'
 import { useMobile } from '../state'
 import { sessionDeviceName } from '../useDevice'
-import { sessionSupports } from '../version'
+import { sessionServes } from '../version'
 import { showFileChoice } from './FileChoiceSheet'
 import './paths.css'
 
@@ -26,7 +26,9 @@ export function installFileOpen(): void {
     longPress: (path) => {
       void copyToClipboard(path)
     },
-    findsByName: () => sessionSupports('findByName', useMobile.getState().sessionId),
+    // The session's device's version, else the default member's — what `sessionSupports` reads, selected as one boolean.
+    useFindsByName: (bare) =>
+      useMobile((s) => bare && sessionServes('findByName', s.sessionId, undefined, s.devices, s.macVersion) === true),
     choose: (shown) => {
       const sessionId = useMobile.getState().sessionId
       const { choice } = shown

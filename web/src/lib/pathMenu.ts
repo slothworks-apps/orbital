@@ -10,8 +10,8 @@ import { workingDirOf } from './types'
 export type PathAction =
   | { kind: 'copy' }
   | { kind: 'copy-relative' }
-  /** `id` off the session's `ides`; null for the one editor an older server reports as `ide`. */
-  | { kind: 'editor'; id: string | null; name: string }
+  /** `id` off the session's `ides`. */
+  | { kind: 'editor'; id: string; name: string }
   | { kind: 'finder' }
   | { kind: 'mention' }
 
@@ -19,7 +19,7 @@ export interface PathMenuFacts {
   /** The file was located, so a relative path for it is known. */
   relative: boolean
   /** The editors that have the file's workspace open, last used first. */
-  editors: readonly { id: string | null; name: string }[]
+  editors: readonly { id: string; name: string }[]
   /** Show in Finder is on offer: the desktop app, a session on this Mac. */
   finder: boolean
   /** The session has a composer here to mention the file in. */
@@ -55,15 +55,14 @@ export function insideWorkspace(path: string, workspaceRoot: string): boolean {
 /**
  * The editors that can open `path`, in the session's order (last used first).
  * Only for a session on this device: another device's editor is not here to
- * send a path to. A server without `ides` reports one editor, `ide`.
+ * send a path to.
  */
 export function editorsFor(
-  session: Pick<ApiSession, 'machine' | 'ide' | 'ides'> | undefined,
+  session: Pick<ApiSession, 'machine' | 'ides'> | undefined,
   path: string,
-): { id: string | null; name: string }[] {
+): { id: string; name: string }[] {
   if (!session || session.machine) return []
-  const known = session.ides ?? (session.ide ? [{ id: null, ideName: session.ide.ideName, workspaceRoot: session.ide.workspaceRoot }] : [])
-  return known
+  return (session.ides ?? [])
     .filter((editor) => insideWorkspace(path, editor.workspaceRoot))
     .map((editor) => ({ id: editor.id, name: editor.ideName }))
 }

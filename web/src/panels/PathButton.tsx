@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
-import { fileOpenHandlers, useFileCwd, useFileMessage, useLongPress, useMessageId } from '../lib/fileOpen'
-import { dirLabel, GAVE_UP, outcomeOf, usePendingPress, type FoundFile } from '../lib/findByName'
+import { fileOpenHandlers, useFileCwd, useFileMessage, useFindsByName, useLongPress, useMessageId } from '../lib/fileOpen'
+import { GAVE_UP, outcomeOf, usePendingPress, type FoundFile } from '../lib/findByName'
 import { isMediaPath } from '../lib/pathLinks'
 import { insideWorkspace, relativeUnder, treeRoots } from '../lib/pathMenu'
 import { ideHere } from '../lib/devices'
 import { workingDirOf } from '../lib/types'
+import { leafOf } from '../lib/whereForm'
 import { MediaViewer } from './MediaViewer'
 import { PathMenu, type PathMenuProps } from './PathMenu'
 
@@ -166,6 +167,8 @@ export function PathButton({ path, line = null, variant = 'row', suffix, bare = 
   const fileMessage = useFileMessage()
   const messageId = useMessageId()
   const longPress = useLongPress(routed ? path : null)
+  // Redraws when the answer changes: the phone learns its Mac's version from a hello that can come after the transcript.
+  const findsByName = useFindsByName(bare)
 
   // Only while the pointer is over this path, so one listener exists at a
   // time no matter how many paths a transcript carries. The pointer events
@@ -207,7 +210,8 @@ export function PathButton({ path, line = null, variant = 'row', suffix, bare = 
   function lookupFacts() {
     const session = selectedId ? useOrbital.getState().sessions[selectedId] : undefined
     return {
-      under: dirLabel(cwd ?? (session ? workingDirOf(session) : '')),
+      // 1c NO MATCH names the directory by its last segment: `web/`.
+      under: `${leafOf(cwd ?? (session ? workingDirOf(session) : ''))}/`,
       device: session?.machine?.name || 'This Mac',
     }
   }
@@ -318,7 +322,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix, bare = 
 
   // The phone, against a Mac without the lookup: the name is drawn as it was
   // before bare names were pressable — text, never a link that fails.
-  if (bare && routed && routed.findsByName?.() === false) {
+  if (bare && !findsByName) {
     return (
       <>
         {path}

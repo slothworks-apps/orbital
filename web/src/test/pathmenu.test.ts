@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { dirLabel, GAVE_UP, outcomeOf, shownMatches, sortMatches, type FoundFile } from '../lib/findByName'
+import { CHOOSER_ROWS, GAVE_UP, NOT_A_NAME, outcomeOf, shownMatches, type FoundFile } from '../lib/findByName'
 import { editorsFor, mentionOf, pathMenuGroups, relativeUnder } from '../lib/pathMenu'
-import { MAC_FEATURES, macSupports } from '../mobile/version'
 
 const file = (relative: string, touched = false): FoundFile => ({ path: `/repo/${relative}`, relative, touched })
 const kinds = (groups: ReturnType<typeof pathMenuGroups>) => groups.map((g) => g.map((a) => a.kind))
@@ -59,11 +58,6 @@ describe('editorsFor', () => {
     expect(editorsFor({ ides }, '/repository/a.ts')).toEqual([])
   })
 
-  it("falls back to an older server's one editor, without an id", () => {
-    const ide = { ideName: 'WebStorm', workspaceRoot: '/repo', selection: null }
-    expect(editorsFor({ ide }, '/repo/a.ts')).toEqual([{ id: null, name: 'WebStorm' }])
-  })
-
   it("offers no editor for another device's session", () => {
     const machine = { id: 'm', name: 'studio', kind: 'mac', os: 'macOS', online: true, asOf: null }
     expect(editorsFor({ ides, machine }, '/repo/a.ts')).toEqual([])
@@ -93,21 +87,27 @@ describe('mentionOf', () => {
 })
 
 describe('the chooser', () => {
-  it('lists touched files first, then the shortest paths', () => {
-    const sorted = sortMatches([file('src/lib/index.ts'), file('a/b/c/index.ts', true), file('src/index.ts'), file('index.ts')])
-    expect(sorted.map((m) => m.relative)).toEqual(['a/b/c/index.ts', 'index.ts', 'src/index.ts', 'src/lib/index.ts'])
+  const matches = (n: number) => Array.from({ length: n }, (_, i) => file(`${'d/'.repeat(i)}index.ts`))
+
+  it('caps the rows, and its last row counts the rest and opens them, the server’s unlisted ones included', () => {
+    const choice = { kind: 'matches' as const, name: 'index.ts', matches: matches(8), more: 12 }
+    const capped = shownMatches(choice, false)
+    expect(capped.rows).toHaveLength(CHOOSER_ROWS)
+    expect(capped).toMatchObject({ more: 14, expands: true })
+    const all = shownMatches(choice, true)
+    expect(all.rows).toHaveLength(8)
+    expect(all).toMatchObject({ more: 12, expands: false })
   })
 
-  it('caps the rows and counts the rest, the server’s unlisted ones included', () => {
-    const matches = Array.from({ length: 8 }, (_, i) => file(`${'d/'.repeat(i)}index.ts`))
-    const { rows, more } = shownMatches({ kind: 'matches', name: 'index.ts', matches, more: 12 })
-    expect(rows).toHaveLength(6)
-    expect(more).toBe(14)
-  })
-
-  it('names a directory by its last segment', () => {
-    expect(dirLabel('/Users/ana/work/platform/web')).toBe('web/')
-    expect(dirLabel('/Users/ana/web/')).toBe('web/')
+  it('has nothing to open when every listed match fits, only the server’s count', () => {
+    expect(shownMatches({ kind: 'matches', name: 'a.ts', matches: matches(3), more: 0 }, false)).toMatchObject({
+      more: 0,
+      expands: false,
+    })
+    expect(shownMatches({ kind: 'matches', name: 'a.ts', matches: matches(CHOOSER_ROWS), more: 5 }, false)).toMatchObject({
+      more: 5,
+      expands: false,
+    })
   })
 })
 
@@ -127,19 +127,18 @@ describe('outcomeOf', () => {
     })
   })
 
-  it('falls back to the name as written when the lookup was refused, and names the device that did not answer', () => {
+  it('says there is no such file when the server will not take the name', () => {
+    expect(outcomeOf(NOT_A_NAME, 'a.ts', facts)).toEqual({
+      kind: 'choose',
+      choice: { kind: 'none', name: 'a.ts', under: 'web/' },
+    })
+  })
+
+  it('falls back to the name as written when the lookup is not served, and names the device that did not answer', () => {
     expect(outcomeOf(null, 'a.ts', facts)).toEqual({ kind: 'as-written' })
     expect(outcomeOf(GAVE_UP, 'a.ts', facts)).toEqual({
       kind: 'choose',
       choice: { kind: 'silent', name: 'a.ts', device: 'studio-mbp' },
     })
-  })
-})
-
-describe('MAC_FEATURES.findByName', () => {
-  it('is served from its release on, and not by an older or an unknown Mac', () => {
-    expect(macSupports('findByName', MAC_FEATURES.findByName)).toBe(true)
-    expect(macSupports('findByName', '0.45.1')).toBe(false)
-    expect(macSupports('findByName', null)).toBe(false)
   })
 })

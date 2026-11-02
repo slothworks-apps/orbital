@@ -26,8 +26,11 @@ export interface FindFilesAnswer {
 export const FIND_PENDING_MS = 300
 /** How long a press waits before the chooser opens anyway, saying no answer came (1e, "4 s · NO ANSWER"). */
 export const FIND_GIVE_UP_MS = 4000
-/** The chooser's rows at most; past them one inert row counts the rest (1c CAPPED, the canvas's acceptance). */
-export const FIND_BY_NAME_MAX = 6
+/**
+ * The rows the chooser shows before its `+N more` row is picked (1c CAPPED,
+ * the canvas's acceptance), and the rows its full list scrolls by.
+ */
+export const CHOOSER_ROWS = 6
 
 /** What a bare name's chooser shows, when the answer is not one file to open. */
 export type NameChoice =
@@ -38,25 +41,19 @@ export type NameChoice =
   | { kind: 'silent'; name: string; device: string }
 
 /**
- * The order the chooser lists matches in (spec § What a press does): the
- * files the session touched first, then the rest by path, shortest first.
- * Whatever order the server sent, so an older or a differently sorting server
- * draws the same list.
+ * The rows a chooser draws for `choice.matches`, in the server's order (it
+ * sorts them: spec § What a press does), and the count its last row says.
+ * Capped at `CHOOSER_ROWS`, the last row counts every match left out and
+ * `expands`: picking it shows them `all`. In full, it is only the server's
+ * own `more` — the matches past the ones it listed — and nothing to pick.
  */
-export function sortMatches(matches: readonly FoundFile[]): FoundFile[] {
-  return [...matches].sort(
-    (a, b) =>
-      Number(b.touched) - Number(a.touched) ||
-      a.relative.length - b.relative.length ||
-      (a.relative < b.relative ? -1 : a.relative > b.relative ? 1 : 0),
-  )
-}
-
-/** The rows a chooser draws for `choice.matches`, capped, and how many the inert last row counts. */
-export function shownMatches(choice: Extract<NameChoice, { kind: 'matches' }>): { rows: FoundFile[]; more: number } {
-  const sorted = sortMatches(choice.matches)
-  const rows = sorted.slice(0, FIND_BY_NAME_MAX)
-  return { rows, more: sorted.length - rows.length + choice.more }
+export function shownMatches(
+  choice: Extract<NameChoice, { kind: 'matches' }>,
+  all: boolean,
+): { rows: FoundFile[]; more: number; expands: boolean } {
+  const rows = all ? choice.matches : choice.matches.slice(0, CHOOSER_ROWS)
+  const hidden = choice.matches.length - rows.length
+  return { rows, more: hidden + choice.more, expands: hidden > 0 }
 }
 
 /** The total a chooser's caption counts: what was listed and what was not. */
@@ -70,32 +67,30 @@ export function splitDir(relative: string): { dir: string; name: string } {
   return { dir: relative.slice(0, cut), name: relative.slice(cut) }
 }
 
-/** A directory as the no-match fact names it: its last segment with a slash (1c NO MATCH, `web/`). */
-export function dirLabel(dir: string): string {
-  const trimmed = dir.replace(/\/+$/, '')
-  const last = trimmed.slice(trimmed.lastIndexOf('/') + 1)
-  return `${last || trimmed || '/'}/`
-}
+/** The server's word that what was asked is not a bare name: nothing can be called that (`GET /api/files/find`'s 400). */
+export const NOT_A_NAME = 'not-a-name'
 
 /** What the lookup's answer comes to: a file to open, a chooser, or no answer worth acting on. */
 export type FindOutcome =
   | { kind: 'open'; file: FoundFile }
   | { kind: 'choose'; choice: NameChoice }
-  /** Refused or not served (a Mac older than the route): open the name as written instead. */
+  /** Not served (a Mac older than the route): open the name as written instead. */
   | { kind: 'as-written' }
 
 /**
  * The answer to a press, read (spec § What a press does): one match opens,
- * none or several open the chooser, a refusal falls back to the name as
- * written, and no answer at all says so.
+ * none or several open the chooser, and so does a name the server would not
+ * take (no file can be called that); a Mac without the route falls back to
+ * the name as written, and no answer at all says so.
  */
 export function outcomeOf(
-  answer: FindFilesAnswer | null | typeof GAVE_UP,
+  answer: FindFilesAnswer | typeof NOT_A_NAME | null | typeof GAVE_UP,
   name: string,
   facts: { under: string; device: string },
 ): FindOutcome {
   if (answer === GAVE_UP) return { kind: 'choose', choice: { kind: 'silent', name, device: facts.device } }
   if (answer === null) return { kind: 'as-written' }
+  if (answer === NOT_A_NAME) return { kind: 'choose', choice: { kind: 'none', name, under: facts.under } }
   if (answer.matches.length === 1 && answer.more === 0) return { kind: 'open', file: answer.matches[0] }
   if (answer.matches.length === 0) return { kind: 'choose', choice: { kind: 'none', name, under: facts.under } }
   return { kind: 'choose', choice: { kind: 'matches', name, matches: answer.matches, more: answer.more } }
