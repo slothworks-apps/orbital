@@ -42,12 +42,18 @@ import { PdfPager, usePdfDocument } from './PdfPages'
 const VIEWER_ENTER_MS = 180
 const VIEWER_EXIT_MS = 140
 
-/** 24i: the dialog's image cap — never upscaled past the item's own size. */
-const STAGE_MAX_W_PX = 1100
-const STAGE_MAX_H_PX = 600
-/** 24e: the stage starts 40px from the top; caption, filmstrip and margins take the rest. */
+/**
+ * 24e: the stage starts 40px from the top and takes the window down to the
+ * caption, which sits on the filmstrip — or on the bottom margin without
+ * one. The item fills the stage, never past its own size, centred in it.
+ */
 const STAGE_TOP_PX = 40
-const STAGE_CHROME_H_PX = 300
+const BOTTOM_MARGIN_PX = 30
+/** The filmstrip's 40px frames with its padding and border. */
+const FILMSTRIP_H_PX = 52
+/** The caption's two rows and the gap between them. */
+const CAPTION_H_PX = 48
+const CAPTION_GAP_PX = 18
 /** What the arrows and their margins take from either side of the stage. */
 const STAGE_SIDE_PX = 100
 /** 24e: a gone item without known dimensions keeps the canvas's footprint. */
@@ -126,7 +132,6 @@ function ViewerBody({
   const [hidden, setHidden] = useHiddenSources(sessionId ?? '')
   const title = useOrbital((s) => (sessionId ? s.sessions[sessionId]?.title : undefined))
   const viewportHeight = useViewportHeight()
-  const stageHeight = Math.max(160, Math.min(STAGE_MAX_H_PX, viewportHeight - STAGE_CHROME_H_PX))
 
   // Ask once on opening: the list may be older than the press.
   useEffect(() => {
@@ -153,6 +158,11 @@ function ViewerBody({
   const current = index >= 0 ? order[index] : null
   const shown = current ?? standIn(target)
   const paging = current !== null && order.length > 1
+  const captionBottom = current ? BOTTOM_MARGIN_PX + FILMSTRIP_H_PX + CAPTION_GAP_PX : BOTTOM_MARGIN_PX
+  const stageHeight = Math.max(
+    160,
+    viewportHeight - STAGE_TOP_PX - CAPTION_GAP_PX - CAPTION_H_PX - captionBottom,
+  )
 
   const go = (item: MediaItem) => {
     setSelected(item.id)
@@ -253,7 +263,7 @@ function ViewerBody({
         <div
           onClick={(event) => event.stopPropagation()}
           className="absolute inset-x-0 flex flex-col items-center gap-2 font-mono tracking-[0.06em]"
-          style={{ top: STAGE_TOP_PX + stageHeight + 18 }}
+          style={{ bottom: captionBottom }}
         >
           <div className="flex items-center gap-2.5 fs-11.5 text-ink-100">
             {isToolFrame(shown) && current && (
@@ -293,7 +303,8 @@ function ViewerBody({
       {current && (
         <div
           onClick={(event) => event.stopPropagation()}
-          className="absolute inset-x-0 bottom-[30px] flex items-center justify-center gap-4"
+          style={{ bottom: BOTTOM_MARGIN_PX }}
+          className="absolute inset-x-0 flex items-center justify-center gap-4"
         >
           <span className="w-[150px] text-right font-mono fs-10.5 text-ink-900/60">
             {index + 1} of {order.length}
@@ -416,7 +427,7 @@ function Stage({
   }, [hasMenu, menuOpen])
   const { url } = useMediaSourceUrl(sessionId, item)
   const pdf = usePdfDocument(item.kind === 'pdf' && !isGone(item) ? url : null, url ? pdfKey(url, item) : '')
-  const maxWidth = Math.min(STAGE_MAX_W_PX, window.innerWidth - 2 * STAGE_SIDE_PX)
+  const maxWidth = window.innerWidth - 2 * STAGE_SIDE_PX
   const pageCount = pdf.doc?.numPages ?? null
 
   useEffect(() => {

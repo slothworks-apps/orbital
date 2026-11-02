@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- The maximised image viewer fills the window: an image grows to fit the space (never past its own size) and sits centred in it, with its caption always just above the strip of the conversation's images.
 
 ## [0.46.0] — 2026-11-01
 ### Added
