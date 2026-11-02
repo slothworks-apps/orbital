@@ -1521,6 +1521,7 @@ export type ErrorKind =
   | 'rewind_failed'
   | 'session_id_collision'
   | 'thumbnail_failed'
+  | 'file_listing_failed'
 
 export interface ErrorRecord {
   id: number
