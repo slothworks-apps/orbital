@@ -3,11 +3,10 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
-### Added
-- A file name Claude writes on its own in a code chip, like `findAll.ts`, opens when you tap it; when several files have that name, a sheet lists them to pick from. Needs Orbital 0.46.0 or later on the Mac; before that the name stays plain text.
 
 ## [0.23.0] — 2026-11-01
 ### Added
+- A file name Claude writes on its own in a code chip, like `findAll.ts`, opens when you tap it; when several files have that name, a sheet lists them to pick from. Needs Orbital 0.46.0 or later on the Mac; before that the name stays plain text.
 - New session: the directory field opens on your last directory; tap into it for the ten most recent, and type any part of a path to find every directory a session has run in.
 - A row under the transcript says when a project's hook holds a session; a Stop hook's row has a Cancel that stops it and answers a message waiting for it at once, and messages waiting behind a hook are marked as waiting. Needs Orbital for Mac 0.46.0 or later.
 ### Fixed

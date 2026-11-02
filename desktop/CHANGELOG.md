@@ -3,12 +3,11 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
-### Added
-- A file name Claude writes on its own in a code chip, like `findAll.ts`, opens when you click it; when several files have that name, you pick one from a short list. Right-clicking any file path in a session opens a menu to copy its full or relative path, open it in each connected editor, show it in Finder or mention it in your reply.
 
 ## [0.46.0] — 2026-11-01
 ### Added
 - A right-click on selected text in a transcript or a viewer offers Copy, and a right-click in the composer or any text field offers Cut, Copy, Paste and Select All.
+- A file name Claude writes on its own in a code chip, like `findAll.ts`, opens when you click it; when several files have that name, you pick one from a short list. Right-clicking any file path in a session opens a menu to copy its full or relative path, open it in each connected editor, show it in Finder or mention it in your reply.
 - New session: click into the project directory field to see the ten most recent directories, and type any part of a path to find every directory a session has run in. The RECENT chips stay.
 - A quiet row under the transcript says when a project's hook has held a session for a couple of seconds, naming the hook, its tool and, when it is clear which ones run, its commands. A Stop hook's row (a check such as tests or a typecheck after an answer) has a Cancel that stops it; a message sent meanwhile waits for the hook, as in the terminal, is marked as waiting in every open window and on the phone, and Cancel answers it at once. A cancelled hook reads "Stop hook cancelled." instead of "Request interrupted by user".
 ### Changed
