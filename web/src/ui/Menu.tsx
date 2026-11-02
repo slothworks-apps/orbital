@@ -296,7 +296,13 @@ export function MenuPopup({
   // focus in the frame the menu appears.
   useLayoutEffect(() => {
     if (items.length === 0) return
-    focusRow(itemRefs.current[initial === 'first' ? 0 : items.length - 1])
+    // A disabled row does nothing, so it is not where the menu starts
+    // (canvas `Feature - Path menu glyphs` 1h); a menu of nothing but
+    // disabled rows still takes focus, on its end row.
+    const order = items.map((_, i) => i)
+    if (initial === 'last') order.reverse()
+    const start = order.find((i) => !items[i].disabled) ?? order[0]
+    focusRow(itemRefs.current[start])
     // Only on opening: re-running on every render would yank focus back to
     // the first row under a pointer that has moved on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -485,6 +491,8 @@ export function MenuPopup({
                 'text-ink-200/90 focus:bg-line/9 focus:text-ink-100',
                 'aria-[current=true]:not-focus:bg-line/10',
                 'aria-disabled:cursor-default aria-disabled:opacity-50',
+                // 1h: a disabled row does not answer hover or focus.
+                'aria-disabled:focus:bg-transparent aria-disabled:focus:text-ink-200/90',
               ].join(' ')}
             >
               {entry.body !== undefined ? (

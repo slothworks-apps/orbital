@@ -2,7 +2,7 @@
 id: 2026-11-02-text-context-menu-design
 title: Context menu on selected text and in text fields
 type: spec
-status: active
+status: done
 domain: web
 related:
   - 2026-10-24-session-context-menu-design

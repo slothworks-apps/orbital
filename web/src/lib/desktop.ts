@@ -9,6 +9,7 @@ type DesktopBridge = {
   requestNotificationPermission?: () => Promise<unknown>
   openNotificationSettings?: () => void
   showInFolder?: (path: string) => void
+  edit?: (command: EditCommand) => void
   detachSession?: (id: string) => void
   focusSession?: (id: string) => void
   onDetachedChanged?: (cb: (ids: string[]) => void) => void
@@ -342,6 +343,22 @@ export function canShowInFolder(): boolean {
 /** Reveals an absolute path in Finder; main ignores anything else. */
 export function showInFolder(path: string): void {
   bridge()?.showInFolder?.(path)
+}
+
+/** The window's own edit commands, as their shortcuts run them (spec 2026-11-02-text-context-menu-design). */
+export type EditCommand = 'cut' | 'copy' | 'paste' | 'selectAll'
+
+/**
+ * Whether the text context menu can work here: the desktop app, in a build
+ * whose preload carries the edit commands. In a browser the browser's own
+ * menu already does all of it.
+ */
+export function canEdit(): boolean {
+  return typeof bridge()?.edit === 'function'
+}
+
+export function runEditCommand(command: EditCommand): void {
+  bridge()?.edit?.(command)
 }
 
 /**

@@ -24,6 +24,15 @@ export function EscapeBoundary({ children }: { children: ReactNode }) {
   return <EscapeDepthContext.Provider value={depth + 1}>{children}</EscapeDepthContext.Provider>
 }
 
+/**
+ * Wraps a surface that opens over whatever is on screen, dialogs included —
+ * the text context menu, opened by a right-click in any field — so Escape
+ * closes it before anything under it.
+ */
+export function EscapeTopmost({ children }: { children: ReactNode }) {
+  return <EscapeDepthContext.Provider value={Number.MAX_SAFE_INTEGER}>{children}</EscapeDepthContext.Provider>
+}
+
 /** Deepest layer wins; among equals, the most recently opened one. */
 function topLayer(): Layer | undefined {
   let top: Layer | undefined
