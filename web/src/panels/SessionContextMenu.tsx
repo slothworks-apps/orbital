@@ -7,6 +7,7 @@ import { copyPathOrReport } from '../lib/errors'
 import { primaryTag } from '../lib/primaryTag'
 import { contextMenuGroups, type ContextAction } from '../lib/sessionContextMenu'
 import { tagColor, workingDirOf } from '../lib/types'
+import { useSessionWorktree } from '../lib/useSessionWorktree'
 import type { Tag } from '../lib/types'
 import {
   askToClear,
@@ -127,6 +128,10 @@ function SessionMenu({
   const setSessionPinned = useOrbital((s) => s.setSessionPinned)
   /** Change tag swaps the tag list in for the actions, as the phone's sheet does. */
   const [view, setView] = useState<'actions' | 'tag'>('actions')
+  // Remove worktree is listed for every worktree session and pressable once
+  // the worktree is known to be removable — never while another session is in it (C3).
+  const { state: worktree } = useSessionWorktree(session, true)
+  const worktreeRemovable = worktree !== null && worktree.removable && worktree.variant !== 'c3'
 
   // A session that leaves the store (deleted elsewhere) takes its menu with it.
   const gone = session === undefined
@@ -183,6 +188,13 @@ function SessionMenu({
         }
       case 'end':
         return { key: action, label: 'End session…', icon: <EndGlyph />, disabled, onSelect: () => useOrbital.getState().setDialog('end', id) }
+      case 'remove-worktree':
+        return {
+          key: action,
+          label: 'Remove worktree…',
+          disabled: disabled || !worktreeRemovable,
+          onSelect: () => useOrbital.getState().setDialog('remove-worktree', id),
+        }
     }
   }
 
@@ -203,7 +215,11 @@ function SessionMenu({
       ),
     ]
   } else {
-    const groups = contextMenuGroups(session, { offline, detachable: hasDesktopBridge() })
+    const groups = contextMenuGroups(session, {
+      offline,
+      detachable: hasDesktopBridge(),
+      worktree: session.git?.worktree === true,
+    })
     entries = []
     for (const [i, group] of groups.entries()) {
       if (i > 0) entries.push(MENU_SEPARATOR)

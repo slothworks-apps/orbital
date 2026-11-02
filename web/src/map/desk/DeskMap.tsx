@@ -373,7 +373,7 @@ export function DeskMap() {
         onErrorsClick={() => setDialog('errors')}
         confirmEndId={confirmEndId}
         onConfirmEndClose={() => setConfirmEndId(null)}
-        onConfirmEnd={(id) => trashSession(id, { undo: false })}
+        onConfirmEnd={(id, opts) => trashSession(id, { undo: false, ...opts })}
       />
     </div>
   )

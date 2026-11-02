@@ -66,6 +66,14 @@ import {
 } from '@orbital/shared/remote/serverUpdate'
 import type { TerminalInfo } from '../terminal/types'
 import type { DirectoryRow } from './directorySearch'
+import type {
+  RemoveWorktreeMode,
+  WorktreeFetchResult,
+  WorktreeLaunch,
+  WorktreeOptions,
+  WorktreeRemoveRefusal,
+  WorktreeState,
+} from './worktree'
 
 /**
  * What a send answers. `uuid` is the transcript entry the turn is written
@@ -471,6 +479,12 @@ export const api = {
     mcpjson?: McpjsonDecisions
     /** The member the session runs on (device federation); omitted, this device. */
     machine?: string
+    /**
+     * Start in a new linked worktree (spec 2026-11-02-work-in-a-worktree-design
+     * § Launch). A refusal comes back as 409 `worktree_branch_exists`, 400
+     * `worktree_invalid_branch` or 500 `worktree_failed` (`worktreeLaunchError`).
+     */
+    worktree?: WorktreeLaunch
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
@@ -638,12 +652,58 @@ export const api = {
    * write: the trash's drop of a pinned session, which as two requests showed
    * the map an ended-but-pinned row in between.
    */
-  async endSession(id: string, opts: { unpin?: boolean } = {}): Promise<{ ok: boolean }> {
+  async endSession(
+    id: string,
+    opts: { unpin?: boolean; removeWorktree?: RemoveWorktreeMode } = {},
+  ): Promise<{ ok: boolean }> {
+    // Each field only when it says something, so a plain End stays body-less.
+    const body = {
+      ...(opts.unpin ? { unpin: true } : {}),
+      ...(opts.removeWorktree ? { removeWorktree: opts.removeWorktree } : {}),
+    }
     return request<{ ok: boolean }>(
       'POST',
       apiPath`/api/sessions/${id}/end`,
-      opts.unpin ? { unpin: true } : undefined,
+      Object.keys(body).length > 0 ? body : undefined,
     )
+  },
+
+  /**
+   * What New session's WORKTREE group needs about a directory (spec
+   * 2026-11-02-work-in-a-worktree-design § Routes the dialog needs). `machine`
+   * asks that member about its own directory.
+   */
+  async worktreeOptions(cwd: string, machine?: string): Promise<WorktreeOptions> {
+    const params = new URLSearchParams({ cwd })
+    if (machine !== undefined) params.set('machine', machine)
+    return request<WorktreeOptions>('GET', `/api/worktree/options?${params}`)
+  },
+
+  /** `git fetch origin` for the repository `cwd` is in, run as the switch turns on. */
+  async fetchWorktreeOrigin(cwd: string, machine?: string): Promise<WorktreeFetchResult> {
+    return request<WorktreeFetchResult>('POST', '/api/worktree/fetch', machine === undefined ? { cwd } : { cwd, machine })
+  },
+
+  /** The session's linked worktree and what removing it would lose, or null when it works in none. */
+  async sessionWorktree(id: string): Promise<WorktreeState | null> {
+    return request<WorktreeState | null>('GET', apiPath`/api/sessions/${id}/worktree`)
+  },
+
+  /**
+   * Removes the session's worktree (`git worktree remove`, `--force` with
+   * `force`); the branch stays. A session that has not ended is ended first.
+   * Refused with 409 when another session is in the tree, a terminal still
+   * runs in it, or it is dirty without `force`.
+   */
+  async removeSessionWorktree(id: string, force = false): Promise<{ ok: true } | { error: WorktreeRemoveRefusal }> {
+    return remoteCall('POST', apiPath`/api/sessions/${id}/worktree/remove`, force ? { force: true } : {}, {
+      409: ['worktree_shared', 'worktree_live_terminal', 'worktree_dirty'] as const,
+    })
+  },
+
+  /** Keep: the panel's cleanup strip stays away from this worktree for good. */
+  async keepSessionWorktree(id: string): Promise<{ ok: true }> {
+    return request<{ ok: true }>('POST', apiPath`/api/sessions/${id}/worktree/keep`)
   },
 
   /**

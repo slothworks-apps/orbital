@@ -87,6 +87,29 @@ export const NARRATE_COMMENTARY_PROMPT =
   'Before you change a file, say in a sentence or two what you are changing and why. ' +
   'If you considered another way and rejected it, name it and say why in the same place.';
 
+/** Where a session in a linked worktree works, as its appendix tells it. */
+export interface WorktreeContext {
+  path: string;
+  branch: string;
+  /** `branch.<name>.gh-merge-base`, else the repository's default branch. */
+  prTarget: string;
+  /** The branch carries the temporary name the launch falls back to. */
+  temporary: boolean;
+}
+
+/**
+ * What a session in a linked worktree is told, whoever made the worktree
+ * (spec 2026-11-02-work-in-a-worktree-design § What the session is told).
+ */
+export function worktreeInstruction(tree: WorktreeContext): string {
+  const where =
+    `You run in the worktree \`${tree.path}\` on branch \`${tree.branch}\`. ` +
+    `Open the PR against \`${tree.prTarget}\`.`;
+  return tree.temporary
+    ? `${where} This is a temporary name: rename the branch to fit the work (\`git branch -m\`) before your first commit.`
+    : where;
+}
+
 export interface AppendixInput {
   /** `session_instructions_tips` */
   tipsOn: boolean;
@@ -101,10 +124,13 @@ export interface AppendixInput {
   customOn: boolean;
   /** `session_instructions_custom_text`, as stored — trimmed here, not on write. */
   customText: string;
+  /** The linked worktree the session works in; absent outside one. */
+  worktree?: WorktreeContext | null;
 }
 
 /**
- * The context line, Orbital's rules, then the tips, then the commentary, then the user's text,
+ * The context line, Orbital's rules, where the session works when that is a
+ * worktree, then the tips, then the commentary, then the user's text,
  * a blank line between blocks; the user's text goes last so that where it
  * contradicts a tip it wins. The rules are on whatever the switches say:
  * Orbital enforces them either way, so they only spare the agent a refusal.
@@ -113,6 +139,7 @@ export interface AppendixInput {
  */
 export function composeAppendix(input: AppendixInput): string | null {
   const blocks: string[] = [SESSION_CONTEXT, ...SESSION_RULES];
+  if (input.worktree) blocks.push(worktreeInstruction(input.worktree));
   if (input.tipsOn) {
     const off = new Set(input.tipsOff ?? []);
     for (const tip of SESSION_TIPS) if (!off.has(tip.id)) blocks.push(tip.text);

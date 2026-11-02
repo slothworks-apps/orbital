@@ -2,6 +2,7 @@ import { endClosesPanel, useOrbital } from '../store/store'
 import { ClearDialog } from './ClearDialog'
 import { EndDialog } from './EndDialog'
 import { TakeOverDialog } from './TakeOverDialog'
+import { RemoveWorktreeDialog } from './WorktreeCleanup'
 
 /**
  * Take over, Clear and End, for whichever session asked: the detail header
@@ -22,12 +23,13 @@ export function SessionDialogs({ standalone = false }: { standalone?: boolean })
     <>
       <TakeOverDialog open={dialog === 'take-over'} sessionId={sessionId} onClose={close} />
       <ClearDialog open={dialog === 'clear'} sessionId={sessionId} onClose={close} />
+      <RemoveWorktreeDialog open={dialog === 'remove-worktree'} sessionId={sessionId} onClose={close} />
       <EndDialog
         open={dialog === 'end'}
         sessionId={sessionId}
         onClose={close}
-        onEnd={async (endedId) => {
-          await useOrbital.getState().endSession(endedId)
+        onEnd={async (endedId, opts) => {
+          await useOrbital.getState().endSession(endedId, opts)
           // `end_closes_panel`: an ended session has nothing left to do here,
           // so the panel goes the way collapse sends it. Not in a detached
           // window, which is the panel itself, and not when the selection

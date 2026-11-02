@@ -100,10 +100,14 @@ export function PrimaryButton({
  * `variant="row-pill"` is the action of a one-line row (`Feature - Stop hook`
  * 1d PHONE): a 28px pill drawn inside a 44 × 64 target, which the caller
  * lays out at the pill's height with a negative margin.
+ *
+ * `tone="loses"` is the outlined action that throws something away
+ * (`Feature - Work in a worktree` 63f/63g: *Discard, remove*): the soft error
+ * ink on its border and label, never a red fill.
  */
 export function SecondaryButton({
-  children, onClick, disabled, type = 'button', variant = 'screen',
-}: Omit<ButtonProps, 'variant'> & { variant?: ButtonProps['variant'] | 'compact' | 'row-pill' }) {
+  children, onClick, disabled, type = 'button', variant = 'screen', tone,
+}: Omit<ButtonProps, 'variant'> & { variant?: ButtonProps['variant'] | 'compact' | 'row-pill'; tone?: 'loses' }) {
   if (variant === 'row-pill') {
     return (
       <button
@@ -124,12 +128,17 @@ export function SecondaryButton({
       onClick={onClick}
       disabled={disabled}
       className={[
-        'flex items-center justify-center border font-semibold text-ink-100 disabled:opacity-40',
+        'flex items-center justify-center border font-semibold disabled:opacity-40',
         variant === 'compact'
-          ? 'h-11 shrink-0 rounded-[10px] border-line/20 px-3 fs-13'
+          ? 'h-11 shrink-0 rounded-[10px] px-3 fs-13'
           : variant === 'sheet'
-            ? 'h-13 w-full rounded-[14px] border-line/22 px-4 fs-14'
-            : 'h-13 w-full rounded-[14px] border-line/20 px-4 fs-15',
+            ? 'h-13 w-full rounded-[14px] px-4 fs-14'
+            : 'h-13 w-full rounded-[14px] px-4 fs-15',
+        tone === 'loses'
+          ? 'border-danger-pale/45 text-danger-pale'
+          : variant === 'sheet'
+            ? 'border-line/22 text-ink-100'
+            : 'border-line/20 text-ink-100',
       ].join(' ')}
     >
       {children}
@@ -425,6 +434,8 @@ interface ConfirmProps {
   body: ReactNode
   /** 10b's mono well under the body (the commit range); absent elsewhere. */
   detail?: ReactNode
+  /** Anything the confirm asks besides (canvas 63h: End's "Also remove worktree" row), under the detail. */
+  extra?: ReactNode
   confirmLabel: string
   /** The outlined button's label: Cancel, or 10g's "Keep running". */
   cancelLabel?: string
@@ -441,7 +452,7 @@ interface ConfirmProps {
  * or swapped in place of a menu's rows (10i's /END and /CLEAR).
  */
 export function ConfirmBody({
-  eyebrow, title, body, detail, confirmLabel, cancelLabel = 'Cancel', onConfirm, onCancel, busy = false,
+  eyebrow, title, body, detail, extra, confirmLabel, cancelLabel = 'Cancel', onConfirm, onCancel, busy = false,
 }: ConfirmProps) {
   // canvas 10b GO BACK, 10g STOP TASK: the sheet's text sits 18 px in, the
   // shell's 10 plus this block's 8 (10i's confirms nest the same way).
@@ -455,6 +466,7 @@ export function ConfirmBody({
           {detail}
         </div>
       )}
+      {extra}
       <div className="flex flex-col gap-2 pb-2.5 pt-[18px]">
         <PrimaryButton variant="sheet" onClick={onConfirm} disabled={busy}>{confirmLabel}</PrimaryButton>
         <SecondaryButton variant="sheet" onClick={onCancel}>{cancelLabel}</SecondaryButton>

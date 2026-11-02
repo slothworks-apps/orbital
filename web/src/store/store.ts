@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { api, ApiError, type EndedSummary, type MessagesPage } from '../lib/api'
 import type { McpjsonDecisions } from '../lib/mcpjson'
+import type { RemoveWorktreeMode, WorktreeLaunch } from '../lib/worktree'
 import { getSocket } from '../lib/socket'
 import {
   afterAnswer,
@@ -242,7 +243,7 @@ export interface OrbitalUiState {
    */
   hiddenDeviceIds?: string[]
   wsStatus: string
-  dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'take-over' | 'settings' | 'errors'
+  dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'take-over' | 'remove-worktree' | 'settings' | 'errors'
   /**
    * The session Clear, End or Take over is open for when it is not the
    * selected one — the context menu opens them over the map without
@@ -680,6 +681,8 @@ export interface OrbitalActions {
     mcpjson?: McpjsonDecisions
     /** The member the session runs on (`api.createSession`); omitted, this device. */
     machine?: string
+    /** Start in a new linked worktree (`api.createSession`). */
+    worktree?: WorktreeLaunch
   }, images?: readonly SentAttachment[]): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[] | null>
@@ -739,7 +742,7 @@ export interface OrbitalActions {
    * reports it (and the confirm dialog stays open). `undo` raises the toast
    * whose Undo is `reopenSession`.
    */
-  trashSession(id: string, opts: { undo: boolean }): Promise<void>
+  trashSession(id: string, opts: { undo: boolean; removeWorktree?: RemoveWorktreeMode }): Promise<void>
   /**
    * The trash's Undo: takes the End back (`POST …/reopen`) and, when the drop
    * took a pin, puts the pin back. Optimistic; a failure rolls back and
@@ -750,9 +753,10 @@ export interface OrbitalActions {
    * Ends a session Orbital runs (spec 2026-09-23-end-session-design). Nothing
    * is written here: the server publishes the `ended` status on the
    * `sessions` topic like any other. Rejects when the request fails, so the
-   * confirm dialog can stay open and report it.
+   * confirm dialog can stay open and report it. `removeWorktree`: End's
+   * "Also remove worktree" row (spec 2026-11-02-work-in-a-worktree-design).
    */
-  endSession(id: string): Promise<void>
+  endSession(id: string, opts?: { removeWorktree?: RemoveWorktreeMode }): Promise<void>
   /** Moves (or, with null, clears) a tag clump's stored home on the map. */
   setTagAnchor(tagId: number, anchor: { x: number; y: number } | null): Promise<void>
   /** Moves a tag to `toIndex` in the one order every tag list follows (spec 2026-10-25-tag-toggles-and-order-design § 2). */
@@ -2620,8 +2624,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
   },
 
-  async endSession(id) {
-    await api.endSession(id)
+  async endSession(id, opts) {
+    if (opts?.removeWorktree) await api.endSession(id, { removeWorktree: opts.removeWorktree })
+    else await api.endSession(id)
   },
 
   /**
@@ -2641,7 +2646,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
    * away in the sidebar's HISTORY, so the undo is a convenience, not the
    * only way back.
    */
-  async trashSession(id, { undo }) {
+  async trashSession(id, { undo, removeWorktree }) {
     const session = get().sessions[id]
     if (!session) return
     const previousStatus = session.status
@@ -2660,7 +2665,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     write({ status: 'ended', pinnedAt: null })
     if (!alreadyEnded) {
       try {
-        await api.endSession(id, { unpin: wasPinned })
+        await api.endSession(id, { unpin: wasPinned, ...(removeWorktree ? { removeWorktree } : {}) })
       } catch (err) {
         write({ status: previousStatus, pinnedAt: previousPin })
         throw err

@@ -15,6 +15,7 @@ import { HOLE_DROP_RADIUS } from '../simulation'
 import { prefersReducedMotion } from '../transition'
 import { COMPACT_COMMAND } from '../Planet'
 import { MapShell, useMapInsets } from '../shell/MapShell'
+import type { EndOptions } from '../../panels/EndDialog'
 import { ArchipelagoScene, type DropState } from './scene'
 
 const DRAG_THRESHOLD_PX = 3
@@ -331,7 +332,10 @@ export function ArchipelagoMap() {
     flightRef.current = { ...base, zoom: clampZoom(base.zoom * f) }
   }, [])
 
-  const endFromConfirm = useMemo(() => (id: string) => trashSession(id, { undo: false }), [trashSession])
+  const endFromConfirm = useMemo(
+    () => (id: string, opts: EndOptions) => trashSession(id, { undo: false, ...opts }),
+    [trashSession],
+  )
 
   return (
     <div

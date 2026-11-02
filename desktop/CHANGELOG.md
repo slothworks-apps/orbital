@@ -3,6 +3,10 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- New session can start a session in its own git worktree, so two sessions in one repository stop switching each other's branch and mixing their files. The switch turns on by itself when another live session already works in that checkout. Orbital names the branch from your first prompt unless you type one, lets you pick the base (the main checkout's branch, for stacked work), and copies your local `CLAUDE.local.md` and settings into the new worktree. Ending a session in a worktree offers to remove the worktree; the branch always stays.
+### Changed
+- New session is wider and has two columns, so the first prompt stays in view without scrolling.
 
 ## [0.46.0] — 2026-11-01
 ### Added

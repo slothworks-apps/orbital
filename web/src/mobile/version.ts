@@ -43,6 +43,14 @@ export const MAC_FEATURES = {
    * is drawn as plain text, as before.
    */
   findByName: '0.46.0',
+  /**
+   * Work in a worktree: New Session's WORKTREE group (`GET /api/worktree/options`, `POST
+   * /api/worktree/fetch`, `worktree` on `POST /api/sessions`), the session's cleanup row and End's
+   * "Also remove worktree" (`GET /api/sessions/:id/worktree`, `…/worktree/remove`, `…/worktree/keep`,
+   * `removeWorktree` on End) (spec 2026-11-02-work-in-a-worktree-design § The phone). Against an
+   * older Mac all three are left out.
+   */
+  worktreeLaunch: '0.47.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

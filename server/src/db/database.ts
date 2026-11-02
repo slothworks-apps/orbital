@@ -35,6 +35,14 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
    * that row still sits in older databases, left by a removed feature.
    */
   name_sessions_automatically: 'true',
+  /**
+   * Work in a worktree (spec 2026-11-02-work-in-a-worktree-design § Scope):
+   * New Session turns the switch on when another live session works in the
+   * chosen checkout. Default-on convention: read as `!== 'false'`.
+   */
+  worktree_auto_on_when_occupied: 'true',
+  /** More files to copy into a new worktree: gitignore-style patterns, one per line. */
+  worktree_copy_patterns: '',
   /** Pre-selected in the New session dialog (canvas 4c). A
    * value the catalog does not offer falls back to its first row, client-side. */
   default_model: 'sonnet',

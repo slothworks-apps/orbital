@@ -409,6 +409,7 @@ const SECTION_KEYS = {
     'default_project_dir',
     'name_sessions_automatically',
   ],
+  worktrees: ['worktree_auto_on_when_occupied', 'worktree_copy_patterns'],
   clear: ['confirm_before_clear'],
   instructions: ['session_instructions_tips', 'session_instructions_custom', 'session_instructions_custom_text'],
   limits: [AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY],
@@ -565,6 +566,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const members = useOrbital((s) => s.remote?.group.members)
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [cliPathDraft, setCliPathDraft] = useState(settings.claude_executable_path ?? '')
+  const [copyPatternsDraft, setCopyPatternsDraft] = useState(settings.worktree_copy_patterns ?? '')
   // Shared across the group: a value another member sets while this is open
   // reaches the field unless it holds an unsaved edit (`useSyncedDraft`).
   const [instructionsDraft, setInstructionsDraft] = useSyncedDraft(
@@ -805,6 +807,16 @@ export function Settings({ open, onClose }: SettingsProps) {
     return scheduleSave(() => void patchAndSet({ claude_executable_path: cliPathDraft }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliPathDraft, open])
+
+  // The files a new worktree gets copied in (spec
+  // 2026-11-02-work-in-a-worktree-design § Launch, step 4). Stored as typed:
+  // the server reads one gitignore pattern per line and skips blank ones.
+  useEffect(() => {
+    if (!open) return
+    if (copyPatternsDraft === (settings.worktree_copy_patterns ?? '')) return
+    return scheduleSave(() => void patchAndSet({ worktree_copy_patterns: copyPatternsDraft }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copyPatternsDraft, open])
 
   // And the third: Sessions' own instructions. Stored as typed — the
   // composer trims at compose time, so the field keeps showing what was
@@ -2267,6 +2279,42 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(checked) =>
                             void patchAndSet({ name_sessions_automatically: checked ? 'true' : 'false' })
                           }
+                        />
+                      </Row>
+                      </ScopeSection>
+                      {/* Spec 2026-11-02-work-in-a-worktree-design § Scope: the
+                          dialog's WORKTREE group is on by default; these two
+                          are what can be set about it. */}
+                      <ScopeSection keys={SECTION_KEYS.worktrees}>
+                      <SectionLabel>WORKTREES</SectionLabel>
+                      <Row
+                        title="Offer a worktree when another session works in the checkout"
+                        setting="worktree_auto_on_when_occupied"
+                        desc="New session turns Work in a worktree on by itself when a live session already works in the directory's checkout, and names it. Off, the switch always starts off."
+                      >
+                        <Toggle
+                          aria-label="Offer a worktree when another session works in the checkout"
+                          checked={settings.worktree_auto_on_when_occupied !== 'false'}
+                          onChange={(checked) =>
+                            void patchAndSet({ worktree_auto_on_when_occupied: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      <Row
+                        title="Files to copy into a new worktree"
+                        setting="worktree_copy_patterns"
+                        desc="Files git does not track, copied from the main checkout into each worktree Orbital makes. One gitignore pattern per line, for example .env*. CLAUDE.local.md and .claude/settings.local.json are always copied."
+                      >
+                        <TextArea
+                          aria-label="Files to copy into a new worktree"
+                          font="mono"
+                          size="sm"
+                          rows={3}
+                          spellCheck={false}
+                          value={copyPatternsDraft}
+                          onChange={(e) => setCopyPatternsDraft(e.target.value)}
+                          placeholder=".env*"
+                          className="w-full resize-y"
                         />
                       </Row>
                       </ScopeSection>

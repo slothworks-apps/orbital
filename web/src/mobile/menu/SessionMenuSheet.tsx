@@ -7,6 +7,8 @@ import { useOrbital } from '../../store/store'
 import { patchSession } from '../session/patchSession'
 import { useMobile } from '../state'
 import { sessionSupports } from '../version'
+import { useSessionWorktree } from '../../lib/useSessionWorktree'
+import { endOffersRemoval, endRemoveMode, endRowCopy, endRowStartsTicked } from '../../lib/worktree'
 import { useSessionDeviceName, useSessionRefusedLine } from '../useDevice'
 import { BottomSheet, ConfirmBody } from '../ui'
 import { noteOutcome } from './MenuOutcome'
@@ -49,6 +51,15 @@ export function SessionMenuSheet({
   const shape = menuFor(session, offline, sessionSupports('takeOver', session.id))
   const canTakeOver = shape.items.includes('takeover')
   const pinned = session.pinnedAt != null
+  // Canvas 63h PHONE END SHEET: End offers to remove the worktree, as the
+  // desktop's End does. Read as the sheet opens, so End's confirm has it at
+  // once; only from a Mac that serves it.
+  const { state: worktree } = useSessionWorktree(session, !offline && sessionSupports('worktreeLaunch', id))
+  const offered = endOffersRemoval(worktree) ? worktree : null
+  /** The row's tick by hand; null follows the variant (ticked only when nothing would be lost). */
+  const [ticked, setTicked] = useState<boolean | null>(null)
+  const isTicked = offered ? (ticked ?? endRowStartsTicked(offered)) : false
+  const endRow = offered ? endRowCopy(offered, isTicked) : null
 
   // The desktop panel's `commitTitle`: the store first, the old title back if the PATCH fails.
   const rename = (next: string) => {
@@ -83,7 +94,11 @@ export function SessionMenuSheet({
     if (busy) return
     setBusy(true)
     try {
-      await useOrbital.getState().endSession(id)
+      const removeWorktree = endRemoveMode(offered, isTicked)
+      await useOrbital.getState().endSession(id, removeWorktree ? { removeWorktree } : undefined)
+      // Ending with the row unticked is a Keep (63h RULES): the cleanup row does
+      // not come back for this worktree. Best-effort, as on the desktop.
+      if (offered && !removeWorktree) void api.keepSessionWorktree(id).catch(() => {})
       noteOutcome({ sessionId: id, kind: 'ended' })
     } catch (err) {
       reportError(err, 'Failed to end the session')
@@ -141,7 +156,12 @@ export function SessionMenuSheet({
           </>
         }
         detail={stops.length > 0 ? <Lines lines={stops} /> : undefined}
-        confirmLabel="End session"
+        extra={
+          offered && endRow ? (
+            <WorktreeEndRow ticked={isTicked} line={endRow.line} loses={endRow.loses} onToggle={() => setTicked(!isTicked)} />
+          ) : undefined
+        }
+        confirmLabel={endRow?.endLabel ?? 'End session'}
         onConfirm={() => void end()}
         onCancel={() => setView('menu')}
         busy={busy}
@@ -341,6 +361,45 @@ function MediaGlyph() {
         <span key={i} className="block h-[5px] w-[5px] rounded-[1.2px] bg-current" />
       ))}
     </span>
+  )
+}
+
+/**
+ * End's "Also remove worktree" row on the phone (canvas 63h PHONE END SHEET):
+ * the whole 60px row is the checkbox, a 22px box in it. Its line names what
+ * the variant keeps or, ticked in C2a, what goes — in the soft error ink.
+ */
+function WorktreeEndRow({ ticked, line, loses, onToggle }: { ticked: boolean; line: string; loses: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={ticked}
+      onClick={onToggle}
+      className="mt-3.5 flex min-h-15 w-full items-center gap-3.5 rounded-[12px] border border-line/12 bg-space-deep/60 px-3.5 py-2.5 text-left text-ink-100"
+    >
+      {/* 63h: a 22px box, 1.5px border, 6px radius; `background .15s, border-color .15s`. */}
+      <span
+        aria-hidden
+        className={[
+          'grid h-[22px] w-[22px] flex-none place-items-center rounded-[6px] border-[1.5px] fs-14 font-bold leading-none text-space-deep transition-[background-color,border-color] duration-150 ease-[ease]',
+          ticked ? 'border-accent bg-accent' : 'border-line/35 bg-transparent',
+        ].join(' ')}
+      >
+        {ticked ? '✓' : ''}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+        <span className="fs-14 font-semibold">Also remove worktree</span>
+        <span
+          className={[
+            'fs-12.5 leading-[1.4] transition-colors duration-150 ease-[ease]',
+            loses ? 'text-danger-pale' : 'text-ink-900/70',
+          ].join(' ')}
+        >
+          {line}
+        </span>
+      </span>
+    </button>
   )
 }
 

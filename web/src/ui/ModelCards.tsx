@@ -12,6 +12,12 @@ export interface ModelCardsProps {
   /** Settings variant (canvas 4c): short version + context line, no blurb. */
   compact?: boolean
   /**
+   * New session's column variant (canvas 63a): four to a row in half the
+   * dialog — the short version over one mono meta line (`DEFAULT · 200K CTX`),
+   * 10px inside a 10px radius, the selection still glowing with its pip.
+   */
+  dense?: boolean
+  /**
    * Appends an `Other` card for a model id the catalog does not list. While
    * it is active no catalog card is, whatever `value` says.
    */
@@ -20,12 +26,13 @@ export interface ModelCardsProps {
 
 const OTHER_BLURB = 'Any model id Claude Code accepts'
 
-function cardClassName(active: boolean, compact: boolean): string {
+function cardClassName(active: boolean, compact: boolean, dense = false): string {
   return [
     'relative min-w-0 text-left transition-colors',
     'disabled:cursor-not-allowed disabled:opacity-40',
     // canvas 4c: padding 10px 12px on a 9px radius. canvas 4b: padding 12px 14px on a 10px radius.
-    compact ? 'rounded-[9px] border px-3 py-2.5' : 'rounded-[10px] border px-3.5 py-3',
+    // canvas 63a: padding 10px on a 10px radius.
+    dense ? 'rounded-[10px] border px-2 py-2.5' : compact ? 'rounded-[9px] border px-3 py-2.5' : 'rounded-[10px] border px-3.5 py-3',
     active
       ? compact
         ? // canvas 4c selected: border .7 / bg .08, no glow, no dot.
@@ -84,6 +91,7 @@ export function ModelCards({
   defaultValue = null,
   disabled = false,
   compact = false,
+  dense = false,
   other,
 }: ModelCardsProps) {
   if (models.length === 0) {
@@ -100,11 +108,52 @@ export function ModelCards({
       role="radiogroup"
       aria-label="Model"
       className="grid w-full gap-2"
-      style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${compact ? 120 : 150}px, 1fr))` }}
+      style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${dense ? 90 : compact ? 120 : 150}px, 1fr))` }}
     >
       {models.map((model) => {
         const active = !other?.active && value === model.value
         const isDefault = !active && defaultValue === model.value
+        if (dense) {
+          // 63a: `DEFAULT · $$` under the name; ours carries the context window for the price.
+          const meta = [
+            defaultValue === model.value ? 'DEFAULT' : null,
+            model.contextWindow !== null ? `${formatContextWindow(model.contextWindow).toUpperCase()} CTX` : null,
+          ].filter(Boolean)
+          return (
+            <button
+              key={model.value}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              aria-label={model.shortVersion}
+              title={model.blurb}
+              data-active={active}
+              data-model={model.value}
+              disabled={disabled}
+              onClick={() => onChange(model.value)}
+              className={cardClassName(active, false, true)}
+            >
+              {active && (
+                // 63a draws the pip top right, beside the name. The app's mono runs wider
+                // than the canvas's, so a name like "Sonnet 5.5" needs the whole row:
+                // the pip sits at the end of the second line instead.
+                <span
+                  aria-hidden
+                  className="absolute bottom-[13px] right-2 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]"
+                />
+              )}
+              <span className="block truncate font-mono fs-11 text-ink-100">{model.shortVersion}</span>
+              <span
+                className={[
+                  'mt-[5px] block truncate font-mono fs-9.5 tracking-[0.08em]',
+                  active ? 'pr-3 text-accent' : 'text-ink-900/50',
+                ].join(' ')}
+              >
+                {meta.length > 0 ? meta.join(' · ') : '\u00a0'}
+              </span>
+            </button>
+          )
+        }
         return (
           <button
             key={model.value}
@@ -158,11 +207,22 @@ export function ModelCards({
           data-active={other.active}
           disabled={disabled}
           onClick={other.onSelect}
-          className={cardClassName(other.active, compact)}
+          title={dense ? OTHER_BLURB : undefined}
+          className={cardClassName(other.active, compact, dense)}
         >
           {other.active && !compact && <ActiveDot />}
-          <span className={cardTitleClassName(compact)}>Other</span>
-          {!compact && <span className={blurbClassName(other.active)}>{OTHER_BLURB}</span>}
+          <span className={dense ? 'block truncate pr-3 font-mono fs-11.5 text-ink-100' : cardTitleClassName(compact)}>Other</span>
+          {dense && (
+            <span
+              className={[
+                'mt-[5px] block truncate font-mono fs-9.5 tracking-[0.08em]',
+                other.active ? 'text-accent' : 'text-ink-900/50',
+              ].join(' ')}
+            >
+              ANY ID
+            </span>
+          )}
+          {!compact && !dense && <span className={blurbClassName(other.active)}>{OTHER_BLURB}</span>}
         </button>
       )}
     </div>

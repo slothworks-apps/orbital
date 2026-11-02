@@ -68,6 +68,9 @@ import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
 import { registerTerminalRoutes } from './terminals.js';
 import { registerLoginRoutes } from './logins.js';
+import { registerWorktreeRoutes } from './worktree.js';
+import { WorktreeService, type BranchNamer, type LaunchPrep } from '../worktree/service.js';
+import { WORKTREES_DIR } from '../worktree/git.js';
 import type { LoginService } from '../login/service.js';
 import type { TerminalStore } from '../terminal/store.js';
 import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
@@ -236,6 +239,13 @@ export interface RouteContext {
     SharedSettingsSync,
     'partner' | 'heardFrom' | 'grantsChanged' | 'list' | 'listTags' | 'receive' | 'changedLocally' | 'tagChangedLocally' | 'tagDeletedLocally'
   >;
+  /**
+   * Work in a worktree (spec 2026-11-02-work-in-a-worktree-design). Absent,
+   * one is built over this context, naming branches with `nameBranch`.
+   */
+  worktrees?: WorktreeService;
+  /** The launch's branch naming call; absent, every unnamed branch gets the temporary name. */
+  nameBranch?: BranchNamer;
   /** `POST /api/sessions` on a group member, for `spawn_session`'s `machine` (spec 2026-10-19-member-grants-design § 3). */
   spawnOnMember?: (machine: string, body: Record<string, unknown>) => Promise<{ status: number; body: unknown }>;
 }
@@ -492,6 +502,25 @@ function parseMcpjsonDecisions(raw: unknown): McpjsonDecisions | undefined | nul
   return { allow, deny };
 }
 
+/** The repository a directory under `<repo>/.claude/worktrees/` belongs to, or null for any other directory. */
+export function repositoryOfWorktree(cwd: string): string | null {
+  const at = cwd.indexOf(`/${WORKTREES_DIR}/`);
+  return at > 0 ? cwd.slice(0, at) : null;
+}
+
+/**
+ * `POST /api/sessions`'s `worktree`: undefined when absent, null when
+ * malformed. An empty `branch` is absent: Orbital names it.
+ */
+function parseWorktreeRequest(raw: unknown): { base: string; branch?: string } | undefined | null {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const { base, branch } = raw as { base?: unknown; branch?: unknown };
+  if (typeof base !== 'string' || !base.trim()) return null;
+  if (branch !== undefined && branch !== null && typeof branch !== 'string') return null;
+  return typeof branch === 'string' && branch.trim() ? { base: base.trim(), branch: branch.trim() } : { base: base.trim() };
+}
+
 /** A rewind could not stop the process holding its session; the route answers 504. */
 class RewindStopError extends Error {}
 
@@ -553,6 +582,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const launchDirOf = (id: number): number => (ctx.claudeDirs.has(id) ? id : ctx.claudeDirs.defaultId());
   /** Clear's harness carry-over, set once the harness routes are registered (at the end). */
   let carry: CarryHarness | null = null;
+  const worktrees = ctx.worktrees ?? new WorktreeService({
+    ctx, trees: ctx.trees, settings: ctx.settings, nameBranch: ctx.nameBranch,
+  });
 
   app.get('/api/sessions', (req) => {
     const q = req.query as Record<string, string>;
@@ -1322,13 +1354,21 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
        * undecided server out (spec 2026-10-08-mcpjson-approval-design).
        */
       mcpjson?: unknown;
+      /**
+       * Start in a new worktree made from `base`, on `branch` or on a branch
+       * Orbital names (spec 2026-11-02-work-in-a-worktree-design § Launch).
+       */
+      worktree?: unknown;
     };
     if (invalidAttachments(body.attachments)) {
       return reply.code(400).send({ error: 'invalid_attachment' });
     }
-    const { mcpjson: rawMcpjson, ...launch } = body;
+    const { mcpjson: rawMcpjson, worktree: rawWorktree, ...launch } = body;
     const mcpjson = parseMcpjsonDecisions(rawMcpjson);
     if (mcpjson === null) return reply.code(400).send({ error: 'invalid_mcpjson' });
+    const worktree = parseWorktreeRequest(rawWorktree);
+    // A resume keeps the directory its transcript ran in.
+    if (worktree === null || (worktree && body.resume)) return reply.code(400).send({ error: 'invalid_worktree' });
     // A resume runs under the session's own directory, whatever was sent: its
     // transcript and its login are there (spec § 3).
     const resumed = body.resume
@@ -1356,17 +1396,43 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const clientId = body.sessionId ?? undefined;
     const refused = clientIdRefusal(clientId);
     if (refused) return reply.code(refused.status).send({ error: refused.error });
+    // The worktree is made before anything else is written, so a launch it
+    // refuses leaves nothing behind. Its fallback branch is named after the
+    // session, so the id is fixed here when the browser did not mint one.
+    let prepared: LaunchPrep | null = null;
+    let launchId = clientId;
+    if (worktree) {
+      launchId ??= randomUUID();
+      const result = await worktrees.prepareLaunch({
+        cwd, base: worktree.base, branch: worktree.branch,
+        prompt: typeof body.prompt === 'string' ? body.prompt : '', sessionId: launchId, claudeDirId,
+      });
+      if (!result.ok) return reply.code(result.status).send({ error: result.error, message: result.message });
+      prepared = result;
+    }
+    const sessionCwd = prepared?.cwd ?? cwd;
     if (mcpjson) {
       // A settings file that cannot be parsed is left alone rather than
       // overwritten, and the launch waits: the user's answer would be lost.
+      // In a worktree the answer holds for the worktree's own path too.
       try {
         recordDecisions(cwd, mcpjson, { fingerprints: mcpjsonFingerprints });
+        if (sessionCwd !== cwd) recordDecisions(sessionCwd, mcpjson, { fingerprints: mcpjsonFingerprints });
       } catch (err) {
         console.warn('orbital: could not record .mcp.json decisions:', err);
+        await prepared?.rollback();
         return reply.code(500).send({ error: 'mcpjson_not_recorded' });
       }
     }
-    const sessionId = await launchSession({ ...launch, cwd, sessionId: clientId, claudeDirId });
+    let sessionId: string;
+    try {
+      sessionId = await launchSession({
+        ...launch, cwd: sessionCwd, sessionId: launchId, claudeDirId, ...(prepared?.title ? { title: prepared.title } : {}),
+      });
+    } catch (err) {
+      await prepared?.rollback();
+      throw err;
+    }
     // The dialog's choice, remembered for the next one (spec § 3) — stored
     // here rather than by the client, because the phone cannot write settings.
     if (body.claudeDirId !== undefined && body.claudeDirId !== null) {
@@ -1593,8 +1659,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     sessionId?: string; attachments?: string[]; spawnedBy?: string; purpose?: SessionPurpose;
     /** Absent: `default_claude_dir`. */
     claudeDirId?: number;
+    /** A name already made for the session — the worktree's naming call's —, which takes the place of naming it from its first message. */
+    title?: string;
   }): Promise<string> {
-    const { cwd, spawnedBy, tagId, purpose, ...start } = opts;
+    const { cwd, spawnedBy, tagId, purpose, title, ...start } = opts;
     const claudeDirId = opts.claudeDirId ?? ctx.claudeDirs.defaultId();
     const sessionId = await ctx.runner.start({ ...start, cwd, claudeDirId });
     db.insert(sessions)
@@ -1624,9 +1692,16 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // A browser that minted the id subscribed before this row existed, when
     // its `cwd` could not be looked up yet — so the watch starts here.
     if (ctx.hub.subscriberCount(`session:${sessionId}`) > 0) ctx.branchStatus.watchSession(sessionId, cwd);
+    const named = !purpose && title !== undefined && ctx.settings.get(NAME_SESSIONS_KEY) !== 'false';
+    if (named) {
+      // Only over a derived title, as the titler writes its own first name.
+      db.update(sessions).set({ title, titleSource: 'auto' })
+        .where(and(eq(sessions.id, sessionId), eq(sessions.titleSource, 'derived')))
+        .run();
+    }
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow;
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
-    if (!purpose) nameFromFirstMessage(sessionId, opts.prompt);
+    if (!purpose && !named) nameFromFirstMessage(sessionId, opts.prompt);
     return sessionId;
   }
 
@@ -2290,16 +2365,50 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (ended?.purpose === 'harness_draft') ctx.hub.publish('sessions', { event: 'remove', sessionId: id });
   }
 
+  /**
+   * Waits for an ended session's process to be gone before its worktree is
+   * removed from under it. One that will not go is left to the removal:
+   * git removes the directory either way.
+   */
+  async function stoppedForRemoval(id: string): Promise<void> {
+    try {
+      await ctx.runner.stopAndWait(id, ctx.rewindStopTimeoutMs);
+    } catch (err) {
+      console.warn(`orbital: session ${id} had not stopped before its worktree was removed:`, err);
+    }
+  }
+
   // End session (spec 2026-09-23-end-session-design): the header's plain
   // "close this session" — the same `endSession` that `/clear` makes, under
   // a name that says what the button does. `{ unpin: true }` is the trash's
   // drop of a pinned session: ended and unpinned in one write.
+  //
+  // `removeWorktree` also removes the worktree the session works in, once
+  // it has stopped (spec 2026-11-02-work-in-a-worktree-design § Where it is
+  // offered); what the removal would refuse is refused before anything
+  // ends. Ending a worktree session without it is the user's *Keep*.
   app.post('/api/sessions/:id/end', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { unpin } = (req.body ?? {}) as { unpin?: unknown };
-    const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
+    const { unpin, removeWorktree } = (req.body ?? {}) as { unpin?: unknown; removeWorktree?: unknown };
+    if (removeWorktree !== undefined && removeWorktree !== 'clean' && removeWorktree !== 'force') {
+      return reply.code(400).send({ error: 'invalid_remove_worktree' });
+    }
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
+    const force = removeWorktree === 'force';
+    const state = removeWorktree ? await worktrees.state(row) : null;
+    if (state) {
+      const refusal = worktrees.refusalOf(state, force);
+      if (refusal) return reply.code(409).send({ error: refusal });
+    }
+    const tree = removeWorktree ? null : worktrees.linkedTreeOf(row);
     await endSession(id, { unpin: unpin === true });
+    if (tree) worktrees.dismiss(tree.dirs.root);
+    if (state) {
+      await stoppedForRemoval(id);
+      const removed = await worktrees.removePath(state.path, force);
+      if (!removed.ok) return reply.code(500).send(removed);
+    }
     return { ok: true };
   });
 
@@ -2674,10 +2783,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }> = [];
     const seen = new Set<string>();
     for (const row of rows) {
-      if (seen.has(row.cwd)) continue;
-      seen.add(row.cwd);
+      // A worktree stands for its repository: RECENT must not fill up with
+      // them (spec 2026-11-02-work-in-a-worktree-design § The home of a worktree session).
+      const cwd = repositoryOfWorktree(row.cwd) ?? row.cwd;
+      if (seen.has(cwd)) continue;
+      seen.add(cwd);
       projects.push({
-        cwd: row.cwd,
+        cwd,
         lastModel: row.model ?? row.resolvedModel ?? null,
         lastAt: row.lastAt ?? null,
       });
@@ -3007,6 +3119,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   registerStatsRoutes(app, ctx);
   registerMcpRoutes(app, ctx);
   registerTerminalRoutes(app, ctx);
+  registerWorktreeRoutes(app, {
+    db, worktrees,
+    endSession: async (id) => {
+      await endSession(id);
+      await stoppedForRemoval(id);
+    },
+  });
   carry = registerHarnessRoutes(app, ctx, deliverToSession, readTranscriptMessages, async (opts) => {
     const refused = clientIdRefusal(opts.sessionId);
     if (refused) return { ok: false, ...refused };

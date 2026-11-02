@@ -24,7 +24,7 @@ import { StateDot } from '../ui/StateDot'
 import { reportError } from '../lib/errors'
 import { isMemberOffline } from '../lib/devices'
 import { useViewportWidth } from '../lib/useViewportWidth'
-import { EndDialog } from '../panels/EndDialog'
+import { EndDialog, type EndOptions } from '../panels/EndDialog'
 import { useSessionMenu, useSessionMenuSubject } from '../panels/SessionContextMenu'
 import { useSessionActions } from '../store/sessionActions'
 import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
@@ -646,7 +646,7 @@ export function SpaceMap() {
   const [confirmEndId, setConfirmEndId] = useState<string | null>(null)
   const closeConfirmEnd = useCallback(() => setConfirmEndId(null), [])
   const endFromConfirm = useCallback(
-    (id: string) => trashSession(id, { undo: false }),
+    (id: string, opts: EndOptions) => trashSession(id, { undo: false, ...opts }),
     [trashSession]
   )
   // The bodies on their way off the map: leaving it, or faded out with their

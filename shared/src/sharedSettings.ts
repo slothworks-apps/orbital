@@ -33,6 +33,7 @@ export const SHARED_SETTING_KEYS: readonly string[] = [
   // Found after the first list (spec § Which settings are shared).
   'map_moon_orbits', 'stats_show_human_wait', 'narrate_model', 'narrate_commentary',
   'issue_check_enabled', 'issue_check_model', 'terminal_enabled', 'terminal_cursor', 'terminal_cursor_blink',
+  'worktree_auto_on_when_occupied',
 ];
 
 /**
@@ -60,6 +61,8 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   'terminal_placement', 'terminal_dock_height', 'gh_tip', 'experimental_unlocked',
   // The colour theme: a bright room and macOS's appearance belong to this Mac, as text size does.
   'colour_theme', 'colour_theme_follow_system', 'colour_theme_light', 'colour_theme_dark',
+  // Work in a worktree: what this device's repositories hold untracked, and the worktrees on its disk the user kept.
+  'worktree_copy_patterns', 'worktree_dismissed',
 ];
 
 const PER_DEVICE_PREFIXES = ['remote_', 'new_session_last_'];
