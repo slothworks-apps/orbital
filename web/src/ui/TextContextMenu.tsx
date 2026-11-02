@@ -55,14 +55,10 @@ function isEditable(el: HTMLElement): boolean {
   return el.isContentEditable ?? el.getAttribute('contenteditable') !== 'false'
 }
 
-/** Whether a field has text selected in it. A number input has no selection range to ask. */
+/** Whether a field has text selected in it. A number input has no selection range: `selectionStart` is null. */
 function fieldSelected(field: HTMLElement, selection: Selection | null): boolean {
   if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
-    try {
-      return field.selectionStart !== null && field.selectionStart !== field.selectionEnd
-    } catch {
-      return false
-    }
+    return field.selectionStart !== null && field.selectionStart !== field.selectionEnd
   }
   return !!selection && !selection.isCollapsed && field.contains(selection.anchorNode) && field.contains(selection.focusNode)
 }
@@ -95,7 +91,7 @@ export function textMenuTarget(target: EventTarget | null, x: number, y: number,
       secret: field instanceof HTMLInputElement && field.type === 'password',
     }
   }
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
+  if (!selection || selection.isCollapsed) return null
   const anchor = selection.anchorNode
   const surface = (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('[data-selectable]')
   if (!surface) return null
@@ -136,21 +132,13 @@ function close(): void {
   root?.render(null)
 }
 
-function open(event: MouseEvent, target: TextMenuTarget, selection: Selection | null): void {
-  // Opening the menu moves focus into it, and an editor may drop its
-  // selection when it loses focus: keep the ranges to put back before the
-  // command runs, so it acts on what was selected at the right-click.
-  const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, i) => selection.getRangeAt(i).cloneRange()) : []
-  // An input or a textarea keeps its own selection, which focusing it brings back.
-  const keepsOwn =
-    target.kind === 'field' && (target.field instanceof HTMLInputElement || target.field instanceof HTMLTextAreaElement)
+function open(event: MouseEvent, target: TextMenuTarget): void {
+  // The menu leaves focus in the field (`keepsFocus`), so its selection is
+  // the one the command acts on. A field that went away meanwhile (a dialog
+  // closed under the menu) gets nothing: the command would land on
+  // whatever holds focus now.
   const run = (command: EditCommand) => {
-    if (target.kind === 'field') target.field.focus({ preventScroll: true })
-    const now = document.getSelection()
-    if (now && ranges.length && !keepsOwn) {
-      now.removeAllRanges()
-      for (const range of ranges) now.addRange(range)
-    }
+    if (target.kind === 'field' && (!target.field.isConnected || document.activeElement !== target.field)) return
     runEditCommand(command)
   }
   if (!root) {
@@ -167,6 +155,7 @@ function open(event: MouseEvent, target: TextMenuTarget, selection: Selection | 
         at={{ x: event.clientX, y: event.clientY }}
         entries={textMenuEntries(target, run)}
         aria-label={target.kind === 'field' ? 'Edit' : 'Selection'}
+        keepsFocus
         onClose={close}
       />
     </EscapeTopmost>,
@@ -183,6 +172,6 @@ export function installTextMenu(): void {
     const target = textMenuTarget(event.target, event.clientX, event.clientY, selection)
     if (!target) return
     event.preventDefault()
-    open(event, target, selection)
+    open(event, target)
   })
 }

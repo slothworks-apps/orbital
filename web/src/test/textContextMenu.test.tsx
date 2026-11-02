@@ -74,3 +74,25 @@ describe('textMenuTarget — selected text', () => {
     expect(textMenuTarget(null, 0, 0, document.getSelection())).toBeNull()
   })
 })
+
+describe('the menu over a field', () => {
+  it('leaves focus in the field while open, so a field that commits on blur stays', async () => {
+    const { render, screen, fireEvent } = await import('@testing-library/react')
+    const { ContextMenu } = await import('../ui/ContextMenu')
+    const input = mount('<input value="half typed">') as HTMLInputElement
+    input.focus()
+    let blurred = false
+    input.addEventListener('blur', () => (blurred = true))
+    let ran = false
+    render(
+      <ContextMenu at={{ x: 10, y: 10 }} aria-label="Edit" keepsFocus onClose={() => {}} entries={[{ key: 'paste', label: 'Paste', onSelect: () => (ran = true) }]} />,
+    )
+    const row = screen.getByRole('menuitem', { name: 'Paste' })
+    fireEvent.mouseMove(row)
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    expect(ran).toBe(true)
+    expect(blurred).toBe(false)
+    expect(document.activeElement).toBe(input)
+  })
+})
