@@ -149,10 +149,12 @@ at most `FIND_LIST_MAX` matches, `more` counting the rest.
 
 **A Mac without the route.** In a device group the desktop forwards the
 request to the session's member Mac, which may be older and refuse it
-(author's call): a press that gets an unsupported or refused lookup falls
-back to opening the name as written, which is today's behaviour for a path
-relative to the session's directory, so a file at that directory's top still
-opens and anything else gets the usual not-found refusal.
+(author's call): a press that gets an unsupported lookup (a 404, or no
+answer the client can read) falls back to opening the name as written, which
+is today's behaviour for a path relative to the session's directory, so a
+file at that directory's top still opens and anything else gets the usual
+not-found refusal. A 400 `not_a_name` comes from a Mac that serves the route
+and would not take the name, so it answers as no match does (after review).
 
 The route goes on the phone's allowlist (`server/src/remote/allowlist.ts`)
 and into `control/catalog.ts` beside `read_file`.
