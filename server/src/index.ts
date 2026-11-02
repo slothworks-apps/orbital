@@ -1675,9 +1675,16 @@ export async function buildServer(overrides: {
         countSweepable(db, retentionCutoff(parseRetentionDays(value), Date.now())),
     },
     // Names a worktree's branch at launch, under the account the session will run under.
-    nameBranch: ({ prompt, recentNames, claudeDirId }) =>
+    // A failure is recorded; the user gets the temporary name and no word of it.
+    nameBranch: ({ sessionId, prompt, recentNames, claudeDirId }) =>
       nameBranch(
-        { queryFn: overrides.titleQueryFn ?? query, claudeExecutablePath: claudeCli.path, maxPromptChars: MAX_PROMPT_CHARS },
+        {
+          queryFn: overrides.titleQueryFn ?? query, claudeExecutablePath: claudeCli.path, maxPromptChars: MAX_PROMPT_CHARS,
+          onFailure: (failure) => errors.record({
+            source: 'server', kind: 'branch_naming_failed', sessionId,
+            message: failure.message, detail: failure.detail, context: { reason: failure.reason },
+          }),
+        },
         { prompt, recentNames, env: envForDir(claudeDirId ?? claudeDirs.defaultId()) },
       ),
     spawnOnMember: async (machine, body) => {

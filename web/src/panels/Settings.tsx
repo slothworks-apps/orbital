@@ -660,6 +660,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     if (!open) return
     setProjectDirDraft(settings.default_project_dir ?? '')
     setCliPathDraft(settings.claude_executable_path ?? '')
+    setCopyPatternsDraft(settings.worktree_copy_patterns ?? '')
     // Only reseed on open — an in-flight PATCH from a prior keystroke resolving
     // must not fight the user's current typing while the panel stays open.
     // eslint-disable-next-line react-hooks/exhaustive-deps

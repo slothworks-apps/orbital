@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   BRANCH_FORM_SAMPLES, DEFAULT_BRANCH_FORM, MAX_BRANCH_CHARS, branchForm, branchNameProblem, fallbackBranch,
-  isFallbackBranch, leafOf, nameBranch, parseBranchReply, withSuffix,
+  isFallbackBranch, nameBranch, parseBranchReply, withSuffix, type BranchNamingFailure,
 } from '../src/worktree/naming.js';
-import { worktreeChoice } from '../src/worktree/variant.js';
+import { leafOf } from '@orbital/shared/worktree';
 import { classifyFetchError } from '../src/worktree/git.js';
-import { repositoryOfWorktree } from '../src/api/routes.js';
+import { parseGitConfigValue } from '../src/git/gitState.js';
 
 describe('branch form', () => {
   it('is the most common prefix, the most recent winning a tie', () => {
@@ -88,30 +88,26 @@ describe('the naming reply', () => {
     expect(args.options.maxTurns).toBe(1);
   });
 
-  it('gives up on no prompt, a failure, and a call that does not answer in time', async () => {
-    expect(await nameBranch({ queryFn: reply('feat/x'), maxPromptChars: 4000 }, { prompt: '  ', recentNames: [] })).toBeNull();
+  it('gives up on no prompt, a failure, and a call that does not answer in time, recording the failures', async () => {
+    const failures: BranchNamingFailure[] = [];
+    const onFailure = (f: BranchNamingFailure) => failures.push(f);
+    expect(await nameBranch({ queryFn: reply('feat/x'), maxPromptChars: 4000, onFailure }, { prompt: '  ', recentNames: [] })).toBeNull();
+    expect(failures).toEqual([]);
     const failing = vi.fn(() => { throw new Error('spawn ENOENT'); });
-    expect(await nameBranch({ queryFn: failing as any, maxPromptChars: 4000 }, { prompt: 'x', recentNames: [] })).toBeNull();
+    expect(await nameBranch({ queryFn: failing as any, maxPromptChars: 4000, onFailure }, { prompt: 'x', recentNames: [] })).toBeNull();
     const hanging = vi.fn(() => (async function* () { await new Promise(() => {}); })());
-    expect(await nameBranch({ queryFn: hanging as any, maxPromptChars: 4000, timeoutMs: 10 }, { prompt: 'x', recentNames: [] })).toBeNull();
-  });
-});
-
-describe('the removal variant', () => {
-  const base = { uncommittedFiles: 0, unpushedCommits: 0, sharedWith: [], ended: true, orbital: true };
-
-  it('picks c3 over c2a over c2b over c1', () => {
-    expect(worktreeChoice(base).variant).toBe('c1');
-    expect(worktreeChoice({ ...base, unpushedCommits: 2 }).variant).toBe('c2b');
-    expect(worktreeChoice({ ...base, unpushedCommits: 2, uncommittedFiles: 3 }).variant).toBe('c2a');
-    expect(worktreeChoice({ ...base, uncommittedFiles: 3, sharedWith: ['s2'] }).variant).toBe('c3');
+    expect(await nameBranch({ queryFn: hanging as any, maxPromptChars: 4000, timeoutMs: 10, onFailure }, { prompt: 'x', recentNames: [] })).toBeNull();
+    expect(await nameBranch({ queryFn: reply('Sure! here you go\nfeat/x\nT'), maxPromptChars: 4000, onFailure }, { prompt: 'x', recentNames: [] })).toBeNull();
+    expect(failures.map((f) => f.reason)).toEqual(['error', 'timeout', 'unparsable']);
+    expect(failures[0].message).toContain('spawn ENOENT');
   });
 
-  it('never offers a shared tree or a live terminal session, and ends a live Orbital one first', () => {
-    expect(worktreeChoice({ ...base, sharedWith: ['s2'] })).toMatchObject({ removable: false, endsSession: false });
-    expect(worktreeChoice({ ...base, ended: false, orbital: false })).toMatchObject({ removable: false, endsSession: false });
-    expect(worktreeChoice({ ...base, ended: true, orbital: false })).toMatchObject({ removable: true, endsSession: false });
-    expect(worktreeChoice({ ...base, ended: false, orbital: true })).toMatchObject({ removable: true, endsSession: true });
+  it('still falls back when the failure cannot be recorded', async () => {
+    const failing = vi.fn(() => { throw new Error('boom'); });
+    const onFailure = () => { throw new Error('db gone'); };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await nameBranch({ queryFn: failing as any, maxPromptChars: 4000, onFailure }, { prompt: 'x', recentNames: [] })).toBeNull();
+    warn.mockRestore();
   });
 });
 
@@ -126,11 +122,35 @@ describe('fetch errors', () => {
   });
 });
 
-describe('recent directories', () => {
-  it('stand a worktree in for its repository', () => {
-    expect(repositoryOfWorktree('/w/orbital/.claude/worktrees/tray')).toBe('/w/orbital');
-    expect(repositoryOfWorktree('/w/orbital/.claude/worktrees/tray/server')).toBe('/w/orbital');
-    expect(repositoryOfWorktree('/w/orbital')).toBeNull();
-    expect(repositoryOfWorktree('/w/orbital/.claude')).toBeNull();
+describe('git config values', () => {
+  const config = [
+    '[core]',
+    '\tbare = false',
+    '[branch "feat/old-2"]',
+    '\tgh-merge-base = fix/stack',
+    '[branch "Feat/Case"]',
+    '\tGH-Merge-Base = "quoted value" ; a comment',
+    '[Branch "feat/x"] gh-merge-base = inline',
+    '[branch.legacy]',
+    '\tgh-merge-base = old-form',
+    '[branch "feat/old-2"]',
+    '\tgh-merge-base = develop # later wins',
+    '[branch "feat/cont"]',
+    '\tgh-merge-base = a\\',
+    'b',
+    '[branch "feat/flag"]',
+    '\tgh-merge-base',
+  ].join('\n');
+
+  it('reads the last value of a branch key, as git would', () => {
+    expect(parseGitConfigValue(config, 'branch', 'feat/old-2', 'gh-merge-base')).toBe('develop');
+    expect(parseGitConfigValue(config, 'branch', 'Feat/Case', 'gh-merge-base')).toBe('quoted value');
+    expect(parseGitConfigValue(config, 'branch', 'feat/case', 'gh-merge-base')).toBeNull();
+    expect(parseGitConfigValue(config, 'branch', 'feat/x', 'gh-merge-base')).toBe('inline');
+    expect(parseGitConfigValue(config, 'branch', 'legacy', 'gh-merge-base')).toBe('old-form');
+    expect(parseGitConfigValue(config, 'branch', 'feat/cont', 'gh-merge-base')).toBe('ab');
+    expect(parseGitConfigValue(config, 'branch', 'feat/flag', 'gh-merge-base')).toBe('true');
+    expect(parseGitConfigValue(config, 'branch', 'nope', 'gh-merge-base')).toBeNull();
+    expect(parseGitConfigValue(config, 'core', '', 'bare')).toBeNull();
   });
 });

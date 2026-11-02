@@ -153,7 +153,8 @@ export function parseNumstat(out: string): LineCounts {
   return counts;
 }
 
-const gitEnv = (): NodeJS.ProcessEnv => ({
+/** The environment every git command Orbital runs gets. */
+export const gitEnv = (): NodeJS.ProcessEnv => ({
   ...process.env,
   // The reads run beside an agent that may be committing; they must never
   // take the index lock from under it.

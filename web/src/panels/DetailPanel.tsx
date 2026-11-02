@@ -71,6 +71,7 @@ import { HarnessPill } from './HarnessPill'
 import { DevicePill } from './DevicePill'
 import { WorktreeCleanupStrip } from './WorktreeCleanup'
 import { useSessionWorktree } from '../lib/useSessionWorktree'
+import { removalOffered } from '../lib/worktree'
 import {
   deviceChips, deviceLock, ideHere, localClaudeDirId, machineOffline, namesShown, stateAsOf,
   type DeviceLock,
@@ -886,8 +887,7 @@ export function DetailPanel({
             worktree={
               session?.git?.worktree
                 ? {
-                    removable:
-                      worktree.state !== null && worktree.state.removable && worktree.state.variant !== 'c3',
+                    removable: removalOffered(worktree.state),
                     onRemove: () => setDialog('remove-worktree'),
                   }
                 : undefined

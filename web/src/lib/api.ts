@@ -67,13 +67,18 @@ import {
 import type { TerminalInfo } from '../terminal/types'
 import type { DirectoryRow } from './directorySearch'
 import type {
-  RemoveWorktreeMode,
+  EndWithWorktreeRequest,
   WorktreeFetchResult,
   WorktreeLaunch,
   WorktreeOptions,
   WorktreeRemoveRefusal,
+  WorktreeRemoveRequest,
   WorktreeState,
-} from './worktree'
+} from '@orbital/shared/worktree'
+import type { EndAnswer } from './worktree'
+
+/** What End and a removal are refused with before anything ended or was removed (409). */
+const WORKTREE_CONFLICTS = ['worktree_shared', 'worktree_live_terminal', 'worktree_dirty', 'worktree_state_changed'] as const
 
 /**
  * What a send answers. `uuid` is the transcript entry the turn is written
@@ -654,18 +659,19 @@ export const api = {
    */
   async endSession(
     id: string,
-    opts: { unpin?: boolean; removeWorktree?: RemoveWorktreeMode } = {},
-  ): Promise<{ ok: boolean }> {
+    opts: { unpin?: boolean } & EndWithWorktreeRequest = {},
+  ): Promise<EndAnswer> {
     // Each field only when it says something, so a plain End stays body-less.
     const body = {
       ...(opts.unpin ? { unpin: true } : {}),
       ...(opts.removeWorktree ? { removeWorktree: opts.removeWorktree } : {}),
+      ...(opts.removeWorktree && opts.worktreePath !== undefined ? { worktreePath: opts.worktreePath } : {}),
     }
-    return request<{ ok: boolean }>(
-      'POST',
-      apiPath`/api/sessions/${id}/end`,
-      Object.keys(body).length > 0 ? body : undefined,
-    )
+    // A 200 is an End, whatever became of the worktree (`worktreeRemoved`);
+    // a 409 ended nothing: the worktree changed under the confirmation.
+    return remoteCall('POST', apiPath`/api/sessions/${id}/end`, Object.keys(body).length > 0 ? body : undefined, {
+      409: WORKTREE_CONFLICTS,
+    })
   },
 
   /**
@@ -691,13 +697,16 @@ export const api = {
 
   /**
    * Removes the session's worktree (`git worktree remove`, `--force` with
-   * `force`); the branch stays. A session that has not ended is ended first.
-   * Refused with 409 when another session is in the tree, a terminal still
-   * runs in it, or it is dirty without `force`.
+   * `force`); the branch stays. The body is what the user confirmed
+   * (`removeRequest`): with `endSession` the session is ended first. Refused
+   * with 409 when another session is in the tree, a terminal still runs in
+   * it, it is dirty without `force`, or it is no longer what was confirmed
+   * (`worktree_state_changed`); with 404 `not_worktree` when there is none.
    */
-  async removeSessionWorktree(id: string, force = false): Promise<{ ok: true } | { error: WorktreeRemoveRefusal }> {
-    return remoteCall('POST', apiPath`/api/sessions/${id}/worktree/remove`, force ? { force: true } : {}, {
-      409: ['worktree_shared', 'worktree_live_terminal', 'worktree_dirty'] as const,
+  async removeSessionWorktree(id: string, body: WorktreeRemoveRequest): Promise<{ ok: true } | { error: WorktreeRemoveRefusal }> {
+    return remoteCall('POST', apiPath`/api/sessions/${id}/worktree/remove`, body, {
+      404: ['not_worktree'] as const,
+      409: WORKTREE_CONFLICTS,
     })
   },
 

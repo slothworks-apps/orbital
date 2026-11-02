@@ -8,6 +8,7 @@ import { primaryTag } from '../lib/primaryTag'
 import { contextMenuGroups, type ContextAction } from '../lib/sessionContextMenu'
 import { tagColor, workingDirOf } from '../lib/types'
 import { useSessionWorktree } from '../lib/useSessionWorktree'
+import { removalOffered } from '../lib/worktree'
 import type { Tag } from '../lib/types'
 import {
   askToClear,
@@ -131,7 +132,7 @@ function SessionMenu({
   // Remove worktree is listed for every worktree session and pressable once
   // the worktree is known to be removable — never while another session is in it (C3).
   const { state: worktree } = useSessionWorktree(session, true)
-  const worktreeRemovable = worktree !== null && worktree.removable && worktree.variant !== 'c3'
+  const worktreeRemovable = removalOffered(worktree)
 
   // A session that leaves the store (deleted elsewhere) takes its menu with it.
   const gone = session === undefined

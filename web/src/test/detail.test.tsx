@@ -1720,7 +1720,7 @@ describe('DetailPanel End session', () => {
     await userEvent.click(screen.getByRole('button', { name: 'End session' }))
     const dialog = await screen.findByRole('dialog')
     await userEvent.click(within(dialog).getByRole('button', { name: 'End session' }))
-    await waitFor(() => expect(api.endSession).toHaveBeenCalledWith('a'))
+    await waitFor(() => expect(api.endSession).toHaveBeenCalledWith('a', {}))
   }
 
   it('closes the panel once the session has ended', async () => {
@@ -1788,7 +1788,7 @@ describe('session dialogs opened for a session that is not selected', () => {
     const dialog = await screen.findByRole('dialog')
     await userEvent.click(within(dialog).getByRole('button', { name: 'End session' }))
 
-    await waitFor(() => expect(api.endSession).toHaveBeenCalledWith('b'))
+    await waitFor(() => expect(api.endSession).toHaveBeenCalledWith('b', {}))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(useOrbital.getState().ui.selectedId).toBe('a')
   })

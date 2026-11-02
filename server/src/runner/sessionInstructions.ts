@@ -91,8 +91,8 @@ export const NARRATE_COMMENTARY_PROMPT =
 export interface WorktreeContext {
   path: string;
   branch: string;
-  /** `branch.<name>.gh-merge-base`, else the repository's default branch. */
-  prTarget: string;
+  /** `branch.<name>.gh-merge-base`, or null when it is not set. */
+  prTarget: string | null;
   /** The branch carries the temporary name the launch falls back to. */
   temporary: boolean;
 }
@@ -100,14 +100,13 @@ export interface WorktreeContext {
 /**
  * What a session in a linked worktree is told, whoever made the worktree
  * (spec 2026-11-02-work-in-a-worktree-design § What the session is told).
+ * It informs; it does not ask for a pull request.
  */
 export function worktreeInstruction(tree: WorktreeContext): string {
-  const where =
-    `You run in the worktree \`${tree.path}\` on branch \`${tree.branch}\`. ` +
-    `Open the PR against \`${tree.prTarget}\`.`;
-  return tree.temporary
-    ? `${where} This is a temporary name: rename the branch to fit the work (\`git branch -m\`) before your first commit.`
-    : where;
+  const parts = [`You run in the worktree \`${tree.path}\` on branch \`${tree.branch}\`.`];
+  if (tree.prTarget) parts.push(`Its pull request targets \`${tree.prTarget}\`.`);
+  if (tree.temporary) parts.push('This is a temporary name: rename the branch to fit the work (`git branch -m`) before your first commit.');
+  return parts.join(' ');
 }
 
 export interface AppendixInput {

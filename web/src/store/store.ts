@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { api, ApiError, type EndedSummary, type MessagesPage } from '../lib/api'
 import type { McpjsonDecisions } from '../lib/mcpjson'
-import type { RemoveWorktreeMode, WorktreeLaunch } from '../lib/worktree'
+import type { EndWithWorktreeRequest, WorktreeLaunch } from '@orbital/shared/worktree'
+import { endRefused, type EndAnswer } from '../lib/worktree'
 import { getSocket } from '../lib/socket'
 import {
   afterAnswer,
@@ -683,6 +684,13 @@ export interface OrbitalActions {
     machine?: string
     /** Start in a new linked worktree (`api.createSession`). */
     worktree?: WorktreeLaunch
+    /**
+     * The id this launch goes out under; omitted, a fresh one. A launch sent
+     * again after its answer was lost passes the first attempt's
+     * (`useLaunchAttempt`): the server answers a repeat with the first
+     * launch's answer instead of starting a second session.
+     */
+    sessionId?: string
   }, images?: readonly SentAttachment[]): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[] | null>
@@ -742,7 +750,7 @@ export interface OrbitalActions {
    * reports it (and the confirm dialog stays open). `undo` raises the toast
    * whose Undo is `reopenSession`.
    */
-  trashSession(id: string, opts: { undo: boolean; removeWorktree?: RemoveWorktreeMode }): Promise<void>
+  trashSession(id: string, opts: { undo: boolean } & EndWithWorktreeRequest): Promise<EndAnswer>
   /**
    * The trash's Undo: takes the End back (`POST …/reopen`) and, when the drop
    * took a pin, puts the pin back. Optimistic; a failure rolls back and
@@ -754,9 +762,11 @@ export interface OrbitalActions {
    * is written here: the server publishes the `ended` status on the
    * `sessions` topic like any other. Rejects when the request fails, so the
    * confirm dialog can stay open and report it. `removeWorktree`: End's
-   * "Also remove worktree" row (spec 2026-11-02-work-in-a-worktree-design).
+   * "Also remove worktree" row (spec 2026-11-02-work-in-a-worktree-design);
+   * the answer says whether the worktree changed under it, so nothing ended
+   * (`endRefused`), or what became of it (`endedWorktreeNote`).
    */
-  endSession(id: string, opts?: { removeWorktree?: RemoveWorktreeMode }): Promise<void>
+  endSession(id: string, opts?: EndWithWorktreeRequest): Promise<EndAnswer>
   /** Moves (or, with null, clears) a tag clump's stored home on the map. */
   setTagAnchor(tagId: number, anchor: { x: number; y: number } | null): Promise<void>
   /** Moves a tag to `toIndex` in the one order every tag list follows (spec 2026-10-25-tag-toggles-and-order-design § 2). */
@@ -2118,7 +2128,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // as it has anything, while `Hub.publish` keeps no backlog — so anything
     // said before the subscribe was simply lost. Now there is nothing to
     // lose: the window never opens.
-    const sessionId = crypto.randomUUID()
+    const sessionId = body.sessionId ?? crypto.randomUUID()
 
     // Imperative on purpose. Setting state and letting App's effect subscribe
     // would put a React commit between here and the request, which is the
@@ -2625,8 +2635,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   async endSession(id, opts) {
-    if (opts?.removeWorktree) await api.endSession(id, { removeWorktree: opts.removeWorktree })
-    else await api.endSession(id)
+    return api.endSession(id, opts)
   },
 
   /**
@@ -2641,14 +2650,19 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
    * dropped) is not ended again: the drop is then just the unpin, and
    * its Undo just the re-pin.
    *
+   * End's worktree row rides along (`removeWorktree`, `worktreePath`). A
+   * refusal (the worktree changed under the confirmation) ended nothing and
+   * rolls back like a failure, but resolves with the refusal for the dialog
+   * to say; a worktree that stayed is still an End and keeps the write.
+   *
    * With `undo`, success raises the toast; it goes by itself like every
    * info reply (`ui/FeedbackNotice`). The session itself stays one click
    * away in the sidebar's HISTORY, so the undo is a convenience, not the
    * only way back.
    */
-  async trashSession(id, { undo, removeWorktree }) {
+  async trashSession(id, { undo, ...worktree }) {
     const session = get().sessions[id]
-    if (!session) return
+    if (!session) return { ok: true }
     const previousStatus = session.status
     const previousPin = session.pinnedAt ?? null
     const wasPinned = previousPin != null
@@ -2663,12 +2677,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       else apply()
     }
     write({ status: 'ended', pinnedAt: null })
+    let answer: EndAnswer = { ok: true }
     if (!alreadyEnded) {
       try {
-        await api.endSession(id, { unpin: wasPinned, ...(removeWorktree ? { removeWorktree } : {}) })
+        answer = await api.endSession(id, { unpin: wasPinned, ...worktree })
       } catch (err) {
         write({ status: previousStatus, pinnedAt: previousPin })
         throw err
+      }
+      if (endRefused(answer)) {
+        write({ status: previousStatus, pinnedAt: previousPin })
+        return answer
       }
     } else if (wasPinned) {
       try {
@@ -2678,7 +2697,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         throw err
       }
     }
-    if (!undo) return
+    if (!undo) return answer
     const title = session.title || 'Session'
     const toast: Toast = {
       kind: 'info',
@@ -2696,6 +2715,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       },
     }
     set({ toast })
+    return answer
   },
 
   async reopenSession(id, repin) {

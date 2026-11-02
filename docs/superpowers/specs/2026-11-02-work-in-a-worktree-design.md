@@ -89,9 +89,10 @@ missing directory shows nothing.
   share its branch and files."
 - **On (A3).** BRANCH and BASE unfold under the switch.
 
-A *live* session is one whose status is anything but `ended`, terminal
-sessions included. A subagent counts as well, when it is running in the main
-checkout. The lookup is `WorkingTrees.sessionsAt`.
+A *live* session is an Orbital session whose status is anything but
+`ended`. Terminal sessions do not count: Orbital shows them but does not
+drive them. A running subagent of a live session counts as well, when it
+works in the main checkout. The lookup is `WorkingTrees.sessionsAt`.
 
 ### BRANCH
 
@@ -160,7 +161,7 @@ When the object is present, the server does the following before
    - When the call fails, takes longer than `BRANCH_NAME_TIMEOUT_MS`, or there
      is no first prompt, the branch becomes `claude/<first 8 characters of the
      session id>`. The session is then told to rename it before its first
-     commit.
+     commit. The failure is recorded in the error log, never shown.
 2. **Create the worktree:** `git worktree add -b <branch>
    <repo-root>/.claude/worktrees/<leaf> <base>`. The directory name `<leaf>`
    is the last segment of the branch name, with `-2` and so on added when the
@@ -227,8 +228,11 @@ Both are added to the phone's allowlist in the `spawn` group.
 needs to be stored. When the working tree is a linked worktree, whoever
 created it, the appendix adds:
 
-> You run in the worktree `<path>` on branch `<branch>`. Open the PR against
-> `<gh-merge-base, or the default branch>`.
+> You run in the worktree `<path>` on branch `<branch>`.
+
+When `branch.<branch>.gh-merge-base` is set, it adds: "Its pull request
+targets `<gh-merge-base>`." The sentence informs the session; it does not
+tell it to open a PR.
 
 When the branch is the `claude/<id>` fallback, the appendix adds one more
 sentence: "This is a temporary name: rename the branch to fit the work
@@ -288,18 +292,25 @@ The local branch is never deleted.
 
 1. **In End session's confirmation** (`EndDialog`). This is the main place.
    When the session works in a worktree and C3 does not apply, the dialog
-   gains a row: "Also remove worktree <leaf>" plus the variant's line. In C1
-   it is checked; in C2 it is unchecked, and checking it says what is lost.
+   gains a row: "Also remove worktree <leaf>" plus the variant's line. It starts
+   checked only in C1 with a merged or closed PR, when the work is done.
+   Otherwise it starts unchecked, so a session waiting on review keeps its
+   folder. In C2, checking it says what is lost.
    Ticking the box in C2a turns the line to "Discards 3 uncommitted files"
    in the soft error ink, and the End button to *End and discard* (63h).
-   `POST /api/sessions/:id/end` gains `removeWorktree?: 'clean' | 'force'`.
-   The server removes the worktree after the session has stopped. Ending
-   with the box unticked counts as *Keep*: the strip does not come back for
-   that worktree.
+   `POST /api/sessions/:id/end` gains `removeWorktree?: 'clean' | 'force'`
+   and `worktreePath`, the path the row showed; another path now is refused
+   with `worktree_state_changed` before anything ends. The server removes the
+   worktree after the session has stopped. Once the session has ended, the
+   answer is 200 whatever became of the worktree: `worktreeRemoved: false`
+   with `worktree_failed` (git refused, and the error is recorded) or
+   `not_worktree`. Ending with the box unticked counts as *Keep*: the strip
+   does not come back for that worktree.
 2. **A strip in the detail panel** (63e). It is 46 px tall, directly under the
-   where row, and never in the transcript. It is shown only when the session
-   is not working (idle, needs input or ended), its branch is pushed and has
-   a PR (open, merged or closed), and C3 does not apply. *Keep* hides the
+   where row, and never in the transcript. It is shown only for an ended
+   session whose branch is pushed and has a PR (open, merged or closed), and
+   only when C3 does not apply. A live session never shows it, so the
+   transcript does not jump; removal stays in End and in ⋯. *Keep* hides the
    strip for that worktree for good; the dismissal is remembered on the
    server, keyed by the worktree's path. It hides only the strip: End
    session's confirmation still offers removal, and ⋯ → *Remove worktree*
@@ -311,9 +322,12 @@ The local branch is never deleted.
 **A session that has not ended.** Removing its worktree would leave its next
 turn in a deleted directory. So:
 
-- For an Orbital session, the strip and the menu say *End and remove*. The
-  server ends the session first, then removes the worktree, the same order
-  as `removeWorktree` on end.
+- For an Orbital session, the menu says *End and remove*. The request
+  carries the choice the user saw (`endSession`) and the path they
+  confirmed. When either no longer matches the session's state, the server
+  refuses with `worktree_state_changed` instead of ending a session nobody
+  confirmed ending. Then it ends the session first and removes the worktree
+  second, the same order as `removeWorktree` on end.
 - A terminal session that is still live is not offered removal: Orbital
   cannot stop it. It becomes eligible once it has ended.
 
@@ -330,15 +344,21 @@ phone's New Session posts to the same `POST /api/sessions`.
   place. BASE opens a sheet in the `BranchSheet` shell, with its rows in the
   same order as the desktop picker. The auto-on and the hint line are the
   same as on the desktop.
-- **Session screen:** the cleanup row sits under the ended marker, or under
-  the where line of a session that has not ended, under the same rule as the
-  desktop strip. It never opens by itself.
+- **Session screen:** the cleanup row sits at the end of an ended session's
+  transcript, under the same rule as the desktop strip. It never opens by
+  itself.
   Tapping it opens a sheet with the same two choices. The phone's End
   confirmation gains the same row as `EndDialog`.
 - **Allowlist:**
   - `spawn` group: `GET /api/worktree/options`, `POST /api/worktree/fetch`;
   - `sessions` group: `GET /api/sessions/:id/worktree`, `POST
     /api/sessions/:id/worktree/remove`, plus the new end body field.
+- **Slow routes over the tunnel:** a worktree launch and a fetch can take
+  longer than a tunnel request's usual wait, so the channel waits longer for
+  them (`slowRequestTimeoutMs` in `shared/src/worktree.ts`). A launch whose
+  answer was lost anyway can be sent again with the same session id: the
+  server answers a repeat with the first launch's answer instead of making a
+  second session and worktree.
 - **An older Mac:** the group is gated in `MAC_FEATURES` as `worktreeLaunch`,
   with the desktop version this ships in. Against an older Mac, the phone
   hides the group and the cleanup row.
@@ -358,7 +378,7 @@ These are decisions taken after the canvas was drawn:
   and nothing is stored about who made it.
 - The canvas offers cleanup when a session ends or is archived. Orbital's
   ending is *End session*, so cleanup is a row in its confirmation. The panel
-  strip also appears on an idle session whose branch is pushed and has a PR.
+  strip appears on an ended session whose branch is pushed and has a PR.
 - DEVICE is in scope: the canvas does not draw it, and the group works for
   every device.
 - 63h's rule note says the End row appears only for a worktree Orbital made.

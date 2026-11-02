@@ -1,5 +1,6 @@
+import type { WorktreeState } from '@orbital/shared/worktree'
 import type { SessionStatus } from '../lib/types'
-import { BASE_GROUPS, cleanupChoice, stripShown, type BaseRow, type WorktreeState } from '../lib/worktree'
+import { BASE_GROUPS, baseMatches, cleanupChoice, stripShown, type BaseRow } from '../lib/worktree'
 
 /**
  * Work in a worktree on the phone (spec 2026-11-02-work-in-a-worktree-design
@@ -8,14 +9,13 @@ import { BASE_GROUPS, cleanupChoice, stripShown, type BaseRow, type WorktreeStat
  */
 
 /**
- * Where the session screen draws the cleanup row, or null for nowhere. Only
- * where the desktop's strip would show (`stripShown`): under the end of an
- * ended session's transcript, or under the header's where line for a session
- * that has not ended.
+ * Where the session screen draws the cleanup row, or null for nowhere: under
+ * the end of an ended session's transcript, exactly where the desktop's strip
+ * would show (`stripShown`). A live session never gets it, so its transcript
+ * does not jump; its worktree goes through End.
  */
-export function cleanupRowPlace(status: SessionStatus, state: WorktreeState | null): 'tail' | 'header' | null {
-  if (!stripShown(status, state)) return null
-  return status === 'ended' ? 'tail' : 'header'
+export function cleanupRowPlace(status: SessionStatus, state: WorktreeState | null): 'tail' | null {
+  return stripShown(status, state) ? 'tail' : null
 }
 
 /**
@@ -41,15 +41,14 @@ export type BaseSheetLine = { kind: 'caption'; label: string } | { kind: 'row'; 
 
 /**
  * The BASE sheet's lines (canvas 63g BASE SHEET): the desktop picker's rows in
- * its order, each group under its caption, narrowed by the search (case
- * aside, anywhere in the name). A group with nothing left loses its caption.
+ * its order, each group under its caption, narrowed by the desktop picker's
+ * search (`baseMatches`). A group with nothing left loses its caption.
  */
 export function baseSheetLines(rows: readonly BaseRow[], query: string): BaseSheetLine[] {
-  const q = query.trim().toLowerCase()
   const lines: BaseSheetLine[] = []
   let group: string | null = null
   for (const row of rows) {
-    if (q && !row.label.toLowerCase().includes(q)) continue
+    if (!baseMatches(row, query)) continue
     if (row.group !== group) {
       group = row.group
       lines.push({ kind: 'caption', label: row.group })

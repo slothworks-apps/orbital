@@ -1,20 +1,25 @@
 import { describe, expect, it } from 'vitest'
+import type { WorktreeState } from '@orbital/shared/worktree'
+import { launchAttempt } from '../lib/useLaunchAttempt'
 import {
+  baseMatches,
   baseNote,
   baseRows,
   branchProblem,
   cleanupChoice,
-  endRemoveMode,
+  endRefused,
+  endRequest,
   endRowCopy,
   endRowStartsTicked,
+  endedWorktreeNote,
+  occupancyHint,
   prTarget,
   recentDirectories,
-  repoOfWorktreeDir,
+  removeRequest,
   stripShown,
   variantLine,
   worktreeLaunchError,
   type WorktreeRepo,
-  type WorktreeState,
 } from '../lib/worktree'
 
 const repo: WorktreeRepo = {
@@ -23,7 +28,7 @@ const repo: WorktreeRepo = {
   treeRoot: '/r/orbital',
   defaultBranch: 'main',
   currentBranch: 'fix/tray-flicker',
-  occupants: [{ sessionId: 'a', title: 'Fixing tray flicker', tagId: 1, branch: 'fix/tray-flicker' }],
+  occupants: [{ sessionId: 'a', title: 'Fixing tray flicker', tagId: '1', branch: 'fix/tray-flicker' }],
   branchForm: 'feat/',
   branches: {
     local: ['main', 'fix/tray-flicker', 'feat/desk-theme'],
@@ -50,13 +55,6 @@ const state = (patch: Partial<WorktreeState> = {}): WorktreeState => ({
 })
 
 describe('recentDirectories', () => {
-  it('shows a worktree directory, or one inside it, as its repository', () => {
-    expect(repoOfWorktreeDir('/r/orbital/.claude/worktrees/tray')).toBe('/r/orbital')
-    expect(repoOfWorktreeDir('/r/orbital/.claude/worktrees/tray/server')).toBe('/r/orbital')
-    expect(repoOfWorktreeDir('/r/orbital/.claude/worktrees/')).toBe('/r/orbital/.claude/worktrees/')
-    expect(repoOfWorktreeDir('/r/orbital/.claude')).toBe('/r/orbital/.claude')
-  })
-
   it('lists a repository once, where it was most recent', () => {
     const rows = recentDirectories([
       { cwd: '/r/orbital/.claude/worktrees/a', lastModel: 'm1', lastAt: 3 },
@@ -151,45 +149,109 @@ describe('variantLine', () => {
   })
 })
 
-describe('End’s worktree row', () => {
-  it('starts ticked only when nothing would be lost', () => {
-    expect(endRowStartsTicked(state())).toBe(true)
-    expect(endRowStartsTicked(state({ variant: 'c2a', uncommittedFiles: 3 }))).toBe(false)
-    expect(endRowStartsTicked(state({ variant: 'c2b', unpushedCommits: 2 }))).toBe(false)
+describe('occupancyHint', () => {
+  const tags = [{ id: 1, name: 'Orbital', hue: 200 }] as unknown as Parameters<typeof occupancyHint>[2]
+
+  it('names the first occupant with its tag and the branch it is on', () => {
+    const hint = occupancyHint(repo, false, tags)
+    expect(hint).toMatchObject({ name: 'Fixing tray flicker', branch: 'fix/tray-flicker', tail: '.' })
+    expect(hint?.dot).not.toBeNull()
   })
 
-  it('names the discard and forces only for uncommitted files, ticked', () => {
+  it('falls back to the checkout’s branch and no colour, and adds the consequence once off by hand', () => {
+    const hint = occupancyHint(
+      { currentBranch: 'main', occupants: [{ sessionId: 'b', title: '', tagId: null, branch: null }] },
+      true,
+      tags,
+    )
+    expect(hint).toMatchObject({ name: 'A session', dot: null, branch: 'main' })
+    expect(hint?.tail).toContain('share its branch')
+    expect(occupancyHint({ ...repo, occupants: [] }, false, tags)).toBeNull()
+  })
+})
+
+describe('baseMatches', () => {
+  it('matches anywhere in the name, case and spaces aside; an empty search matches all', () => {
+    expect(baseMatches({ label: 'origin/release/1.9' }, ' RELEASE ')).toBe(true)
+    expect(baseMatches({ label: 'feat/desk' }, 'tray')).toBe(false)
+    expect(baseMatches({ label: 'feat/desk' }, '  ')).toBe(true)
+  })
+})
+
+describe('End’s worktree row', () => {
+  it('starts ticked only when nothing would be lost and the PR is merged or closed', () => {
+    expect(endRowStartsTicked(state({ pr: { number: 1, state: 'merged' } }))).toBe(true)
+    expect(endRowStartsTicked(state({ pr: { number: 1, state: 'closed' } }))).toBe(true)
+    expect(endRowStartsTicked(state())).toBe(false)
+    expect(endRowStartsTicked(state({ pr: { number: 1, state: 'draft' } }))).toBe(false)
+    expect(endRowStartsTicked(state({ pr: null }))).toBe(false)
+    expect(endRowStartsTicked(state({ variant: 'c2a', uncommittedFiles: 3, pr: { number: 1, state: 'merged' } }))).toBe(false)
+    expect(endRowStartsTicked(state({ variant: 'c2b', unpushedCommits: 2, pr: { number: 1, state: 'closed' } }))).toBe(false)
+  })
+
+  it('names the discard, forces only for uncommitted files and sends the path it showed, ticked', () => {
     const dirty = state({ variant: 'c2a', uncommittedFiles: 3 })
     expect(endRowCopy(dirty, true)).toEqual({ line: 'Discards 3 uncommitted files', loses: true, endLabel: 'End and discard' })
     expect(endRowCopy(dirty, false).endLabel).toBe('End session')
-    expect(endRemoveMode(dirty, true)).toBe('force')
-    expect(endRemoveMode(dirty, false)).toBeUndefined()
-    expect(endRemoveMode(state({ variant: 'c2b', unpushedCommits: 1 }), true)).toBe('clean')
-    expect(endRemoveMode(state(), true)).toBe('clean')
+    expect(endRequest(dirty, true)).toEqual({ removeWorktree: 'force', worktreePath: dirty.path })
+    expect(endRequest(dirty, false)).toEqual({})
+    expect(endRequest(state({ variant: 'c2b', unpushedCommits: 1 }), true).removeWorktree).toBe('clean')
+    expect(endRequest(state(), true).removeWorktree).toBe('clean')
   })
 
   it('offers nothing while another session is in the tree or the tree cannot go', () => {
-    expect(endRemoveMode(state({ variant: 'c3' }), true)).toBeUndefined()
-    expect(endRemoveMode(state({ removable: false }), true)).toBeUndefined()
-    expect(endRemoveMode(null, true)).toBeUndefined()
+    expect(endRequest(state({ variant: 'c3' }), true)).toEqual({})
+    expect(endRequest(state({ removable: false }), true)).toEqual({})
+    expect(endRequest(null, true)).toEqual({})
+  })
+
+  it('reads End’s answer: a refusal ended nothing; a worktree that stayed is still an End', () => {
+    expect(endRefused({ error: 'worktree_state_changed' })).toBe(true)
+    expect(endRefused({ ok: true })).toBe(false)
+    expect(endedWorktreeNote({ ok: true, worktreeRemoved: true })).toBeNull()
+    expect(endedWorktreeNote({ ok: true })).toBeNull()
+    expect(endedWorktreeNote({ ok: true, worktreeRemoved: false, error: 'worktree_failed', message: 'locked' })).toBe(
+      'Session ended. The worktree stayed: locked',
+    )
+    expect(endedWorktreeNote({ ok: true, worktreeRemoved: false, error: 'not_worktree', message: '' })).toBe(
+      'Session ended. The worktree stayed.',
+    )
+  })
+})
+
+describe('removeRequest', () => {
+  it('sends what was shown: End and remove ends, Discard forces, with the confirmed path', () => {
+    expect(removeRequest(state({ endsSession: true }))).toEqual({ force: false, endSession: true, path: state().path })
+    expect(removeRequest(state({ variant: 'c2a' }))).toEqual({ force: true, endSession: false, path: state().path })
+  })
+})
+
+describe('launchAttempt', () => {
+  it('repeats the id for the same body and mints a new one for another', () => {
+    let n = 0
+    const mint = () => `id-${++n}`
+    const first = launchAttempt(null, { cwd: '/r', prompt: 'a' }, mint)
+    expect(launchAttempt(first, { cwd: '/r', prompt: 'a' }, mint).id).toBe('id-1')
+    expect(launchAttempt(first, { cwd: '/r', prompt: 'b' }, mint).id).toBe('id-2')
   })
 })
 
 describe('stripShown', () => {
-  it('shows for a resting session whose pushed branch has a PR', () => {
-    expect(stripShown('idle', state())).toBe(true)
+  it('shows only for an ended session whose pushed branch has a PR', () => {
     expect(stripShown('ended', state())).toBe(true)
-    expect(stripShown('needs_input', state())).toBe(true)
+    expect(stripShown('ended', state({ pr: { number: 7, state: 'merged' } }))).toBe(true)
   })
 
-  it('stays away while working, without a PR or a push, in C3, unremovable or kept', () => {
+  it('never for a live session, nor without a PR or a push, in C3, unremovable or kept', () => {
+    expect(stripShown('idle', state())).toBe(false)
+    expect(stripShown('needs_input', state())).toBe(false)
     expect(stripShown('working', state())).toBe(false)
-    expect(stripShown('idle', state({ pr: null }))).toBe(false)
-    expect(stripShown('idle', state({ pushed: false }))).toBe(false)
-    expect(stripShown('idle', state({ variant: 'c3' }))).toBe(false)
-    expect(stripShown('idle', state({ removable: false }))).toBe(false)
-    expect(stripShown('idle', state({ dismissed: true }))).toBe(false)
-    expect(stripShown('idle', null)).toBe(false)
+    expect(stripShown('ended', state({ pr: null }))).toBe(false)
+    expect(stripShown('ended', state({ pushed: false }))).toBe(false)
+    expect(stripShown('ended', state({ variant: 'c3' }))).toBe(false)
+    expect(stripShown('ended', state({ removable: false }))).toBe(false)
+    expect(stripShown('ended', state({ dismissed: true }))).toBe(false)
+    expect(stripShown('ended', null)).toBe(false)
   })
 })
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { BASE_GROUPS, type BaseRow, type WorktreeState } from '../lib/worktree'
+import type { WorktreeState } from '@orbital/shared/worktree'
+import { BASE_GROUPS, type BaseRow } from '../lib/worktree'
 import { baseSheetLines, cleanupRowPlace, cleanupSheetButtons } from '../mobile/worktree'
 
 const state = (over: Partial<WorktreeState> = {}): WorktreeState => ({
@@ -23,14 +24,14 @@ describe('cleanupRowPlace', () => {
     expect(cleanupRowPlace('ended', state())).toBe('tail')
   })
 
-  it('puts it under the where line of a session that has not ended, open PR included', () => {
-    expect(cleanupRowPlace('idle', state())).toBe('header')
-    expect(cleanupRowPlace('needs_input', state({ pr: { number: 7, state: 'merged' } }))).toBe('header')
+  it('never for a session that has not ended: its worktree goes through End', () => {
+    const merged = { pr: { number: 7, state: 'merged' as const } }
+    expect(cleanupRowPlace('idle', state(merged))).toBeNull()
+    expect(cleanupRowPlace('needs_input', state(merged))).toBeNull()
+    expect(cleanupRowPlace('working', state(merged))).toBeNull()
   })
 
-  it('follows the desktop strip: never while working, without a PR, unpushed, shared or kept', () => {
-    const merged = { pr: { number: 7, state: 'merged' as const } }
-    expect(cleanupRowPlace('working', state(merged))).toBeNull()
+  it('follows the desktop strip: never without a PR, unpushed, shared or kept', () => {
     expect(cleanupRowPlace('ended', state({ pr: null }))).toBeNull()
     expect(cleanupRowPlace('ended', state({ pushed: false }))).toBeNull()
     expect(cleanupRowPlace('ended', state({ variant: 'c3' }))).toBeNull()

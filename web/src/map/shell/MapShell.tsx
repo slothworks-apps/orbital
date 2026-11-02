@@ -16,6 +16,7 @@ import { Button } from '../../ui/Button'
 import { shortcutLabel } from '../../lib/keymap'
 import { useCommand } from '../../lib/commands'
 import { EndDialog, type EndOptions } from '../../panels/EndDialog'
+import type { EndAnswer } from '../../lib/worktree'
 import type { CameraState } from '../camera'
 import { useDockClearancePx, useSideSlotWidth } from '../../terminal/useTerminalHost'
 
@@ -83,7 +84,7 @@ export function MapShell(props: {
   onErrorsClick?: () => void
   confirmEndId?: string | null
   onConfirmEndClose?: () => void
-  onConfirmEnd?: (id: string, opts: EndOptions) => Promise<void>
+  onConfirmEnd?: (id: string, opts: EndOptions) => Promise<EndAnswer>
 }) {
   const errorLogOpen = useOrbital((s) => s.ui.dialog === 'errors')
   const errorsUnseen = useOrbital((s) => s.errorsUnseen)

@@ -15,12 +15,13 @@ import { sessionColumns, sessions } from '../db/schema.js';
 import type { OrbitalDb } from '../db/database.js';
 import { expandHome } from '../paths.js';
 import type { SessionRow } from '../types.js';
+import type { WorktreeRemoveRefusal } from '@orbital/shared/worktree';
 import type { WorktreeService } from '../worktree/service.js';
 
 /** The HTTP status of each refusal of a removal. */
-const REFUSAL_STATUS = {
-  not_worktree: 404, worktree_shared: 409, worktree_live_terminal: 409, worktree_dirty: 409,
-} as const;
+const REFUSAL_STATUS: Record<WorktreeRemoveRefusal, number> = {
+  not_worktree: 404, worktree_shared: 409, worktree_live_terminal: 409, worktree_dirty: 409, worktree_state_changed: 409,
+};
 
 export function registerWorktreeRoutes(
   app: FastifyInstance,
@@ -57,13 +58,23 @@ export function registerWorktreeRoutes(
     return reply.type('application/json').send(JSON.stringify(await worktrees.state(row)));
   });
 
+  /**
+   * Removes the session's worktree. The body says what the user confirmed:
+   * `endSession` true when they were shown *End and remove*, and the `path`
+   * they saw. When either no longer matches, nothing ends and nothing is
+   * removed: 409 `worktree_state_changed` (adr
+   * a-session-ends-only-when-the-user-ends-it).
+   */
   app.post('/api/sessions/:id/worktree/remove', async (req, reply) => {
     const row = rowOf((req.params as { id: string }).id);
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    const { force } = (req.body ?? {}) as { force?: unknown };
-    const res = await worktrees.remove(row, force === true, deps.endSession);
+    const { force, endSession, path } = (req.body ?? {}) as { force?: unknown; endSession?: unknown; path?: unknown };
+    if (path !== undefined && typeof path !== 'string') return reply.code(400).send({ error: 'invalid_path' });
+    const res = await worktrees.remove(row, {
+      force: force === true, endSession: endSession === true, path, end: deps.endSession,
+    });
     if (res.ok) return { ok: true };
-    if (res.error === 'worktree_failed') return reply.code(500).send(res);
+    if (res.error === 'worktree_failed') return reply.code(500).send({ error: res.error, message: res.message });
     return reply.code(REFUSAL_STATUS[res.error]).send({ error: res.error });
   });
 

@@ -30,6 +30,7 @@ import { MissingDirectorySheet } from './MissingDirectorySheet'
 import { blocksLaunch, directoryLine, useDirectoryState } from '../../lib/useDirectoryState'
 import { defaultSupports, deviceSupports } from '../version'
 import { useWorktreeChoice } from '../../lib/useWorktreeChoice'
+import { useLaunchAttempt } from '../../lib/useLaunchAttempt'
 import { recentDirectories, worktreeLaunchError } from '../../lib/worktree'
 import { NewSessionWorktree } from './NewSessionWorktree'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
@@ -45,6 +46,7 @@ export function NewSessionScreen() {
   const tags = useOrbital((s) => s.tags)
   const sessions = useOrbital((s) => s.sessions)
   const launchSession = useOrbital((s) => s.launchSession)
+  const launchAttempt = useLaunchAttempt()
   const { allAsleep, macName, macVersion, link, rechecking, devices, members } = useMobile(
     useShallow((s) => ({
       allAsleep: isMacAsleep(s), macName: s.macName, macVersion: s.macVersion,
@@ -273,10 +275,12 @@ export function NewSessionScreen() {
     }
     try {
       const refs = images.map((image) => image.entry.ref)
-      const sessionId = await launchSession(
-        launchRequest({ cwd, prompt, files, mode, model, claudeDirId, refs, mcpjson, machine, worktree: worktree.launch }),
-        images,
-      )
+      const body = launchRequest({ cwd, prompt, files, mode, model, claudeDirId, refs, mcpjson, machine, worktree: worktree.launch })
+      // One id per attempt: Start pressed again after the tunnel gave up on a
+      // slow worktree launch repeats it, and the Mac answers with the first
+      // launch rather than making a second session and worktree.
+      const sessionId = await launchSession({ ...body, sessionId: launchAttempt.idFor(body) }, images)
+      launchAttempt.settle()
       // The next New session opens on it (canvas 50j).
       if (machine !== null) rememberDevice(machine)
       attachments.reset()

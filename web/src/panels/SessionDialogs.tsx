@@ -3,6 +3,7 @@ import { ClearDialog } from './ClearDialog'
 import { EndDialog } from './EndDialog'
 import { TakeOverDialog } from './TakeOverDialog'
 import { RemoveWorktreeDialog } from './WorktreeCleanup'
+import { endRefused } from '../lib/worktree'
 
 /**
  * Take over, Clear and End, for whichever session asked: the detail header
@@ -29,16 +30,19 @@ export function SessionDialogs({ standalone = false }: { standalone?: boolean })
         sessionId={sessionId}
         onClose={close}
         onEnd={async (endedId, opts) => {
-          await useOrbital.getState().endSession(endedId, opts)
+          const answer = await useOrbital.getState().endSession(endedId, opts)
+          // Refused (the worktree changed under the confirmation): nothing ended.
+          if (endRefused(answer)) return answer
           // `end_closes_panel`: an ended session has nothing left to do here,
           // so the panel goes the way collapse sends it. Not in a detached
           // window, which is the panel itself, and not when the selection
           // has already moved on while the end was in flight — or was never
           // on it, for an End from the context menu.
-          if (standalone || !endClosesPanel(useOrbital.getState().settings)) return
+          if (standalone || !endClosesPanel(useOrbital.getState().settings)) return answer
           useOrbital.setState((s) =>
             s.ui.selectedId === endedId ? { ui: { ...s.ui, selectedId: null } } : s,
           )
+          return answer
         }}
       />
     </>

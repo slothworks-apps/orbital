@@ -54,6 +54,7 @@ import {
 import { Select } from '../ui/Select'
 import { KindGlyph } from '../ui/KindGlyph'
 import { useWorktreeChoice } from '../lib/useWorktreeChoice'
+import { useLaunchAttempt } from '../lib/useLaunchAttempt'
 import { recentDirectories, worktreeLaunchError, worktreeSummary } from '../lib/worktree'
 import { WorktreeGroup } from './WorktreeGroup'
 
@@ -508,6 +509,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** RECENT, with a worktree's directory shown as its repository, once. */
   const recent = useMemo(() => recentDirectories(projects), [projects])
 
+  const launchAttempt = useLaunchAttempt()
+
   /** The launch itself, with the question's answers when it was asked. */
   const worktreeLaunch = worktree.launch
   const worktreeBlocked = worktree.blocked
@@ -528,7 +531,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       // subscribe to the new session's topic before its request goes out, and
       // the socket is the store's to reach.
       // See `docs/fixes/first-turn-can-outrun-the-ws-subscription.md`.
-      const sessionId = await launchSession({
+      const body = {
         cwd: cwd.trim(),
         prompt: promptWithFiles(prompt, files.map((file) => file.path)),
         permissionMode,
@@ -545,7 +548,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         ...(mcpjson ? { mcpjson } : {}),
         ...(machine ? { machine } : {}),
         ...(worktreeLaunch ? { worktree: worktreeLaunch } : {}),
-      }, images)
+      }
+      // One id per attempt: Launch pressed again on the same form after a
+      // lost answer repeats it, and the server answers instead of launching twice.
+      const sessionId = await launchSession({ ...body, sessionId: launchAttempt.idFor(body) }, images)
+      launchAttempt.settle()
       // A tag is remembered only when it was the user's pick — this launch's,
       // or the previous one's left standing — never a rule's match or the
       // selected planet's tag.
@@ -582,7 +589,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, setWorktreeLaunchError])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, setWorktreeLaunchError, launchAttempt])
 
   /**
    * Launch: asks about the project's undecided `.mcp.json` servers first,

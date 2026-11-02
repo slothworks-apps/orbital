@@ -5,7 +5,7 @@ import { modelByAnyId } from '../lib/models'
 import { claudeDirPrefill, type ClaudeDirPrefillSource } from '../lib/claudeDirs'
 import type { OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
 import type { DirectoryRow } from '../lib/directorySearch'
-import type { WorktreeLaunch } from '../lib/worktree'
+import type { WorktreeLaunch } from '@orbital/shared/worktree'
 import { humanizeError } from './composer'
 
 /**

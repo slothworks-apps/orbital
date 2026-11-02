@@ -109,3 +109,13 @@ export const FADE_MS = 140
 
 /** The panel curve as a CSS value, for transitions written as inline styles. */
 export const EASE_CURVE = 'cubic-bezier(.2,.8,.2,1)'
+
+/**
+ * New session's WORKTREE group (Worktree Group component, canvas 63a; the
+ * phone's 63g on the same clock): BRANCH and BASE unfold under the switch.
+ * A touch longer than `HEIGHT_MS`, on the canvas's own curve.
+ */
+export const UNFOLD_TIMING = { heightMs: 260, fadeMs: 200, ease: 'cubic-bezier(.2,.8,.25,1)' } as const
+
+/** The worktree switch's track and knob (Worktree Group, 63g). */
+export const SWITCH_MS = 180

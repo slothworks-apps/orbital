@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react'
-import { api } from '../../lib/api'
+import type { WorktreeState } from '@orbital/shared/worktree'
 import type { ApiSession } from '../../lib/types'
 import { useSessionWorktree } from '../../lib/useSessionWorktree'
-import { cleanupAfterText, cleanupChoice, variantLine, type WorktreeRemoveRefusal, type WorktreeState } from '../../lib/worktree'
+import { useWorktreeActions } from '../../lib/useWorktreeActions'
+import { cleanupAfterText, variantLine } from '../../lib/worktree'
 import { useOrbital } from '../../store/store'
 import { sessionSupports } from '../version'
 import { BottomSheet, PrimaryButton, SecondaryButton } from '../ui'
@@ -11,26 +12,23 @@ import { cleanupRowPlace, cleanupSheetButtons } from '../worktree'
 /**
  * Removing a session's worktree from the phone (spec
  * 2026-11-02-work-in-a-worktree-design § The phone; canvas 63g CLEANUP): a
- * row on the session screen that never opens by itself, and the sheet it
- * opens with the desktop strip's two choices.
+ * row at the end of an ended session's transcript that never opens by
+ * itself, and the sheet it opens with the desktop strip's two choices, run
+ * the desktop's way (`useWorktreeActions`).
  */
 
-/** What a refusal says (the server's 409s): the state moved since it was read. The desktop's words. */
-const REFUSALS: Record<WorktreeRemoveRefusal, string> = {
-  worktree_shared: 'Another session is working in this worktree now.',
-  worktree_live_terminal: 'A terminal session is still running in this worktree.',
-  worktree_dirty: 'The worktree has uncommitted changes now.',
-}
-
-/** Said on the composer's line, like every request of this phone. */
-function sayError(message: string) {
-  useOrbital.setState({ toast: { kind: 'error', message } })
+/**
+ * Said on the composer's line, like every request of this phone — never
+ * through `reportError`, whose `/api/errors` POST is not the phone's to make.
+ */
+function sayError(err: unknown, fallback: string) {
+  useOrbital.setState({ toast: { kind: 'error', message: err instanceof Error ? err.message : fallback } })
 }
 
 export interface WorktreeCleanup {
   state: WorktreeState | null
-  /** Where the row goes (`cleanupRowPlace`), or null; the line after a press stays where the row was. */
-  place: 'tail' | 'header' | null
+  /** Whether the row (or the line after a press, where it was) is drawn at the transcript's end. */
+  shown: boolean
   /** The line left after Keep or Remove, in the row's place. */
   after: string | null
   sheet: boolean
@@ -50,77 +48,54 @@ export interface WorktreeCleanup {
 export function useWorktreeCleanup(session: ApiSession | undefined, offline: boolean): WorktreeCleanup {
   const served = session ? sessionSupports('worktreeLaunch', session.id) : false
   const { state, refresh } = useSessionWorktree(session, served && !offline)
+  const actions = useWorktreeActions(session?.id ?? null, sayError)
   const [sheet, setSheet] = useState(false)
-  const [busy, setBusy] = useState(false)
-  /** The line after a press, and where the row stood when it was pressed. */
-  const [after, setAfter] = useState<{ text: string; place: 'tail' | 'header' } | null>(null)
-  const rowPlace = session ? cleanupRowPlace(session.status, state) : null
-  const id = session?.id ?? null
+  /** The line after a press, where the row stood. */
+  const [after, setAfter] = useState<string | null>(null)
+  const rowShown = session ? cleanupRowPlace(session.status, state) !== null : false
 
-  const finish = useCallback(
-    (action: 'removed' | 'kept', from: WorktreeState) => {
-      setAfter({ text: cleanupAfterText(action, from), place: rowPlace ?? 'tail' })
-      setSheet(false)
-      refresh()
+  const run = useCallback(
+    (press: () => Promise<'removed' | 'kept' | 'refused' | null>) => {
+      if (!state || actions.busy) return
+      const from = state
+      void press().then((action) => {
+        if (!action) return
+        // A refusal is said by itself; the sheet closes on the state read again.
+        if (action !== 'refused') setAfter(cleanupAfterText(action, from))
+        setSheet(false)
+        refresh()
+      })
     },
-    [rowPlace, refresh],
+    [state, actions.busy, refresh],
   )
 
-  const remove = useCallback(() => {
-    if (!id || !state || busy) return
-    const from = state
-    setBusy(true)
-    api
-      .removeSessionWorktree(id, cleanupChoice(from).force)
-      .then((answer) => {
-        if ('error' in answer) {
-          sayError(REFUSALS[answer.error])
-          setSheet(false)
-          refresh()
-        } else finish('removed', from)
-      })
-      .catch((err: unknown) => sayError(err instanceof Error ? err.message : 'Could not remove the worktree'))
-      .finally(() => setBusy(false))
-  }, [id, state, busy, finish, refresh])
-
-  const keep = useCallback(() => {
-    if (!id || !state || busy) return
-    const from = state
-    setBusy(true)
-    api
-      .keepSessionWorktree(id)
-      .then(() => finish('kept', from))
-      .catch((err: unknown) => sayError(err instanceof Error ? err.message : 'Could not keep the worktree'))
-      .finally(() => setBusy(false))
-  }, [id, state, busy, finish])
-
-  const place = after ? after.place : rowPlace
+  const shown = after !== null || rowShown
   return {
     state,
-    place,
-    after: after?.text ?? null,
+    shown,
+    after,
     // The sheet goes with the row: a state that moved under it (another session came in) closes it.
-    sheet: sheet && rowPlace !== null,
+    sheet: sheet && rowShown,
     openSheet: () => setSheet(true),
     closeSheet: () => setSheet(false),
-    busy,
-    keep,
-    remove,
-    tailKey: place === 'tail' ? `wt:${after?.text ?? state?.variant ?? ''}` : '-',
+    busy: actions.busy,
+    keep: () => run(actions.keep),
+    remove: () => run(() => (state ? actions.remove(state) : Promise.resolve(null))),
+    tailKey: shown ? `wt:${after ?? state?.variant ?? ''}` : '-',
   }
 }
 
 /**
  * The row (canvas 63g): a 56px card under the end of an ended session's
- * transcript, or under the header's where line; after a press, the one mono
- * line saying what happened, where the row was.
+ * transcript; after a press, the one mono line saying what happened, where
+ * the row was.
  */
 export function WorktreeCleanupRow({ cleanup, className = '' }: { cleanup: WorktreeCleanup; className?: string }) {
   if (cleanup.after) {
     return <div className={`px-1 py-1.5 font-mono fs-11 text-ink-900/60 ${className}`}>{cleanup.after}</div>
   }
   const state = cleanup.state
-  if (!state || !cleanup.place) return null
+  if (!state || !cleanup.shown) return null
   return (
     <button
       type="button"

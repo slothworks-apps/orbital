@@ -103,12 +103,6 @@ export function withSuffix(name: string, taken: (candidate: string) => boolean, 
   return null;
 }
 
-/** The worktree's directory name: the last segment of its branch. */
-export function leafOf(branch: string): string {
-  const parts = branch.split('/').filter(Boolean);
-  return parts[parts.length - 1] ?? branch;
-}
-
 export const BRANCH_SYSTEM_PROMPT = `You name the git branch and the work session for a coding task.
 You are given the task's first message and recent branch names of the
 repository, which show the form its branch names take.
@@ -157,11 +151,26 @@ export interface BranchNamerDeps {
   timeoutMs?: number;
   /** The prompt's ceiling; the titler's `MAX_PROMPT_CHARS` by default. */
   maxPromptChars: number;
+  /**
+   * Told when the call fails, times out or answers something unusable, so
+   * the failure is recorded (adr errors-are-recorded-not-announced). The
+   * user still gets the temporary name and nothing else.
+   */
+  onFailure?: (failure: BranchNamingFailure) => void;
+}
+
+/** Why the naming call gave no name. */
+export interface BranchNamingFailure {
+  reason: 'timeout' | 'error' | 'unparsable';
+  message: string;
+  /** The stack of an error, or the reply that did not parse. */
+  detail: string | null;
 }
 
 /**
  * The one naming call. Never throws: a failure, a timeout or a reply that
- * does not parse is null, and the caller uses the temporary name.
+ * does not parse is null, and the caller uses the temporary name; each is
+ * handed to `onFailure` on the way.
  */
 export async function nameBranch(
   deps: BranchNamerDeps,
@@ -169,7 +178,8 @@ export async function nameBranch(
 ): Promise<{ branch: string; title: string | null } | null> {
   if (!input.prompt.trim()) return null;
   const abortController = new AbortController();
-  const timer = setTimeout(() => abortController.abort(), deps.timeoutMs ?? BRANCH_NAME_TIMEOUT_MS);
+  const timeoutMs = deps.timeoutMs ?? BRANCH_NAME_TIMEOUT_MS;
+  const timer = setTimeout(() => abortController.abort(), timeoutMs);
   try {
     const call = askOnce(deps.queryFn, buildBranchPrompt(input.prompt, input.recentNames, deps.maxPromptChars), {
       systemPrompt: BRANCH_SYSTEM_PROMPT,
@@ -182,10 +192,30 @@ export async function nameBranch(
     const timedOut = new Promise<null>((resolve) => abortController.signal.addEventListener('abort', () => resolve(null)));
     const reply = await Promise.race([call, timedOut]);
     call.catch(() => {});
-    return reply === null ? null : parseBranchReply(reply);
-  } catch {
+    if (reply === null) {
+      report(deps, { reason: 'timeout', message: `The branch naming call timed out after ${timeoutMs} ms.`, detail: null });
+      return null;
+    }
+    const parsed = parseBranchReply(reply);
+    if (!parsed) report(deps, { reason: 'unparsable', message: 'The branch naming call answered no usable branch name.', detail: reply });
+    return parsed;
+  } catch (err) {
+    report(deps, {
+      reason: 'error',
+      message: `The branch naming call failed: ${err instanceof Error ? err.message : String(err)}`,
+      detail: err instanceof Error ? err.stack ?? null : null,
+    });
     return null;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/** Hands a failure to `onFailure`; a reporter that throws does not take the fallback name with it. */
+function report(deps: BranchNamerDeps, failure: BranchNamingFailure): void {
+  try {
+    deps.onFailure?.(failure);
+  } catch (err) {
+    console.warn('orbital: could not record a branch naming failure:', err);
   }
 }

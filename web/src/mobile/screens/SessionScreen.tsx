@@ -21,7 +21,7 @@
  *   tool rows: chips, images   session/TranscriptChip.tsx        Z1, through `PhoneToolRowContext`
  *   path and image presses     files/open.ts (`installFileOpen`) T2.1
  *   composer focus + hint      `focusComposer` (state)           T1.1 calls it on Reopen
- *   worktree cleanup row       where/WorktreeCleanup.tsx         under the header or the tail (canvas 63g)
+ *   worktree cleanup row       where/WorktreeCleanup.tsx         under an ended session's tail (canvas 63g)
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
@@ -197,7 +197,6 @@ function SessionView({ id }: { id: string }) {
           <ModeSwitch session={session} offline={offline} />
         </div>
       )}
-      {cleanup.place === 'header' && <WorktreeCleanupRow cleanup={cleanup} className="mb-2" />}
     </div>
   )
 
@@ -238,7 +237,7 @@ function SessionView({ id }: { id: string }) {
           session ? (
             <>
               <TranscriptTail session={session} offline={offline} />
-              {cleanup.place === 'tail' && <WorktreeCleanupRow cleanup={cleanup} className="my-3" />}
+              {cleanup.shown && <WorktreeCleanupRow cleanup={cleanup} className="my-3" />}
             </>
           ) : undefined
         }

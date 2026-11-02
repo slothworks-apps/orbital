@@ -149,18 +149,24 @@ export function SecondaryButton({
 /**
  * 9f's switch: a 40×24 track inside a 56×44 target. On, the track is lit cyan
  * and the knob goes dark; off, a faint track and a pale knob.
+ *
+ * `size="lg"` is New session's worktree switch (`Feature - Work in a worktree`
+ * 63g): a 44×26 track and a 20px knob, 3px in, in the same target.
  */
 export function Toggle({
   checked,
   onChange,
   disabled,
   label,
+  size = 'md',
 }: {
   checked: boolean
   onChange: (next: boolean) => void
   disabled?: boolean
   label: string
+  size?: 'md' | 'lg'
 }) {
+  const lg = size === 'lg'
   return (
     <button
       type="button"
@@ -174,14 +180,16 @@ export function Toggle({
       <span
         aria-hidden
         className={[
-          'relative block h-6 w-10 rounded-full transition-[background-color] duration-[180ms] ease-out',
+          'relative block rounded-full transition-[background-color] duration-[180ms] ease-out',
+          lg ? 'h-[26px] w-11' : 'h-6 w-10',
           checked ? 'bg-accent shadow-[0_0_10px_color-mix(in_oklab,var(--color-accent)_45%,transparent)]' : 'bg-line/16',
         ].join(' ')}
       >
         <span
           className={[
-            'absolute top-[3px] block h-[18px] w-[18px] rounded-full transition-[left] duration-[180ms] ease-out',
-            checked ? 'left-[19px] bg-space-deep' : 'left-[3px] bg-ink-200/85',
+            'absolute top-[3px] block rounded-full transition-[left] duration-[180ms] ease-out',
+            lg ? 'h-5 w-5' : 'h-[18px] w-[18px]',
+            checked ? (lg ? 'left-[21px]' : 'left-[19px]') + ' bg-space-deep' : 'left-[3px] bg-ink-200/85',
           ].join(' ')}
         />
       </span>

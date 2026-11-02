@@ -5,30 +5,18 @@
  * is made from. Spawned like the branch status readings, without a shell.
  */
 
-import { execFileSync } from 'node:child_process';
 import { basename, dirname } from 'node:path';
-import { execRunner, type RunResult, type Runner } from '../git/branchStatus.js';
+import { FETCH_TIMEOUT_MS, WORKTREE_ADD_TIMEOUT_MS, type WorktreeFetchResult } from '@orbital/shared/worktree';
+import { execRunner, gitEnv, type RunResult, type Runner } from '../git/branchStatus.js';
 
 /** How long one local `git` command may take. */
 const GIT_TIMEOUT_MS = 15_000;
 
-/** How long `git fetch origin` may take; it goes to the network. */
-export const FETCH_TIMEOUT_MS = 60_000;
-
-/** How long `git worktree add` may take: it checks out a whole tree. */
-const WORKTREE_ADD_TIMEOUT_MS = 120_000;
-
-/** How long the appendix's synchronous read of a config value may block a start. */
-const CONFIG_READ_TIMEOUT_MS = 2_000;
-
 /** How many branches of each kind the dialog's search gets. */
 export const BRANCH_LIST_MAX = 200;
 
-/** Where Orbital puts the worktrees it makes, relative to the main checkout. */
-export const WORKTREES_DIR = '.claude/worktrees';
-
 const env = (): NodeJS.ProcessEnv => ({
-  ...process.env,
+  ...gitEnv(),
   // Never wait on a prompt nobody can answer.
   GIT_TERMINAL_PROMPT: '0',
   // An ssh remote asks no passphrase either; one already configured stays.
@@ -69,9 +57,10 @@ export class GitCommands {
     return { local, remote };
   }
 
-  /** Whether a branch of that name exists locally or on `origin`. */
-  async branchExists(cwd: string, name: string): Promise<boolean> {
-    for (const ref of [`refs/heads/${name}`, `refs/remotes/origin/${name}`]) {
+  /** Whether a branch of that name exists locally or on `origin`, or only on `origin` when asked. */
+  async branchExists(cwd: string, name: string, where: 'any' | 'origin' = 'any'): Promise<boolean> {
+    const refs = where === 'origin' ? [`refs/remotes/origin/${name}`] : [`refs/heads/${name}`, `refs/remotes/origin/${name}`];
+    for (const ref of refs) {
       const res = await this.git(cwd, ['show-ref', '--verify', '--quiet', ref]);
       if (res.code === 0) return true;
     }
@@ -90,7 +79,7 @@ export class GitCommands {
     return res.code === 0;
   }
 
-  async fetchOrigin(cwd: string): Promise<{ ok: true } | { ok: false; error: 'offline' | 'auth' | 'other'; message: string }> {
+  async fetchOrigin(cwd: string): Promise<{ ok: true } | Extract<WorktreeFetchResult, { ok: false }>> {
     const res = await this.git(cwd, ['fetch', '--quiet', 'origin'], FETCH_TIMEOUT_MS);
     if (res.code === 0) return { ok: true };
     const message = (res.stderr.trim() || (res.timedOut ? 'git fetch timed out' : 'git fetch failed')).slice(0, 2000);
@@ -108,8 +97,8 @@ export class GitCommands {
     return this.git(repoRoot, ['worktree', 'remove', ...(force ? ['--force'] : []), path]);
   }
 
-  async deleteBranch(repoRoot: string, branch: string): Promise<void> {
-    await this.git(repoRoot, ['branch', '-D', '--end-of-options', branch]);
+  async deleteBranch(repoRoot: string, branch: string): Promise<RunResult> {
+    return this.git(repoRoot, ['branch', '-D', '--end-of-options', branch]);
   }
 
   async setMergeBase(cwd: string, branch: string, target: string): Promise<RunResult> {
@@ -168,19 +157,4 @@ export function classifyFetchError(stderr: string): 'offline' | 'auth' | 'other'
     return 'offline';
   }
   return 'other';
-}
-
-/**
- * `branch.<name>.gh-merge-base`, read synchronously: the appendix is
- * composed inside a start that does not wait. Null when it is not set.
- */
-export function readMergeBaseSync(root: string, branch: string): string | null {
-  try {
-    const out = execFileSync('git', ['config', '--get', `branch.${branch}.gh-merge-base`], {
-      cwd: root, encoding: 'utf8', timeout: CONFIG_READ_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'], env: env(),
-    });
-    return out.trim() || null;
-  } catch {
-    return null;
-  }
 }

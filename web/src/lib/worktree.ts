@@ -1,86 +1,32 @@
+import {
+  WORKTREES_DIR,
+  leafOf,
+  repoOfWorktreeDir,
+  stripOrigin,
+  type EndSessionResult,
+  type EndWithWorktreeRequest,
+  type WorktreeFetchError,
+  type WorktreeLaunchError,
+  type WorktreeOccupant,
+  type WorktreeOptions,
+  type WorktreeRemoveRefusal,
+  type WorktreeRemoveRequest,
+  type WorktreeState,
+} from '@orbital/shared/worktree'
 import { spacedAgo } from './devices'
 import type { DirectoryRow } from './directorySearch'
-import type { SessionStatus } from './types'
+import { tagColor, type SessionStatus, type Tag } from './types'
 
 /**
  * Work in a worktree (spec 2026-11-02-work-in-a-worktree-design; canvas
- * `Feature - Work in a worktree` 63a–63h): the wire shapes and the pure rules
- * the desktop dialog, the detail panel and the phone share. Nothing here
- * draws; every sentence the feature shows is composed here so the phone says
- * exactly what the desktop says.
+ * `Feature - Work in a worktree` 63a–63h): the UI's rules and copy, which the
+ * desktop dialog, the detail panel and the phone share. The wire shapes, the
+ * paths and the variant rule are `@orbital/shared/worktree`'s, agreed with
+ * the Mac. Nothing here draws; every sentence the feature shows is composed
+ * here so the phone says exactly what the desktop says.
  */
 
-/** One live session in the checkout the dialog's directory resolves to. */
-export interface WorktreeOccupant {
-  sessionId: string
-  title: string
-  tagId: number | string | null
-  branch: string | null
-}
-
-/** `GET /api/worktree/options?cwd=&machine=`. */
-export type WorktreeOptions =
-  | { git: false }
-  | {
-      git: true
-      repoRoot: string
-      treeRoot: string
-      defaultBranch: string
-      currentBranch: string | null
-      occupants: WorktreeOccupant[]
-      /** The form the repository's branch names take, `feat/` say: the BRANCH placeholder. */
-      branchForm: string
-      /** Remote ones as `origin/x`. */
-      branches: { local: string[]; remote: string[] }
-      /** When `origin` was last fetched, or null when never. */
-      fetchedAt: number | null
-      /** The switch starts on: the checkout is occupied and the setting allows it. */
-      autoOn: boolean
-    }
-
 export type WorktreeRepo = Extract<WorktreeOptions, { git: true }>
-
-/** `POST /api/worktree/fetch`. */
-export type WorktreeFetchResult =
-  | { ok: true; fetchedAt: number }
-  | { ok: false; error: 'offline' | 'auth' | 'other'; message: string }
-
-/** The four cleanup variants (canvas 63f). */
-export type WorktreeVariant = 'c1' | 'c2a' | 'c2b' | 'c3'
-
-/** `GET /api/sessions/:id/worktree`. */
-export interface WorktreeState {
-  path: string
-  /** The worktree directory's name. */
-  leaf: string
-  branch: string | null
-  pr: { number: number; state: 'open' | 'draft' | 'merged' | 'closed' } | null
-  pushed: boolean
-  uncommittedFiles: number
-  unpushedCommits: number
-  sharedWith: string[]
-  variant: WorktreeVariant
-  removable: boolean
-  /** Removing it ends the session first (an Orbital session that has not ended). */
-  endsSession: boolean
-  /** Keep was pressed for this worktree: the panel strip stays away. */
-  dismissed: boolean
-}
-
-/** What `POST /api/sessions` refuses a worktree launch with. */
-export type WorktreeLaunchError = 'worktree_branch_exists' | 'worktree_invalid_branch' | 'worktree_failed'
-
-/** `POST /api/sessions/:id/worktree/remove` refusals. */
-export type WorktreeRemoveRefusal = 'worktree_shared' | 'worktree_live_terminal' | 'worktree_dirty'
-
-/** `POST /api/sessions/:id/end`'s `removeWorktree`. */
-export type RemoveWorktreeMode = 'clean' | 'force'
-
-/** The worktree part of a launch: `POST /api/sessions`'s `worktree`. */
-export interface WorktreeLaunch {
-  base: string
-  branch?: string
-}
 
 /** Whether a reply is a `WorktreeState` — a Mac without the route answers something else, or nothing. */
 export function isWorktreeState(value: unknown): value is WorktreeState {
@@ -101,21 +47,6 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 // ---------------------------------------------------------------------------
 // RECENT
 
-/** Where linked worktrees live, relative to the repository root. */
-const WORKTREES_SEGMENT = '/.claude/worktrees/'
-
-/**
- * The repository a directory under `<repo>/.claude/worktrees/<x>` belongs to,
- * or the directory itself. A subdirectory inside the worktree maps to the
- * repository too: RECENT is about where to start, not about the tree.
- */
-export function repoOfWorktreeDir(dir: string): string {
-  const at = dir.indexOf(WORKTREES_SEGMENT)
-  if (at <= 0) return dir
-  const leaf = dir.slice(at + WORKTREES_SEGMENT.length).split('/')[0]
-  return leaf ? dir.slice(0, at) : dir
-}
-
 /**
  * New session's RECENT pills (spec § The home of a worktree session): a
  * directory under `<repo>/.claude/worktrees/` shows as the repository, and a
@@ -135,13 +66,6 @@ export function recentDirectories(rows: readonly DirectoryRow[]): DirectoryRow[]
 
 // ---------------------------------------------------------------------------
 // BRANCH and BASE
-
-/** The directory a branch name gives the worktree: its last segment. */
-export function worktreeLeaf(branch: string): string {
-  return branch.split('/').filter(Boolean).pop() ?? ''
-}
-
-const stripRemote = (ref: string) => ref.replace(/^origin\//, '')
 
 export type BranchProblem =
   | { kind: 'spaces'; text: string }
@@ -172,7 +96,7 @@ export type FetchState =
   | { state: 'idle' }
   | { state: 'fetching' }
   | { state: 'fetched'; at: number }
-  | { state: 'failed'; error: 'offline' | 'auth' | 'other'; message: string }
+  | { state: 'failed'; error: WorktreeFetchError; message: string }
 
 /** The default base: `origin/<default branch>`. */
 export function defaultBase(repo: Pick<WorktreeRepo, 'defaultBranch'>): string {
@@ -180,7 +104,7 @@ export function defaultBase(repo: Pick<WorktreeRepo, 'defaultBranch'>): string {
 }
 
 /** The sentence a failed fetch shows under BASE (canvas 63c A4). */
-export function fetchFailureText(error: 'offline' | 'auth' | 'other'): string {
+export function fetchFailureText(error: WorktreeFetchError): string {
   if (error === 'offline') return 'Couldn’t fetch origin. You seem to be offline.'
   if (error === 'auth') return 'Couldn’t fetch origin. Git could not sign in to it.'
   return 'Couldn’t fetch origin.'
@@ -263,14 +187,14 @@ export function baseRows(repo: WorktreeRepo, fetch: FetchState): BaseRow[] {
 
 /** The branch a PR opened from the worktree targets, when that is not the default (canvas 63c); null otherwise. */
 export function prTarget(base: string, defaultBranch: string): string | null {
-  const target = stripRemote(base)
+  const target = stripOrigin(base)
   return target === defaultBranch ? null : target
 }
 
 /** The footer summary's worktree part (spec § The footer summary). */
 export function worktreeSummary(branch: string, base: string): string {
   const name = branch.trim()
-  return name ? `worktree ${worktreeLeaf(name)} from ${base}` : `worktree from ${base} · Orbital names the branch at launch`
+  return name ? `worktree ${leafOf(name)} from ${base}` : `worktree from ${base} · Orbital names the branch at launch`
 }
 
 /**
@@ -279,10 +203,10 @@ export function worktreeSummary(branch: string, base: string): string {
  * yet, so the line says who names it.
  */
 export function worktreePathLine(repoRoot: string, branch: string): string {
-  const leaf = worktreeLeaf(branch.trim())
-  return leaf
-    ? `→ ${repoRoot}/.claude/worktrees/${leaf}`
-    : `→ ${repoRoot}/.claude/worktrees/… · Orbital names the branch at launch`
+  const name = branch.trim()
+  return name
+    ? `→ ${repoRoot}/${WORKTREES_DIR}/${leafOf(name)}`
+    : `→ ${repoRoot}/${WORKTREES_DIR}/… · Orbital names the branch at launch`
 }
 
 /**
@@ -302,6 +226,43 @@ export function occupancyCopy(
     branch,
     tail: switchedOff ? '. This session would share its branch and files.' : '.',
   }
+}
+
+/** The occupancy hint (canvas 63b A2) as both the desktop and the phone draw it. */
+export interface OccupancyHint {
+  /** The first occupant's title, or a stand-in. */
+  name: string
+  /** Its tag's colour, the line's only colour; null without a tag. */
+  dot: string | null
+  lead: string
+  branch: string | null
+  tail: string
+}
+
+/**
+ * The occupancy hint for a repository, or null when nobody works in its
+ * checkout: the first occupant named, with its tag's colour, and the branch
+ * it is on (the checkout's, when the occupant's own is not known).
+ */
+export function occupancyHint(
+  repo: Pick<WorktreeRepo, 'occupants' | 'currentBranch'>,
+  switchedOffByHand: boolean,
+  tags: readonly Tag[],
+): OccupancyHint | null {
+  const occupant: WorktreeOccupant | undefined = repo.occupants[0]
+  if (!occupant) return null
+  const tag = occupant.tagId === null ? undefined : tags.find((t) => String(t.id) === occupant.tagId)
+  return {
+    name: occupant.title || 'A session',
+    dot: tag ? tagColor(tag.hue) : null,
+    ...occupancyCopy(repo.occupants.length, occupant.branch ?? repo.currentBranch, switchedOffByHand),
+  }
+}
+
+/** Whether a BASE row matches the picker's search: anywhere in its name, case aside. */
+export function baseMatches(row: Pick<BaseRow, 'label'>, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  return !q || row.label.toLowerCase().includes(q)
 }
 
 /** A launch refused for its worktree: the code and the server's sentence, or null for any other failure. */
@@ -340,14 +301,21 @@ export function variantLine(state: Pick<WorktreeState, 'variant' | 'pr' | 'pushe
   }
 }
 
-/** Whether End offers the "Also remove worktree" row (canvas 63h): every removable worktree but C3. */
-export function endOffersRemoval(state: WorktreeState | null): state is WorktreeState {
+/** Whether the worktree can be offered for removal at all: removable, and nobody else is in it (not C3). */
+export function removalOffered(state: WorktreeState | null): state is WorktreeState {
   return state !== null && state.removable && state.variant !== 'c3'
 }
 
-/** The row is ticked when End opens only when nothing would be lost (63h). */
-export function endRowStartsTicked(state: WorktreeState): boolean {
-  return state.variant === 'c1'
+/** Whether End offers the "Also remove worktree" row (canvas 63h): every removable worktree but C3. */
+export const endOffersRemoval = removalOffered
+
+/**
+ * The row is ticked when End opens only when the work is done (spec § Where
+ * it is offered, 1): nothing local would be lost (C1) and the PR is merged or
+ * closed. A session waiting on review keeps its folder unless asked.
+ */
+export function endRowStartsTicked(state: Pick<WorktreeState, 'variant' | 'pr'>): boolean {
+  return state.variant === 'c1' && (state.pr?.state === 'merged' || state.pr?.state === 'closed')
 }
 
 /** What End's row and button say for this tick (63h): C2a ticked names the loss. */
@@ -360,27 +328,64 @@ export function endRowCopy(state: WorktreeState, ticked: boolean): { line: strin
   }
 }
 
-/** What End sends for its row: nothing unticked, `force` only where uncommitted files go with it. */
-export function endRemoveMode(state: WorktreeState | null, ticked: boolean): RemoveWorktreeMode | undefined {
-  if (!endOffersRemoval(state) || !ticked) return undefined
-  return state.variant === 'c2a' ? 'force' : 'clean'
+/**
+ * What End sends for its row: nothing unticked; ticked, the removal —
+ * `force` only where uncommitted files go with it — and the path the row
+ * showed, so a worktree that changed under the dialog is refused rather
+ * than removed.
+ */
+export function endRequest(state: WorktreeState | null, ticked: boolean): EndWithWorktreeRequest {
+  if (!endOffersRemoval(state) || !ticked) return {}
+  return { removeWorktree: state.variant === 'c2a' ? 'force' : 'clean', worktreePath: state.path }
+}
+
+/** What a removal or an End that removes may answer: done, or refused before anything happened. */
+export type EndAnswer = EndSessionResult | { error: WorktreeRemoveRefusal }
+
+/** Whether End was refused, so nothing ended (`worktree_state_changed`, say). */
+export function endRefused(answer: EndAnswer): answer is { error: WorktreeRemoveRefusal } {
+  return !('ok' in answer)
+}
+
+/**
+ * The note after an End that went through but whose worktree stayed (git
+ * refused, or the session no longer works in one); null otherwise. The
+ * session did end: this is never said as a failed End.
+ */
+export function endedWorktreeNote(answer: EndAnswer): string | null {
+  if (endRefused(answer) || answer.worktreeRemoved !== false) return null
+  const why = answer.message.trim()
+  return `Session ended. The worktree stayed${why ? `: ${why}` : '.'}`
+}
+
+/** What a refused removal says (the server's 404 and 409s): the state moved since it was read. */
+export const REFUSALS: Record<WorktreeRemoveRefusal, string> = {
+  not_worktree: 'The session no longer works in a worktree.',
+  worktree_shared: 'Another session is working in this worktree now.',
+  worktree_live_terminal: 'A terminal session is still running in this worktree.',
+  worktree_dirty: 'The worktree has uncommitted changes now.',
+  worktree_state_changed: 'The worktree changed since this was shown. Look again before removing it.',
+}
+
+/**
+ * What a removal sends: exactly what the user was shown — whether it ends
+ * the session ("End and remove"), whether it discards ("Discard, remove") —
+ * and the path they confirmed. The server refuses with
+ * `worktree_state_changed` when either no longer holds.
+ */
+export function removeRequest(state: Pick<WorktreeState, 'variant' | 'endsSession' | 'path'>): WorktreeRemoveRequest {
+  return { force: cleanupChoice(state).force, endSession: state.endsSession, path: state.path }
 }
 
 /**
  * Whether the detail panel shows the cleanup strip (canvas 63e; spec § Where
- * it is offered, 2): the session is not working, its branch is pushed and
- * has a PR, nobody else is in the tree, and Keep has not been pressed.
+ * it is offered, 2): only for an ended session — a live one never shows it,
+ * so its transcript does not jump — whose branch is pushed and has a PR,
+ * when nobody else is in the tree and Keep has not been pressed. A live
+ * session's worktree goes through End or ⋯ → Remove worktree.
  */
 export function stripShown(status: SessionStatus, state: WorktreeState | null): state is WorktreeState {
-  return (
-    state !== null &&
-    status !== 'working' &&
-    state.pr !== null &&
-    state.pushed &&
-    state.removable &&
-    state.variant !== 'c3' &&
-    !state.dismissed
-  )
+  return status === 'ended' && removalOffered(state) && state.pr !== null && state.pushed && !state.dismissed
 }
 
 export type ChoiceFill = 'filled' | 'plain' | 'loses'

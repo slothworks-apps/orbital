@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { isDemo } from './demo'
-import {
-  branchProblem,
-  defaultBase,
-  fetchFailureText,
-  isWorktreeRepo,
-  type FetchState,
-  type WorktreeLaunch,
-  type WorktreeRepo,
-} from './worktree'
+import type { WorktreeLaunch } from '@orbital/shared/worktree'
+import { branchProblem, defaultBase, fetchFailureText, isWorktreeRepo, type FetchState, type WorktreeRepo } from './worktree'
 
 /** Quiet time after the last keystroke in the directory before the repository is asked about. */
 export const WORKTREE_OPTIONS_DEBOUNCE_MS = 300
@@ -67,26 +60,8 @@ export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: strin
   const [launchError, setLaunchError] = useState<string | null>(null)
   const asks = enabled && typed !== '' && !isDemo()
   const ticket = useRef(0)
-
-  const read = useCallback(
-    (dir: string, delayMs: number) => {
-      const mine = ++ticket.current
-      const timer = setTimeout(() => {
-        api
-          .worktreeOptions(dir, machine)
-          .then((options) => {
-            if (mine !== ticket.current) return
-            setAnswer({ cwd: dir, machine, repo: isWorktreeRepo(options) ? options : null })
-          })
-          .catch(() => {
-            // The group is an offer: a failed read just leaves it out.
-            if (mine === ticket.current) setAnswer({ cwd: dir, machine, repo: null })
-          })
-      }, delayMs)
-      return () => clearTimeout(timer)
-    },
-    [machine],
-  )
+  /** Bumped after a fetch: the directory is read again, as it stands by then. */
+  const [reread, setReread] = useState(0)
 
   useEffect(() => {
     // A closed dialog forgets: the next open reads who is in the checkout afresh.
@@ -95,8 +70,25 @@ export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: strin
       setAnswer(null)
       return
     }
-    return read(typed, WORKTREE_OPTIONS_DEBOUNCE_MS)
-  }, [asks, typed, read])
+    // The newest read wins: a slower answer for an earlier spelling, or for
+    // before the fetch, is dropped by its ticket.
+    const mine = ++ticket.current
+    const dir = typed
+    const timer = setTimeout(() => {
+      api
+        .worktreeOptions(dir, machine)
+        .then((options) => {
+          if (mine !== ticket.current) return
+          setAnswer({ cwd: dir, machine, repo: isWorktreeRepo(options) ? options : null })
+        })
+        .catch(() => {
+          // The group is an offer: a failed read just leaves it out.
+          if (mine === ticket.current) setAnswer({ cwd: dir, machine, repo: null })
+        })
+    }, WORKTREE_OPTIONS_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+    // `reread` is read for its change only.
+  }, [asks, typed, machine, reread])
 
   const settled = answer?.cwd === typed && answer.machine === machine
   const repo = asks && settled ? answer.repo : null
@@ -131,7 +123,7 @@ export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: strin
         if (result && result.ok === true) {
           setFetch({ state: 'fetched', at: result.fetchedAt })
           // The fetch may have brought branches the name check should know.
-          read(dir, 0)
+          setReread((n) => n + 1)
         } else if (result && result.ok === false) {
           setFetch({ state: 'failed', error: result.error, message: result.message })
         } else {
@@ -142,7 +134,7 @@ export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: strin
       .catch(() => {
         if (lastTree.current === forTree) setFetch({ state: 'failed', error: 'other', message: '' })
       })
-  }, [repo, on, fetch.state, typed, machine, treeKey, read])
+  }, [repo, on, fetch.state, typed, machine, treeKey])
 
   const setOn = useCallback((next: boolean) => {
     setTouched(true)

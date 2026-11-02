@@ -24,6 +24,7 @@ import {
 } from './messages.js';
 import { RELAY_PING_INTERVAL_MS } from './relayApi.js';
 import { RESPONDER_FIRST_ID } from './device.js';
+import { slowRequestTimeoutMs } from '../worktree.js';
 
 /**
  * Silence on a live tunnel before the link is dropped and rebuilt. The Mac's
@@ -37,7 +38,11 @@ export const TUNNEL_SILENCE_TIMEOUT_MS = RELAY_PING_INTERVAL_MS * 3;
  * its hello, before a fresh handshake goes out.
  */
 export const HANDSHAKE_TIMEOUT_MS = 10_000;
-/** How long a `request`, a `getBlob` or `getFile` (per chunk, unless told otherwise) or a notifications call waits for its answer. */
+/**
+ * How long a `request`, a `getBlob` or `getFile` (per chunk, unless told
+ * otherwise) or a notifications call waits for its answer. A request to one
+ * of the slow routes `slowRequestTimeoutMs` names waits longer.
+ */
 export const REQUEST_TIMEOUT_MS = 20_000;
 /**
  * A download takes in no more than its `blob_meta` announced; this is the
@@ -306,7 +311,8 @@ export class Channel {
     if (!this.ready || !this.serves) return Promise.reject(new TunnelError('offline'));
     const id = this.nextId++;
     return new Promise<TunnelResponse>((resolve, reject) => {
-      const timer = setTimeout(() => this.fail(this.requests, id, new TunnelError('timeout')), this.requestTimeoutMs);
+      const timeoutMs = slowRequestTimeoutMs(method, path, body) ?? this.requestTimeoutMs;
+      const timer = setTimeout(() => this.fail(this.requests, id, new TunnelError('timeout')), timeoutMs);
       this.requests.set(id, { resolve, reject, timer });
       const msg: AskMessage =
         body === undefined ? { t: 'http', id, method, path } : { t: 'http', id, method, path, body };

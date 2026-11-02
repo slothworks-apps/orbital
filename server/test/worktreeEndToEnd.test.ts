@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
 import { makeTmpDir } from './tmp.js';
@@ -121,7 +121,9 @@ describe('launching into a worktree', () => {
       expect(readFileSync(join(repo, '.git/info/exclude'), 'utf8')).toContain('/.claude/worktrees/');
       expect(git(repo, 'status', '--porcelain')).toBe('');
       const append = starts.at(-1).systemPrompt.append as string;
-      expect(append).toContain(`You run in the worktree \`${path}\` on branch \`feat/tray-flicker\`. Open the PR against \`main\`.`);
+      expect(append).toContain(`You run in the worktree \`${path}\` on branch \`feat/tray-flicker\`.`);
+      // No PR target is set, so none is named; nor is the session told to open one.
+      expect(append).not.toContain('pull request');
       expect(append).not.toContain('temporary name');
     } finally {
       await app.close();
@@ -137,7 +139,7 @@ describe('launching into a worktree', () => {
       const path = join(repo, '.claude/worktrees/old-2');
       expect(git(path, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('feat/old-2');
       expect(git(repo, 'config', '--get', 'branch.feat/old-2.gh-merge-base')).toBe('fix/stack');
-      expect(starts.at(-1).systemPrompt.append).toContain('Open the PR against `fix/stack`.');
+      expect(starts.at(-1).systemPrompt.append).toContain('on branch `feat/old-2`. Its pull request targets `fix/stack`.');
     } finally {
       await app.close();
     }
@@ -152,6 +154,11 @@ describe('launching into a worktree', () => {
       expect(res.statusCode).toBe(201);
       expect(git(join(repo, '.claude/worktrees/0123abcd'), 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('claude/0123abcd');
       expect(starts.at(-1).systemPrompt.append).toContain('This is a temporary name');
+      // Recorded, not announced: the user saw only the temporary name.
+      const logged = (await app.inject({ method: 'GET', url: '/api/errors' })).json().errors;
+      expect(logged).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'branch_naming_failed', sessionId, context: { reason: 'error' } }),
+      ]));
     } finally {
       await app.close();
     }
@@ -178,10 +185,13 @@ describe('launching into a worktree', () => {
     }
   });
 
-  it('takes the worktree and its branch away again when a later step fails', async () => {
+  it('takes the worktree and its branch away again when a later step fails, and nothing it did not make', async () => {
     const repo = makeRepo();
     const { app } = await serverWith('feat/x');
     try {
+      // Another launch's directory, already there under the name this one wants.
+      mkdirSync(join(repo, '.claude/worktrees/doomed'), { recursive: true });
+      writeFileSync(join(repo, '.claude/worktrees/doomed/theirs.txt'), 'x\n');
       // `.git/info` as a file: the exclude cannot be written, after the worktree exists.
       rmSync(join(repo, '.git/info'), { recursive: true, force: true });
       writeFileSync(join(repo, '.git/info'), '');
@@ -189,10 +199,58 @@ describe('launching into a worktree', () => {
       const res = await launch(app, { cwd: repo, worktree: { base: 'origin/main', branch: 'fix/doomed' } });
       expect(res.statusCode).toBe(500);
       expect(res.json().error).toBe('worktree_failed');
-      expect(existsSync(join(repo, '.claude/worktrees/doomed'))).toBe(false);
+      expect(existsSync(join(repo, '.claude/worktrees/doomed-2'))).toBe(false);
+      expect(readFileSync(join(repo, '.claude/worktrees/doomed/theirs.txt'), 'utf8')).toBe('x\n');
       expect(git(repo, 'branch', '--list', 'fix/doomed')).toBe('');
       expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain('doomed');
       expect(await countSessions(app)).toEqual(before);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('never writes the local files through a symlink the base branch commits', async () => {
+    const repo = makeRepo();
+    const outside = realpathSync(makeTmpDir('wt-outside'));
+    // The local settings the launch copies, in the main checkout's own `.claude`.
+    mkdirSync(join(repo, '.claude'), { recursive: true });
+    writeFileSync(join(repo, '.claude/settings.local.json'), '{"local":true}\n');
+    // A branch whose `.claude` is a symlink out of the tree.
+    const scratch = join(realpathSync(makeTmpDir('wt-scratch')), 'evil');
+    git(repo, 'worktree', 'add', '-q', '-b', 'evil', scratch, 'main');
+    symlinkSync(outside, join(scratch, '.claude'));
+    git(scratch, 'add', '.claude');
+    git(scratch, 'commit', '-q', '-m', 'symlinked .claude');
+    git(repo, 'worktree', 'remove', '--force', scratch);
+    const { app } = await serverWith('feat/x');
+    try {
+      const res = await launch(app, { cwd: repo, worktree: { base: 'evil', branch: 'fix/through-link' } });
+      expect(res.statusCode).toBe(201);
+      expect(readdirSync(outside)).toEqual([]);
+      // The file beside it, outside `.claude`, still came.
+      expect(readFileSync(join(repo, '.claude/worktrees/through-link/CLAUDE.local.md'), 'utf8')).toBe('local\n');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('answers a repeated launch of the same session id with the first answer, making one worktree', async () => {
+    const repo = makeRepo();
+    const { app } = await serverWith('feat/once\nOnce');
+    try {
+      const sessionId = '0123abcd-1111-4222-8333-444455556666';
+      const body = { cwd: repo, sessionId, worktree: { base: 'origin/main' } };
+      const [first, second] = await Promise.all([launch(app, body), launch(app, body)]);
+      expect(first.statusCode).toBe(201);
+      expect(second.statusCode).toBe(201);
+      expect(second.json()).toEqual(first.json());
+      const third = await launch(app, body);
+      expect(third.statusCode).toBe(201);
+      expect(third.json()).toEqual({ sessionId });
+      expect(readdirSync(join(repo, '.claude/worktrees'))).toEqual(['once']);
+      // The same id with another request is not a repeat.
+      const other = await launch(app, { ...body, prompt: 'something else' });
+      expect(other.statusCode).toBe(409);
     } finally {
       await app.close();
     }
@@ -282,13 +340,13 @@ describe('removing the worktree', () => {
     const { app, repo, sessionId, path } = await launched('feat/dirty');
     try {
       writeFileSync(join(path, 'scratch.ts'), 'x\n');
-      const refused = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/worktree/remove`, payload: {} });
+      const refused = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/worktree/remove`, payload: { endSession: true, path } });
       expect(refused.statusCode).toBe(409);
       expect(refused.json().error).toBe('worktree_dirty');
       expect(existsSync(path)).toBe(true);
       expect((await sessionOf(app, sessionId)).status).not.toBe('ended');
 
-      const removed = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/worktree/remove`, payload: { force: true } });
+      const removed = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/worktree/remove`, payload: { force: true, endSession: true, path } });
       expect(removed.statusCode).toBe(200);
       expect(existsSync(path)).toBe(false);
       expect(git(repo, 'branch', '--list', 'feat/dirty')).toContain('feat/dirty');
@@ -314,11 +372,75 @@ describe('removing the worktree', () => {
     }
   });
 
+  it('ends nothing the user did not confirm ending, nor a worktree they did not see', async () => {
+    const { app, sessionId, path } = await launched('feat/confirm');
+    try {
+      const remove = (payload: Record<string, unknown>) =>
+        app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/worktree/remove`, payload });
+      // Shown plain *Remove*, but the session is live: removing would end it.
+      const unconfirmed = await remove({ path });
+      expect(unconfirmed.statusCode).toBe(409);
+      expect(unconfirmed.json().error).toBe('worktree_state_changed');
+      const elsewhere = await remove({ endSession: true, path: `${path}-other` });
+      expect(elsewhere.statusCode).toBe(409);
+      expect(elsewhere.json().error).toBe('worktree_state_changed');
+      const endElsewhere = await app.inject({
+        method: 'POST', url: `/api/sessions/${sessionId}/end`, payload: { removeWorktree: 'clean', worktreePath: `${path}-other` },
+      });
+      expect(endElsewhere.statusCode).toBe(409);
+      expect(endElsewhere.json().error).toBe('worktree_state_changed');
+      expect((await sessionOf(app, sessionId)).status).not.toBe('ended');
+      expect(existsSync(path)).toBe(true);
+
+      // Ended since: *End and remove* no longer matches either.
+      await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/end`, payload: {} });
+      const stale = await remove({ endSession: true, path });
+      expect(stale.statusCode).toBe(409);
+      expect(stale.json().error).toBe('worktree_state_changed');
+      expect((await remove({ endSession: false, path })).statusCode).toBe(200);
+      expect(existsSync(path)).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('answers End as done when the session ended but its worktree could not be removed, and records why', async () => {
+    const { app, repo, sessionId, path } = await launched('feat/locked');
+    try {
+      git(repo, 'worktree', 'lock', path);
+      const res = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/end`, payload: { removeWorktree: 'clean', worktreePath: path } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ ok: true, worktreeRemoved: false, error: 'worktree_failed' });
+      expect(res.json().message).toMatch(/locked/);
+      expect((await sessionOf(app, sessionId)).status).toBe('ended');
+      expect(existsSync(path)).toBe(true);
+      const logged = (await app.inject({ method: 'GET', url: '/api/errors' })).json().errors;
+      expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'worktree_failed', sessionId })]));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('says so when End was asked to remove a worktree the session does not work in', async () => {
+    const repo = makeRepo();
+    const { app } = await serverWith('feat/x');
+    try {
+      const { sessionId } = (await launch(app, { cwd: repo })).json();
+      const res = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/end`, payload: { removeWorktree: 'clean' } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ ok: true, worktreeRemoved: false, error: 'not_worktree' });
+      expect((await sessionOf(app, sessionId)).status).toBe('ended');
+    } finally {
+      await app.close();
+    }
+  });
+
   it('removes on End when asked, and remembers Keep when not', async () => {
     const first = await launched('feat/ended');
     try {
-      const res = await first.app.inject({ method: 'POST', url: `/api/sessions/${first.sessionId}/end`, payload: { removeWorktree: 'clean' } });
+      const res = await first.app.inject({ method: 'POST', url: `/api/sessions/${first.sessionId}/end`, payload: { removeWorktree: 'clean', worktreePath: first.path } });
       expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true, worktreeRemoved: true });
       expect(existsSync(first.path)).toBe(false);
       expect(git(first.repo, 'branch', '--list', 'feat/ended')).toContain('feat/ended');
     } finally {

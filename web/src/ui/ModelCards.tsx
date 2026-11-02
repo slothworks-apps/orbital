@@ -14,7 +14,7 @@ export interface ModelCardsProps {
   /**
    * New session's column variant (canvas 63a): four to a row in half the
    * dialog — the short version over one mono meta line (`DEFAULT · 200K CTX`),
-   * 10px inside a 10px radius, the selection still glowing with its pip.
+   * 10px by 8px inside a 10px radius, the selection still glowing with its pip.
    */
   dense?: boolean
   /**
@@ -31,7 +31,9 @@ function cardClassName(active: boolean, compact: boolean, dense = false): string
     'relative min-w-0 text-left transition-colors',
     'disabled:cursor-not-allowed disabled:opacity-40',
     // canvas 4c: padding 10px 12px on a 9px radius. canvas 4b: padding 12px 14px on a 10px radius.
-    // canvas 63a: padding 10px on a 10px radius.
+    // canvas 63a: 10px down, 10px radius — but 8px across, not the canvas's 10: the
+    // app's mono runs wider than the canvas's, and at four cards to a half-width
+    // column a name like "Sonnet 5.5" would be cut off with 10.
     dense ? 'rounded-[10px] border px-2 py-2.5' : compact ? 'rounded-[9px] border px-3 py-2.5' : 'rounded-[10px] border px-3.5 py-3',
     active
       ? compact
@@ -43,14 +45,26 @@ function cardClassName(active: boolean, compact: boolean, dense = false): string
   ].join(' ')
 }
 
-/** canvas 4b: 7px accent dot with a glow, 10px inset from the corner. */
-function ActiveDot() {
+/**
+ * canvas 4b: 7px accent dot with a glow, 10px inset from the corner. `meta`
+ * is the dense card's (63a): at the end of the meta line, 8px in, since the
+ * name needs the whole first row.
+ */
+function ActiveDot({ position = 'corner' }: { position?: 'corner' | 'meta' }) {
   return (
     <span
       aria-hidden
-      className="absolute right-2.5 top-2.5 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]"
+      className={[
+        'absolute h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]',
+        position === 'meta' ? 'bottom-[13px] right-2' : 'right-2.5 top-2.5',
+      ].join(' ')}
     />
   )
+}
+
+/** The dense card's mono meta line (63a: `DEFAULT · 200K CTX`), accent on the selected card. */
+function metaLineClassName(active: boolean): string {
+  return ['mt-[5px] block truncate font-mono fs-9.5 tracking-[0.08em]', active ? 'text-accent' : 'text-ink-900/50'].join(' ')
 }
 
 function cardTitleClassName(compact: boolean): string {
@@ -133,22 +147,12 @@ export function ModelCards({
               onClick={() => onChange(model.value)}
               className={cardClassName(active, false, true)}
             >
-              {active && (
-                // 63a draws the pip top right, beside the name. The app's mono runs wider
-                // than the canvas's, so a name like "Sonnet 5.5" needs the whole row:
-                // the pip sits at the end of the second line instead.
-                <span
-                  aria-hidden
-                  className="absolute bottom-[13px] right-2 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]"
-                />
-              )}
+              {/* 63a draws the pip top right, beside the name. The app's mono runs wider
+                  than the canvas's, so a name like "Sonnet 5.5" needs the whole row:
+                  the pip sits at the end of the second line instead. */}
+              {active && <ActiveDot position="meta" />}
               <span className="block truncate font-mono fs-11 text-ink-100">{model.shortVersion}</span>
-              <span
-                className={[
-                  'mt-[5px] block truncate font-mono fs-9.5 tracking-[0.08em]',
-                  active ? 'pr-3 text-accent' : 'text-ink-900/50',
-                ].join(' ')}
-              >
+              <span className={`${metaLineClassName(active)} ${active ? 'pr-3' : ''}`}>
                 {meta.length > 0 ? meta.join(' · ') : '\u00a0'}
               </span>
             </button>
@@ -212,16 +216,7 @@ export function ModelCards({
         >
           {other.active && !compact && <ActiveDot />}
           <span className={dense ? 'block truncate pr-3 font-mono fs-11.5 text-ink-100' : cardTitleClassName(compact)}>Other</span>
-          {dense && (
-            <span
-              className={[
-                'mt-[5px] block truncate font-mono fs-9.5 tracking-[0.08em]',
-                other.active ? 'text-accent' : 'text-ink-900/50',
-              ].join(' ')}
-            >
-              ANY ID
-            </span>
-          )}
+          {dense && <span className={metaLineClassName(other.active)}>ANY ID</span>}
           {!compact && !dense && <span className={blurbClassName(other.active)}>{OTHER_BLURB}</span>}
         </button>
       )}
