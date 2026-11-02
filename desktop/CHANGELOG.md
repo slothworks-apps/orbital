@@ -3,6 +3,9 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Settings → Updates → Experimental updates puts every Mac, Ubuntu server and the phone of your group on each new release a few days before everyone else. Turning it on asks once; turning it off keeps your version until the regular release catches up. On a server: `orbital experimental on|off`.
+- Releases now reach everyone a little later: each one goes to experimental updates first.
 
 ## [0.46.0] — 2026-11-01
 ### Added
