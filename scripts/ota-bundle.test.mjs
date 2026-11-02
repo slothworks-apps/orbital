@@ -174,7 +174,7 @@ const beam = readBeam('{"url":"https://beam.example/","appId":"io.example.app"}'
 test('looks a version up behind the upload key: 200 is there, 404 is not', async () => {
   const seen = []
   const fetch = (status) => async (url, init) => {
-    seen.push([url, init.headers['X-Upload-Key']])
+    seen.push([url, init.headers['X-Deploy-Key']])
     return new Response('', { status })
   }
   assert.equal(
@@ -269,7 +269,7 @@ test('a channel Beam does not have says so; any other 404 is a refusal', async (
 test("reads a channel's live version: a version or null", async () => {
   const seen = []
   const answer = (status, body) => async (url, init) => {
-    seen.push([url, init.headers['X-Upload-Key']])
+    seen.push([url, init.headers['X-Deploy-Key']])
     return new Response(body, { status })
   }
   const read = (fetch) => channelVersion({ beam, uploadKey: 'k', name: 'experimental', fetch })
@@ -303,7 +303,7 @@ test('promotes a version to a channel: promoted, or unchanged on a re-run', asyn
   assert.equal(await promote(answer(200, '{"status":"promoted","version":"0.9.0"}')), 'promoted')
   assert.equal(call.url, 'https://beam.example/api/apps/io.example.app/channels/production/promote')
   assert.equal(call.init.method, 'POST')
-  assert.equal(call.init.headers['X-Upload-Key'], 'k')
+  assert.equal(call.init.headers['X-Deploy-Key'], 'k')
   assert.deepEqual(JSON.parse(call.init.body), { version: '0.9.0' })
   assert.equal(await promote(answer(200, '{"status":"unchanged","version":"0.9.0"}')), 'unchanged')
   await assert.rejects(

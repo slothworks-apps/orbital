@@ -193,7 +193,7 @@ function stubs({
     calls.push({
       url,
       method: init.method ?? 'GET',
-      key: init.headers?.['X-Upload-Key'],
+      key: init.headers?.['X-Deploy-Key'],
       body: init.body,
     })
     const aptMatch =

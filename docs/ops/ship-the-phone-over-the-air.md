@@ -69,7 +69,8 @@ the old shell to take no bundles until they update from the store.
 
 1. Beam's admin → Apps → new app with the id `io.slothworks.orbital.mobile`
    (`mobile/beam.json`).
-2. Copy its upload key: `gh secret set BEAM_UPLOAD_KEY`.
+2. Copy its deploy key (Settings; Beam called it the upload key before):
+   `gh secret set BEAM_UPLOAD_KEY`.
 3. Channels: `production` (the app's default) and `experimental`, with
    self-assignment allowed (`allowSelfAssign: true`) and
    `promotesTo: production`. A phone that joins a channel without
@@ -80,10 +81,11 @@ Without it, or with Beam down, the phone app is planned as `error` and the
 `ota` job fails visibly; the desktop app, the relay and the store builds
 still ship. It is never read as "not shipped".
 
-**A stolen upload key** cannot ship code (bundles must be signed), but it can
+**A stolen deploy key** cannot ship code (bundles must be signed), but it can
 upload a bundle under a version before CI does — Beam then refuses CI's
 upload with 409 and `release-plan` sees the version as shipped — or promote
-an older signed bundle (refused by the phone's replay guard). Beam's version
+an older signed bundle (refused by the phone's replay guard), or promote
+experimental's bundle to production ahead of the Promote workflow. Beam's version
 lookup returns only the version and its date, so CI cannot check that what
 Beam holds opens with our key. If the key may have leaked: rotate it in
 Beam's admin, update `BEAM_UPLOAD_KEY`, delete any bundle CI did not upload,
@@ -211,7 +213,7 @@ diagnostics is on, which it is by default.
 3. Ship another and close the notice with ×: the receipt, OK, and the new
    version only after the app is closed and opened again.
 4. **Android refuses a bundle without a session key:** upload one to Beam
-   without `sessionKey` and `checksum` (curl, with the upload key). The
+   without `sessionKey` and `checksum` (curl, with the deploy key). The
    download fails with "Session key required when public key is present"
    and Beam records `session_key_required`. Delete the bundle in Beam.
 5. **A bad signature is refused (iOS and Android):** make a throwaway key

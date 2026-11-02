@@ -11,8 +11,12 @@
 
 export const BEAM_CONFIG = 'mobile/beam.json'
 
-/** The app's upload key, from Beam's admin; CI has it as the secret BEAM_UPLOAD_KEY. */
-export const UPLOAD_KEY_HEADER = 'X-Upload-Key'
+/**
+ * The app's deploy key, from Beam's admin (Settings); CI has it as the secret
+ * BEAM_UPLOAD_KEY, named when it was the upload key. Beam still takes it as
+ * X-Upload-Key too, an alias it drops once this has switched.
+ */
+export const UPLOAD_KEY_HEADER = 'X-Deploy-Key'
 
 /** The multipart fields of an upload. */
 export const UPLOAD_FIELDS = {

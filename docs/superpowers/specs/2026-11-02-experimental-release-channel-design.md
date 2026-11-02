@@ -263,7 +263,8 @@ GitHub, promote in Beam's admin, and the apt step by hand.
 
 Beam (PR #3, `feat/multi-channel-admin-redesign`) has channels,
 self-assignment and admin promote. Orbital needs, authenticated with the
-app's `X-Upload-Key` like the upload:
+app's deploy key (`X-Deploy-Key`; Beam renamed the upload key in its PR #4
+and still takes `X-Upload-Key`) like the upload:
 
 1. **Upload into a channel.** `POST /api/apps/:appId/bundles` takes an
    optional multipart field `channel`. With it, the bundle is deployed to
