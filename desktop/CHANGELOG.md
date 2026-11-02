@@ -5,6 +5,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [Unreleased]
 ### Changed
 - The maximised viewer fills the window: an image or a PDF page grows to fit the space (never past its own size) and sits centred in it, with its caption always just above the strip of the conversation's images.
+### Fixed
+- Clicking a page in a PDF's page list in the maximised viewer turns to that page instead of closing the viewer.
 
 ## [0.46.0] — 2026-11-01
 ### Added

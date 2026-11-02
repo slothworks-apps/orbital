@@ -57,6 +57,11 @@ const CAPTION_H_PX = 48
 const CAPTION_GAP_PX = 18
 /** What the arrows and their margins take from either side of the stage. */
 const STAGE_SIDE_PX = 100
+/**
+ * A PDF's side margin: its page readout sits top right, beside the stage,
+ * and the rail and the page are centred together, so both sides give way.
+ */
+const PDF_SIDE_PX = 190
 /** 24e: a gone item without known dimensions keeps the canvas's footprint. */
 const GONE_BOX = { w: 1440, h: 900 }
 
@@ -436,7 +441,8 @@ function Stage({
   }, [hasMenu, menuOpen])
   const { url } = useMediaSourceUrl(sessionId, item)
   const pdf = usePdfDocument(item.kind === 'pdf' && !isGone(item) ? url : null, url ? pdfKey(url, item) : '')
-  const maxWidth = useViewportWidth() - 2 * STAGE_SIDE_PX
+  const viewportWidth = useViewportWidth()
+  const maxWidth = viewportWidth - 2 * STAGE_SIDE_PX
   const pageCount = pdf.doc?.numPages ?? null
 
   useEffect(() => {
@@ -473,7 +479,7 @@ function Stage({
         page={Math.min(page, pdf.doc.numPages)}
         onPage={onPage}
         stageHeightPx={stageHeight}
-        maxWidthPx={maxWidth}
+        maxWidthPx={viewportWidth - 2 * PDF_SIDE_PX}
       />
     )
   }
