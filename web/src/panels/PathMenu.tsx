@@ -127,18 +127,23 @@ export function PathMenu({ at, sessionId, line, start, picks, onOpen, onRetry, o
           onSelect: () => (picks === 'actions' ? setPicked(match) : onOpen(match)),
         }),
       ),
-      ...(more === 0 ? [] : expands ? [moreItem(more)] : [{ note: `+${more} more`, inset: true }]),
+      ...(more === 0 ? [] : expands ? [moreItem(more)] : [{ note: `+${more} more not listed · ask for the full path`, inset: true }]),
     ]
   }
 
-  /** 1c's `+N more`, as 1c draws it but pickable: it swaps the full list in. */
+  /** 1c's `+N more`: an ordinary row, its glyph column empty, that swaps the full list in. */
   function moreItem(more: number): MenuItem {
     const label = `+${more} more`
     return {
       key: 'more',
       label,
-      // 1c: the `more` note's type and inset (`MenuNote`), less the row's own padding; the row's focus fill is what says it can be picked.
-      body: <span className="block pl-[30px] font-mono fs-10.5 text-ink-900/50">{label}</span>,
+      // 1c: drawn as a match row (`FileRow`) with no glyph and the label as the name.
+      body: (
+        <span className="flex items-center gap-2.5">
+          <span aria-hidden className="w-5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate font-mono fs-11.5 font-normal text-ink-100">{label}</span>
+        </span>
+      ),
       keepsOpen: true,
       onSelect: () => setAll(true),
     }

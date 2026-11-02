@@ -128,7 +128,7 @@ describe('PathButton on a bare name', () => {
     expect(rows[6]).toHaveAccessibleName('+7 more')
     fireEvent.click(rows[6])
     expect(screen.getAllByRole('menuitem')).toHaveLength(9)
-    expect(screen.getByText('+4 more')).toBeInTheDocument()
+    expect(screen.getByText('+4 more not listed · ask for the full path')).toBeInTheDocument()
     expect(useOrbital.getState().ui.fileViewer).toBeNull()
   })
 

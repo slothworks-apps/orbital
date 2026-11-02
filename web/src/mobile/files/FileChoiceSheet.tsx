@@ -30,18 +30,12 @@ export function FileChoiceSheet() {
   return <SheetPresence>{shown && <ChoiceSheet shown={shown} />}</SheetPresence>
 }
 
-/** 1f's inert line under the rows: `+N more`, or the one fact a choice without rows has. */
-function Fact({ text, inset = true }: { text: string; inset?: boolean }) {
-  return (
-    <div
-      className={[
-        'flex h-11 items-center pr-2.5 font-mono fs-12 text-ink-900/50',
-        inset ? 'pl-[42px]' : 'pl-2.5',
-      ].join(' ')}
-    >
-      {text}
-    </div>
-  )
+/**
+ * The one fact a choice without rows has. A choice with rows has no `+N more`
+ * line: the sheet scrolls through every match it got (1f).
+ */
+function Fact({ text }: { text: string }) {
+  return <div className="flex h-11 items-center px-2.5 font-mono fs-12 text-ink-900/50">{text}</div>
 }
 
 function ChoiceSheet({ shown }: { shown: FileChoice }) {
@@ -49,7 +43,7 @@ function ChoiceSheet({ shown }: { shown: FileChoice }) {
   let head = choice.name
   let body
   if (choice.kind === 'matches') {
-    const { rows, more } = shownMatches(choice, true)
+    const { rows } = shownMatches(choice, true)
     const count = matchCount(choice)
     head = `${choice.name} · ${count} ${count === 1 ? 'match' : 'matches'}`
     body = (
@@ -78,15 +72,14 @@ function ChoiceSheet({ shown }: { shown: FileChoice }) {
             </button>
           )
         })}
-        {more > 0 && <Fact text={`+${more} more · ask Claude for the full path`} />}
       </>
     )
   } else if (choice.kind === 'none') {
-    body = <Fact text={`no file by that name under ${choice.under}`} inset={false} />
+    body = <Fact text={`no file by that name under ${choice.under}`} />
   } else {
     body = (
       <>
-        <Fact text={`${choice.device} didn't answer`} inset={false} />
+        <Fact text={`${choice.device} didn't answer`} />
         {/* 1f draws no give-up state; the row is 1f's matches row (52 px, gap 12, 0 10px, r10, the sheet's 14 px ink), label in place of the path. */}
         <button
           type="button"
