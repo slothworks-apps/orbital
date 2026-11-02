@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Hovering a cluster's name on the map shows a target next to it; click it to fit that tag's planets in the view, the way ⌘F fits the whole map.
 
 ## [0.45.1] — 2026-10-29
 ### Fixed
