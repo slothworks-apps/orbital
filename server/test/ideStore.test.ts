@@ -481,6 +481,58 @@ describe('IdeStore: two editors on one project', () => {
   });
 });
 
+describe('IdeStore: editors on nested folders', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it('says so when an editor on a parent folder comes and goes, though the session root stays', () => {
+    connect(60108, ['/repo/web']);
+    store.locate('/repo/web/src');
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+
+    const parent = connect(17265, ['/repo'], { ideName: 'Visual Studio Code' });
+    expect(seen).toEqual([['/repo/web', ['/repo/web/src']]]);
+    expect(store.editors('/repo/web/src').map((e) => e.ideName)).toEqual(['WebStorm', 'Visual Studio Code']);
+
+    seen.length = 0;
+    parent.emit('closed');
+    expect(seen).toEqual([['/repo/web', ['/repo/web/src']]]);
+    expect(store.editors('/repo/web/src').map((e) => e.ideName)).toEqual(['WebStorm']);
+  });
+
+  it('says so when an editor on a child folder goes, for a session at the parent', () => {
+    connect(60108, ['/repo']);
+    const child = connect(17265, ['/repo/web'], { ideName: 'Visual Studio Code' });
+    store.locate('/repo/web/src');
+    store.locate('/repo/docs');
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+    child.emit('closed');
+    // `/repo/web/src` falls back to `/repo`; `/repo/docs` never had the child editor.
+    expect(seen).toEqual([['/repo', ['/repo/web/src']]]);
+  });
+
+  it('says so when using an editor reorders the list without moving the holder', () => {
+    connect(60108, ['/repo/web']);
+    vi.advanceTimersByTime(1);
+    const older = connect(17265, ['/repo'], { ideName: 'Visual Studio Code' });
+    vi.advanceTimersByTime(1);
+    connect(17266, ['/repo'], { ideName: 'Cursor' });
+    store.locate('/repo/web/src');
+    expect(store.editors('/repo/web/src').map((e) => e.ideName)).toEqual(['WebStorm', 'Cursor', 'Visual Studio Code']);
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+
+    older.emit('selection', selectionAt('/repo/x.ts', 3, 'text'));
+    vi.advanceTimersByTime(IDE_SELECTION_COALESCE_MS);
+    expect(store.locate('/repo/web/src')?.ideName).toBe('WebStorm');
+    expect(store.editors('/repo/web/src').map((e) => e.ideName)).toEqual(['WebStorm', 'Visual Studio Code', 'Cursor']);
+    expect(seen).toEqual([['/repo/web', ['/repo/web/src']]]);
+  });
+});
+
 describe('IdeStore: open files', () => {
   it('lists the editor tabs inside the session sandbox, in the editor order', async () => {
     const connection = connect(60108, ['/w/a']);
