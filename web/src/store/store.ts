@@ -784,7 +784,8 @@ export interface OrbitalActions {
    * receipt. Never throws and never raises a toast: with no editor there is
    * nothing to report, only nothing to show.
    */
-  openInIde(path: string, line?: number | null): Promise<boolean>
+  /** `editor`, an id off the session's `ides`: that editor rather than the last-used one (the path menu's rows). */
+  openInIde(path: string, line?: number | null, editor?: string): Promise<boolean>
   setSidebarCollapsed(sidebarCollapsed: boolean): void
   setWsStatus(wsStatus: string): void
   clearToast(): void
@@ -2811,12 +2812,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     set((state) => ({ ui: { ...state.ui, fileViewer: null } }))
   },
 
-  async openInIde(path, line) {
+  async openInIde(path, line, editor) {
     const id = get().ui.selectedId
     // Another device's session has no editor here to open a path in.
     if (!id || !ideHere(get().sessions[id])) return false
     try {
-      return await api.ideOpenFile(id, path, line ?? null)
+      return await api.ideOpenFile(id, path, line ?? null, editor)
     } catch {
       // Silence is the contract for everything IDE (adr
       // `orbital-speaks-to-the-ide-itself`). The gesture only ever appears

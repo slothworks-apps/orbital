@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- A file name Claude writes on its own in a code chip, like `findAll.ts`, opens when you click it; when several files have that name, you pick one from a short list. Right-clicking any file path in a session opens a menu to copy its full or relative path, open it in each connected editor, show it in Finder or mention it in your reply.
 
 ## [0.46.0] — 2026-11-01
 ### Added

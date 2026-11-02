@@ -7,6 +7,7 @@ domain: web
 related:
   - 2026-09-19-file-viewer-design
   - clickable-file-paths-in-the-transcript
+  - 2026-11-02-bare-file-names-and-path-menu-design
 tags:
   - transcript
   - detail-panel
@@ -30,8 +31,21 @@ extension, an optional `:line[:col]`). The link goes *inside* the `code`
 element, so the chip keeps its look and the button adds the path's usual
 underline and hover.
 
+A span whose whole content is one **bare file name** — no `/`, an extension
+a press can open, an optional `:line[:col]`: `` `findAll.ts` ``,
+`` `findAll.ts:42` `` — is pressable too (spec
+`2026-11-02-bare-file-names-and-path-menu-design`). Its link is marked bare,
+and where it points is decided only when it is pressed: the server looks the
+name up in the session's trees, one match opens, several open a chooser, none
+says so. A Mac without the lookup opens the name as written.
+
 Still text:
 
+- a bare name in running prose. `Node.js`, `Next.js`, `Vue.js` carry an
+  extension the matcher accepts and would be underlined in every sentence
+  about them; in prose a path still needs a `/`. The assistant writes file
+  names in code spans almost always, so the span alone catches the case that
+  matters, and a span is already the author saying "this is a literal".
 - a span where the path is only a part — `` `cat web/src/App.tsx` ``,
   `` `web/a.ts web/b.ts` ``. That is a command or a list, genuinely quoted;
   picking a path out of it would make half a chip pressable.
@@ -39,7 +53,12 @@ Still text:
 
 ## What was ruled out
 
-- **Checking that the file exists before linking.** It would cost a route
+- **Checking at render time that a bare name exists**, or keeping a file
+  index per tree on the web. A bare name means nothing until it is resolved,
+  but resolving every one in every message rendered would cost a listing per
+  message and memory per repository; a press is rare, so it resolves there.
+
+- **Checking that a path exists before linking.** It would cost a route
   and a round trip per message, and a file deleted since would silently
   stop being a link in an old transcript. The viewer already refuses a
   missing file politely, which is the same bargain prose paths made: false

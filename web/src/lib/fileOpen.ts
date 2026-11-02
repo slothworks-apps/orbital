@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef } from 'react'
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import type { ChatMessage, ImageRefEntry } from './types'
 import { findPathMatches, isImagePath } from './pathLinks'
+import type { FoundFile, NameChoice } from './findByName'
 
 /**
  * What a press on a path or an image thumbnail does, when something other
@@ -31,9 +32,29 @@ export type FileOpenTarget =
     }
   | { kind: 'ref'; ref: string; messageId?: string }
 
+/**
+ * A bare name's lookup that did not come to one file (spec
+ * 2026-11-02-bare-file-names-and-path-menu-design § The phone): the phone
+ * draws it in its own sheet. `open` opens a picked match the way a press on
+ * its full path would; `retry` runs the press again.
+ */
+export interface FileChoice {
+  choice: NameChoice
+  open(file: FoundFile): void
+  retry(): void
+}
+
 export interface FileOpenHandlers {
   open(target: FileOpenTarget): void
   longPress?(path: string): void
+  /**
+   * Whether a bare file name is pressable here at all: the lookup it needs is
+   * served. Absent means it is. False draws the name as plain text, as before
+   * bare names were pressable — the phone, against a Mac older than the route.
+   */
+  findsByName?(): boolean
+  /** Shows the matches, or the fact that there are none, of a bare name's lookup. */
+  choose?(choice: FileChoice): void
 }
 
 let handlers: FileOpenHandlers | null = null

@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- A file name Claude writes on its own in a code chip, like `findAll.ts`, opens when you tap it; when several files have that name, a sheet lists them to pick from. Needs Orbital 0.46.0 or later on the Mac; before that the name stays plain text.
 
 ## [0.23.0] — 2026-11-01
 ### Added

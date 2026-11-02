@@ -1,4 +1,5 @@
 import { Banner } from './Banner'
+import { FileChoiceSheet } from './files/FileChoiceSheet'
 import { JoinRequestSheet } from './JoinRequestSheet'
 import { ColoursScreen } from './screens/ColoursScreen'
 import { FileScreen } from './screens/FileScreen'
@@ -61,6 +62,8 @@ export function MobileApp() {
       {screen === 'mismatch' && <MismatchScreen />}
       {/* A device asking to join through this phone's code, over whatever screen is up (canvas 50i). */}
       {!locked && <JoinRequestSheet />}
+      {/* A bare file name's matches, over the transcript it was tapped in (canvas `Feature - Path menu glyphs` 1f). */}
+      {!locked && <FileChoiceSheet />}
       {locked && <LockScreen />}
       {restarting && <RestartFrame version={restarting} />}
     </div>
