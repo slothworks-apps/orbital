@@ -107,6 +107,7 @@ export function useSceneModel(): SceneModel {
           errorsUnseen: 0,
           remote: null,
           pendingDecisions: {},
+          liveNotices: {},
           decisionAnswers: {},
           decisionDrafts: {},
           questionCursors: {},

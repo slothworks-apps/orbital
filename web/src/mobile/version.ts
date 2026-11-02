@@ -37,6 +37,12 @@ export const MAC_FEATURES = {
   profileLogin: '0.40.0',
   /** Take over a session a terminal holds: `POST /api/sessions/:id/take-over` (spec 2026-10-21-take-over-terminal-session-design § The phone). */
   takeOver: '0.41.0',
+  /**
+   * A bare file name in a code span: `GET /api/files/find` on the phone's allowlist (spec
+   * 2026-11-02-bare-file-names-and-path-menu-design § The phone). Against an older Mac the name
+   * is drawn as plain text, as before.
+   */
+  findByName: '0.46.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

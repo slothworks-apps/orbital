@@ -9,7 +9,10 @@ import { Button } from '../ui/Button'
 import { TranscriptView, pairMessages, type ScrollObserverFactory } from './TranscriptView'
 import { CompactingBlock } from './CompactionMark'
 import { LimitWaitNotice } from './LimitWaitNotice'
+import { HookNotice, HookWaitCaption, waitedFor } from './HookNotice'
+import { waitingBehind } from '../lib/hookWait'
 import { compactingOf } from '../lib/compaction'
+import { machineOffline } from '../lib/devices'
 import { contextWindowFor } from '../lib/models'
 import { useCompactionUi } from '../store/compaction'
 import { useMedia } from '../store/media'
@@ -125,6 +128,14 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   const setReveal = useCompactionUi((s) => s.setReveal)
   const compacting = session ? compactingOf(session) : null
   const limitWait = session?.limitWait ?? null
+  // What runs that no message shows — a hook (spec
+  // 2026-10-31-message-beats-stop-hook-design). Only while the session
+  // works: nothing runs otherwise, whatever end this tab missed. Not while
+  // its device is offline either, as on the phone: the end would go unheard.
+  const liveNotice = useOrbital((s) => {
+    const x = s.sessions[sessionId]
+    return x?.status === 'working' && !machineOffline(x, s.remote?.group?.members) ? s.liveNotices[sessionId] : undefined
+  })
   const contextWindow = session ? contextWindowFor(session, models, contextWindows) : null
   // The session's one tag, as the map and the header pick it.
   const hue =
@@ -267,6 +278,9 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       // `Feature - Jump to bottom` 43e, Triggers). A terminal session has no
       // field, and then nothing moves.
       onJump={focusComposer}
+      liveRow={<HookNotice sessionId={sessionId} message={liveNotice} />}
+      isWaiting={waitingBehind(liveNotice)}
+      waitCaption={liveNotice ? (count) => <HookWaitCaption hook={waitedFor(liveNotice)} count={count} /> : undefined}
       footerKey={
         compacting
           ? 'compacting'
@@ -274,7 +288,9 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
             ? 'rewind-pending'
             : limitWait
               ? `limit-wait:${limitWait.queued.length}`
-              : undefined
+              : liveNotice
+                ? `live-notice:${liveNotice.id}:${liveNotice.text}`
+                : undefined
       }
       footer={
         <>

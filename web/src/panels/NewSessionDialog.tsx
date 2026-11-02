@@ -45,6 +45,8 @@ import {
 } from '../lib/mcpjson'
 import { McpjsonIntro, McpjsonRows } from './McpjsonQuestion'
 import { ProjectFileViewer } from './FileViewer'
+import type { DirectoryRow } from '../lib/directorySearch'
+import { DirectoryField } from './DirectoryField'
 import { FolderChooser } from './FolderChooser'
 import {
   LOCAL_DEVICE, deviceChips, deviceOf, deviceOptions, localTagOf, openingDevice, showDeviceRow,
@@ -217,7 +219,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [otherActive, setOtherActive] = useState(false)
   /** A remembered custom id the field starts from, already trusted. */
   const [customInitial, setCustomInitial] = useState<string | null>(null)
-  const [projects, setProjects] = useState<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>>([])
+  const [projects, setProjects] = useState<DirectoryRow[]>([])
   /** Where the session runs (canvas 50g): `LOCAL_DEVICE` or a member's id. */
   const [device, setDevice] = useState<string>(LOCAL_DEVICE)
   /** The folder chooser of another device is open over the fields (50g). */
@@ -840,14 +842,12 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                   {remote && <span className="tracking-[0.04em] text-ink-900/60">on {deviceName}</span>}
                 </FieldLabel>
                 <div className="flex gap-2">
-                  <Input
+                  <DirectoryField
                     id="new-session-cwd"
-                    font="mono"
-                    size="lg"
                     value={cwd}
-                    onChange={(e) => setCwd(e.target.value)}
-                    placeholder="/path/to/project"
-                    className="min-w-0 flex-1"
+                    onChange={setCwd}
+                    projects={projects}
+                    onFocus={() => setChooserOpen(false)}
                   />
                   {remote ? (
                     // Only this desktop has a system dialog; another device gets the chooser (50g).

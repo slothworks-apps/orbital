@@ -21,10 +21,10 @@ import { sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES, IMAGE_CONTENT_TYPES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
-import { thumbnailOf } from '../images/thumbs.js';
+import { thumbnailOf, thumbnailOfBytes } from '../images/thumbs.js';
 import { allowedPath } from './allowlist.js';
 import { memberHasGrant, parseGrants, type GrantGroup } from './grants.js';
-import type { PhoneFileReader } from './phoneFiles.js';
+import type { PhoneFileAnswer, PhoneFileReader } from './phoneFiles.js';
 
 export const BLOB_PUT_MAX_BYTES = ATTACHMENT_MAX_BYTES;
 /** Uploads a phone may hold open at once; each buffers in memory until its last chunk. */
@@ -119,6 +119,14 @@ type Upload = { mediaType: string; expected: number; parts: Uint8Array[]; receiv
 
 export class ServingHalf implements ChannelServer {
   private reply: ChannelReply | null = null;
+  /**
+   * Counts connections: one more on every `reset`, which every `open` does
+   * too (the channel hands the same `reply` each time, so it cannot tell
+   * them apart). An answer awaited across a reconnect is dropped: the phone
+   * numbers its requests from 1 again, and the old answer would land on a
+   * new request under a reused id.
+   */
+  private connection = 0;
   /** The hub's view of this device; a new one for every accepted hello, gone on `reset`. */
   private socket: VirtualSocket | null = null;
   private readonly uploads = new Map<number, Upload>();
@@ -142,6 +150,7 @@ export class ServingHalf implements ChannelServer {
     this.socket?.emit('close');
     this.socket = null;
     this.reply = null;
+    this.connection++;
     this.uploads.clear();
   }
 
@@ -305,8 +314,10 @@ export class ServingHalf implements ChannelServer {
       return this.answer({ t: 'http_res', id: msg.id, status: 403, body: { error: 'not_granted', grant: allowed.group } });
     }
 
+    const asked = this.connection;
     try {
       const res = await this.opts.inject({ method: msg.method, url: allowed.path, payload: msg.body, device: this.opts.deviceId });
+      if (this.connection !== asked) return;
       let body: unknown = res.body;
       try {
         body = JSON.parse(res.body);
@@ -315,13 +326,16 @@ export class ServingHalf implements ChannelServer {
       }
       this.answer({ t: 'http_res', id: msg.id, status: res.statusCode, body });
     } catch (err) {
+      if (this.connection !== asked) return;
       this.answer({ t: 'http_res', id: msg.id, status: 500, body: { error: err instanceof Error ? err.message : String(err) } });
     }
   }
 
   /** A thumbnail when one is made, else the image itself (`thumbnailOf`). */
   private async onThumbGet(id: number, ref: string, edge: number): Promise<void> {
+    const asked = this.connection;
     const thumb = await thumbnailOf(this.opts.imagesDir, ref, edge).catch(() => null);
+    if (this.connection !== asked) return;
     if (!thumb) return this.onBlobGet(id, ref);
     this.answer({ t: 'blob_meta', id, status: 200, bytes: thumb.bytes.length, mediaType: thumb.mediaType });
     for (const chunk of chunkBlob(id, thumb.bytes)) if (chunk.kind === 'blob') this.reply?.inner(chunk);
@@ -342,20 +356,32 @@ export class ServingHalf implements ChannelServer {
   /**
    * A file by path (spec 2026-10-05-mobile-next-design § 2). `files` owns
    * the whole confinement; this only frames its answer the way `onBlobGet`
-   * frames a stored image, so the phone reassembles both alike.
+   * frames a stored image, so the phone reassembles both alike. With `edge`,
+   * an image goes as its thumbnail when one is made (`thumbnailOfBytes`),
+   * keeping the size and pixel size of the file itself.
    */
   private onFileGet(msg: Extract<AskMessage, { t: 'file_get' }>): void {
     const answer = this.opts.files(msg.session, msg.path, msg.as, msg.cwd);
+    if (answer.status !== 200 || !answer.bytes || msg.as !== 'image' || msg.edge === undefined) return this.sendFile(msg.id, answer);
+    const asked = this.connection;
+    void thumbnailOfBytes(this.opts.imagesDir, answer.bytes, msg.edge)
+      .catch(() => null)
+      .then((thumb) => {
+        if (this.connection === asked) this.sendFile(msg.id, thumb ? { ...answer, ...thumb } : answer);
+      });
+  }
+
+  private sendFile(id: number, answer: PhoneFileAnswer): void {
     const meta = {
       ...(answer.mediaType !== undefined ? { mediaType: answer.mediaType } : {}),
       ...(answer.size !== undefined ? { size: answer.size } : {}),
       ...(answer.w !== undefined && answer.h !== undefined ? { w: answer.w, h: answer.h } : {}),
     };
     if (answer.status !== 200 || !answer.bytes) {
-      return this.answer({ t: 'blob_meta', id: msg.id, status: answer.status === 200 ? 404 : answer.status, ...meta });
+      return this.answer({ t: 'blob_meta', id, status: answer.status === 200 ? 404 : answer.status, ...meta });
     }
-    this.answer({ t: 'blob_meta', id: msg.id, status: 200, bytes: answer.bytes.length, ...meta });
-    for (const chunk of chunkBlob(msg.id, answer.bytes)) if (chunk.kind === 'blob') this.reply?.inner(chunk);
+    this.answer({ t: 'blob_meta', id, status: 200, bytes: answer.bytes.length, ...meta });
+    for (const chunk of chunkBlob(id, answer.bytes)) if (chunk.kind === 'blob') this.reply?.inner(chunk);
   }
 
   private onChunk(chunk: BlobChunk): void {

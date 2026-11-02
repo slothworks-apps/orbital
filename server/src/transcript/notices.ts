@@ -1,3 +1,4 @@
+import { STOP_HOOK_EVENT, hookNoticeText, type LiveHookNotice } from '@orbital/shared/hookNotice';
 import type { ChatMessage, LoginKind, NoticeLevel } from '../types.js';
 
 /**
@@ -244,5 +245,36 @@ export function loginLostNotice(
       kind: 'login_lost',
       login: { ...login, neverLoggedIn: login.kind === 'claude' && NEVER_LOGGED_IN.test(body) },
     },
+  };
+}
+
+// ---- A running hook (spec 2026-10-31-message-beats-stop-hook-design) -----
+
+export { STOP_HOOK_EVENT };
+
+/**
+ * The live row while hooks hold the session: their event, the tool and the
+ * command where they are known (canvas `Feature - Stop hook` 1e), and
+ * whether a message the user sent waits for them. The clients draw it from
+ * `notice.hook`, with a Cancel only where it is `cancellable`; `text` says
+ * the same in one line for a client that predates `hook`.
+ */
+export function hookRunningNotice(id: string, hook: LiveHookNotice): ChatMessage {
+  return { id, role: 'notice', text: hookNoticeText(hook), notice: { level: 'info', hook } };
+}
+
+/**
+ * The row the CLI's `[Request interrupted by user]` becomes where it directly
+ * follows a cancelled `Stop` hook: the user stopped a check, not a turn of
+ * theirs — whether by sending a message or by pressing Stop.
+ */
+export function stopHookCancelledNotice(id: string, timestamp?: string): ChatMessage {
+  return {
+    id,
+    role: 'notice',
+    text: 'Stop hook cancelled.',
+    ...(timestamp ? { timestamp } : {}),
+    // Canvas 1c HISTORY: an ordinary NOTICE row, ○.
+    notice: { level: 'notice' },
   };
 }

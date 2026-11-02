@@ -86,6 +86,16 @@ export function endedFootnote({
 }
 
 /**
+ * A directory with its home folder as `~`. The web never learns the
+ * device's home, so it is read off the path's shape — macOS's
+ * `/Users/<name>` or Linux's `/home/<name>`. Display only; the full path is
+ * what gets sent.
+ */
+export function homePath(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~')
+}
+
+/**
  * Shortens a working-directory path to `~/…/<second-to-last>/<last>` for
  * sidebar rows. Paths with two or fewer segments are shown in full (still
  * `~`-prefixed) since there's nothing to elide.

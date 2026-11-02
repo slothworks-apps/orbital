@@ -79,7 +79,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /** A file's JSON object, or null for a missing, unreadable or non-object file. */
-function readObject(path: string): Record<string, unknown> | null {
+export function readObject(path: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
     return isObject(parsed) ? parsed : null;

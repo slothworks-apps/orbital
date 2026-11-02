@@ -25,6 +25,8 @@ const THUMB_HEIGHT_PX: Record<ThumbVariant, number> = {
   tool: 96,
   // Only the box of a wide thumb whose image carries no dimensions.
   'tool-wide': 96,
+  // `Feature - Stop hook` 1g: inside a waiting message's dashed box.
+  waiting: 138,
 }
 const THUMB_MAX_WIDTH_PX = 349
 
@@ -37,8 +39,9 @@ const THUMB_MAX_WIDTH_PX = 349
  * `tool-wide` — the phone's image result under its tool row (canvas 10d):
  * the row's full width at the image's own aspect, with the ⤢ mark; only the
  * phone's tool-row seam (`PhoneToolRowContext`) asks for it.
+ * `waiting` — inside the dashed box of a message waiting behind a hook.
  */
-export type ThumbVariant = 'user-solo' | 'user' | 'tool' | 'tool-wide'
+export type ThumbVariant = 'user-solo' | 'user' | 'tool' | 'tool-wide' | 'waiting'
 
 const FRAME_CLASSES: Record<ThumbVariant, string> = {
   'user-solo':
@@ -47,6 +50,8 @@ const FRAME_CLASSES: Record<ThumbVariant, string> = {
   tool: 'rounded-[6px] border-line/12 hover:border-line/42',
   // canvas 10d
   'tool-wide': 'relative rounded-[8px] border-line/16',
+  // `Feature - Stop hook` 1g: the waiting box's own border, 8px corners, not dimmed.
+  waiting: 'rounded-[8px] border-accent/30 hover:border-accent/60',
 }
 
 /** The reserved box: stored dims scaled into the caps, never upscaled. */

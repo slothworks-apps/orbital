@@ -13,10 +13,12 @@ import type { SentAttachment } from '../../store/store'
 import { useOrbital } from '../../store/store'
 import { ModeCards } from '../../ui/ModeCards'
 import { CLOCK_TICK_MS } from '../constants'
-import { basename, homePath } from '../format'
+import { basename } from '../format'
+import type { DirectoryRow } from '../../lib/directorySearch'
+import { useDirectorySuggestions } from '../../lib/useDirectorySuggestions'
+import { Marked } from '../../ui/Marked'
 import {
-  filterDirectories, launchRequest, noSuchDirectory, prefillClaudeDir, preselectMode, preselectModel, startFailureLine,
-  type DirectoryRow,
+  launchRequest, noSuchDirectory, prefillClaudeDir, preselectMode, preselectModel, startFailureLine,
 } from '../newSession'
 import { deviceAsleep, openingSettles, phoneDeviceOptions, phoneOpeningDevice, rememberDevice, rememberedDevice } from '../deviceList'
 import { isMacAsleep, useMobile } from '../state'
@@ -29,10 +31,6 @@ import { blocksLaunch, directoryLine, useDirectoryState } from '../../lib/useDir
 import { defaultSupports, deviceSupports } from '../version'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
 
-/** 9d: past this many rows the directory list folds to a window, "Show all N" under it. */
-const COLLAPSED_ROWS = 3
-/** The folded window's height: three and a half rows, so the cut reads as "more below". */
-const COLLAPSED_LIST_PX = 196
 /** The device sheet's ages are in minutes at the finest. */
 const MINUTE_MS = 60_000
 
@@ -111,7 +109,12 @@ export function NewSessionScreen() {
       mounted.current = false
     }
   }, [])
-  const [listOpen, setListOpen] = useState(false)
+  const dirInput = useRef<HTMLInputElement>(null)
+  /**
+   * The field holds the device's last directory, filled in here, not a path
+   * typed or picked: a change of device replaces it with that device's own.
+   */
+  const cwdPrefilled = useRef(true)
   /**
    * The `.mcp.json` question (spec 2026-10-08-mcpjson-approval-design; canvas
    * 47c/47d): the servers Start found undecided and the answers so far. Set,
@@ -142,9 +145,15 @@ export function NewSessionScreen() {
     setProjects([])
     setPickedDir(null)
     setPickedModel(null)
+    // Another device's last directory means nothing here; one typed or picked stays.
+    if (cwdPrefilled.current) setCwd('')
     void Promise.allSettled([api.sessionDefaults(machine ?? undefined), api.listProjects(machine ?? undefined)]).then(([d, p]) => {
       if (!current) return
-      if (p.status === 'fulfilled') setProjects(p.value)
+      if (p.status === 'fulfilled') {
+        setProjects(p.value)
+        // 1d AT REST: the field opens on the device's last directory, as the desktop's does.
+        if (cwdPrefilled.current) setCwd(p.value[0]?.cwd ?? '')
+      }
       setDefaults(d.status === 'fulfilled' ? d.value : null)
     })
     return () => {
@@ -163,12 +172,14 @@ export function NewSessionScreen() {
   /** The chosen directory's catalog: each account has its own models. */
   const models = useClaudeDirModels(claudeDirId, true, machine ?? undefined)
 
-  const list = useMemo(() => filterDirectories(projects, cwd), [projects, cwd])
+  const suggestions = useDirectorySuggestions(cwd, projects)
+  const { rows, focused: dirFocused } = suggestions
+  const listShown = dirFocused && rows.length > 0
   const project = projects.find((p) => p.cwd === cwd.trim())
   const autoModel = defaults ? preselectModel({ defaults, project, models }) : (models[0]?.value ?? null)
   const model = pickedModel ?? autoModel
 
-  /** The tag dot of a session the phone holds in each directory. */
+  /** The tag dot of a session the phone holds in each directory (9d). */
   const hueByCwd = useMemo(() => {
     const hues = new Map<string, number>()
     for (const s of Object.values(sessions)) {
@@ -181,6 +192,7 @@ export function NewSessionScreen() {
 
   const editCwd = (next: string) => {
     setCwd(next)
+    cwdPrefilled.current = false
     setNotFound(false)
     setFailure(null)
   }
@@ -305,29 +317,25 @@ export function NewSessionScreen() {
     </div>
   )
 
-  /** The row the field already names wears the ✓ (9d). */
-  const chosenCwd = cwd.trim()
-  const check = (path: string) => (
-    <span aria-hidden className={['w-3 shrink-0 font-mono fs-12 text-accent', path === chosenCwd ? '' : 'opacity-0'].join(' ')}>
-      ✓
-    </span>
-  )
-  const picked = (path: string) => (path === chosenCwd ? 'bg-accent/8' : '')
-
-  const typed = cwd.trim() !== ''
-  const rows = list.kind === 'rows' ? list.rows : []
-  const canExpand = rows.length > COLLAPSED_ROWS
-  const hint = !typed
-    ? several ? `on ${mac}` : 'ten most recent'
-    : list.kind === 'use-as-is' ? 'no match · typed path' : `${rows.length} on ${mac}`
+  const typed = suggestions.searching && cwd.trim() !== ''
+  // 1d's hint beside DIRECTORY: only while the list is in play.
+  const hint = !dirFocused
+    ? ''
+    : !typed
+      ? several ? `on ${mac}` : 'ten most recent'
+      : rows.length === 0 ? 'no match · used as typed' : `${rows.length} on ${mac}`
   const dirLine = notFound ? null : directoryLine(dirState, mac)
-  const fieldBorder = notFound
-    ? 'border-[oklch(70%_.14_25/.7)]'
-    : dirLine
-      ? 'border-warning/60'
-    : typed
-      ? 'border-accent/55'
-      : 'border-line/18'
+  const focusBorder = 'border-accent/55 shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)]'
+  // An open list carries the field's accent down its sides (1d), so the field keeps it too.
+  const fieldBorder = listShown
+    ? focusBorder
+    : notFound
+      ? 'border-[oklch(70%_.14_25/.7)]'
+      : dirLine
+        ? 'border-warning/60'
+        : dirFocused
+          ? focusBorder
+          : 'border-line/18'
 
   return (
     <MobileScreen header={header} footer={footer}>
@@ -338,29 +346,106 @@ export function NewSessionScreen() {
             <DeviceField option={chosen ?? null} onOpen={() => setDeviceSheet(true)} />
           </div>
         )}
-        <div className="flex flex-col gap-2">
+        {/* Relative and above the groups after it: the suggestion list hangs over them (1d). */}
+        <div className="relative z-[2] flex flex-col gap-2">
           <FieldLabel hint={hint}>DIRECTORY</FieldLabel>
-          <div className={['flex h-13 items-center gap-2 rounded-[14px] border bg-space/60 pl-3.5 pr-1.5', fieldBorder].join(' ')}>
-            <input
-              aria-label="Directory"
-              value={cwd}
-              onChange={(e) => editCwd(e.target.value)}
-              placeholder="Search or type a path"
-              inputMode="url"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              className="h-full min-w-0 flex-1 bg-transparent font-mono fs-13 text-ink-100 outline-none placeholder:text-ink-900/70"
-            />
-            {cwd && (
-              <button
-                type="button"
-                aria-label="Clear"
-                onClick={() => editCwd('')}
-                className="grid h-11 w-11 shrink-0 place-items-center fs-18 text-ink-900/70"
+          <div className="relative">
+            <div
+              className={[
+                'flex h-13 items-center gap-2 border bg-space/60 pl-3.5 pr-1.5',
+                // 1d SAME LIST, OVER THE FORM: open, the field's lower corners go square
+                // and its bottom border drops to the hairline the list continues from.
+                listShown ? 'rounded-t-[14px] rounded-b-none border-b-line/10' : 'rounded-[14px]',
+                fieldBorder,
+              ].join(' ')}
+            >
+              <input
+                ref={dirInput}
+                aria-label="Directory"
+                role="combobox"
+                aria-expanded={listShown}
+                aria-autocomplete="list"
+                value={cwd}
+                {...suggestions.inputProps}
+                onChange={(e) => {
+                  editCwd(e.target.value)
+                  suggestions.type(e.target.value)
+                }}
+                placeholder="Search or type a path"
+                inputMode="url"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                className="h-full min-w-0 flex-1 bg-transparent font-mono fs-13 text-ink-100 outline-none placeholder:text-ink-900/70"
+              />
+              {cwd && (
+                <button
+                  type="button"
+                  aria-label="Clear"
+                  // The field keeps its focus and its list: pointerdown for the
+                  // engines that move focus there, mousedown for the rest.
+                  onPointerDown={(e) => e.preventDefault()}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    editCwd('')
+                    dirInput.current?.focus()
+                  }}
+                  className="grid h-11 w-11 shrink-0 place-items-center fs-18 text-ink-900/70"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {listShown && (
+              <div
+                role="listbox"
+                aria-label="Directories"
+                className="absolute left-0 right-0 top-13 z-[5] overflow-hidden rounded-b-[14px] border border-t-0 border-accent/55 bg-panel-solid shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent),0_16px_32px_color-mix(in_oklab,var(--color-shadow)_45%,transparent)] [clip-path:inset(0_-4px_-48px_-4px)]"
               >
-                ×
-              </button>
+                <div className="max-h-[364px] overflow-y-auto overscroll-contain">
+                  {rows.map((m, i) => {
+                    const hue = hueByCwd.get(m.row.cwd)
+                    return (
+                    <button
+                      key={m.row.cwd}
+                      type="button"
+                      role="option"
+                      aria-selected={m.row.cwd === cwd.trim()}
+                      // The field must not blur before the tap lands: the list would be gone.
+                      onPointerDown={(e) => e.preventDefault()}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        editCwd(m.row.cwd)
+                        // 1d PICKED: the list and the keyboard go.
+                        dirInput.current?.blur()
+                      }}
+                      className={[
+                        'flex min-h-14 w-full items-center gap-3 px-3.5 py-2 text-left active:bg-line/12',
+                        i > 0 ? 'border-t border-line/7' : '',
+                      ].join(' ')}
+                    >
+                      {/* 9d's tag dot: which tag the phone's sessions in this directory wear. Not in 1d; kept so projects still read by colour. */}
+                      <span
+                        aria-hidden
+                        className="block h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: hue !== undefined ? tagColor(hue) : 'var(--state-neutral)' }}
+                      />
+                      <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                        <span className="truncate fs-14 font-bold text-ink-100">
+                          <Marked text={m.name} marks={m.nameMarks} />
+                        </span>
+                        <span className="truncate font-mono fs-11 text-ink-900/65">
+                          <Marked text={m.path} marks={m.pathMarks} bright />
+                        </span>
+                      </span>
+                      {m.row.lastAt !== null && (
+                        <span className="shrink-0 font-mono fs-10.5 text-ink-900/50">{timeAgo(m.row.lastAt, now)}</span>
+                      )}
+                    </button>
+                    )
+                  })}
+                </div>
+              </div>
             )}
           </div>
           {notFound && (
@@ -380,79 +465,6 @@ export function NewSessionScreen() {
               {dirLine}
             </p>
           )}
-
-          {/* 9d: one panel; past COLLAPSED_ROWS it folds to a window with "Show all N" under it. */}
-          <div className="overflow-hidden rounded-[14px] border border-line/12 bg-panel/60">
-            <div
-              className="overflow-y-auto overscroll-contain transition-[max-height] duration-[320ms] ease-[cubic-bezier(.2,.8,.25,1)]"
-              style={{ maxHeight: listOpen || !canExpand ? undefined : COLLAPSED_LIST_PX }}
-            >
-              {rows.map((row, i) => {
-                const hue = hueByCwd.get(row.cwd)
-                return (
-                  <button
-                    key={row.cwd}
-                    type="button"
-                    onClick={() => editCwd(row.cwd)}
-                    className={[
-                      'flex min-h-14 w-full items-center gap-3 px-3.5 py-2 text-left',
-                      i > 0 ? 'border-t border-line/8' : '',
-                      picked(row.cwd),
-                    ].join(' ')}
-                  >
-                    <span
-                      aria-hidden
-                      className="block h-1.5 w-1.5 shrink-0 rounded-full"
-                      style={{ background: hue !== undefined ? tagColor(hue) : 'var(--state-neutral)' }}
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="truncate fs-14 font-bold text-ink-100">{basename(row.cwd)}</span>
-                      <span className="truncate font-mono fs-11 text-ink-900/65">{homePath(row.cwd)}</span>
-                    </span>
-                    {row.lastAt !== null && (
-                      <span className="shrink-0 font-mono fs-10.5 text-ink-900/50">{timeAgo(row.lastAt, now)}</span>
-                    )}
-                    {check(row.cwd)}
-                  </button>
-                )
-              })}
-              {list.kind === 'use-as-is' && (
-                <button
-                  type="button"
-                  onClick={() => editCwd(list.path)}
-                  className={['flex min-h-15 w-full items-center gap-3 px-3.5 py-2.5 text-left', picked(list.path)].join(' ')}
-                >
-                  <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full border-[1.3px] border-ink-600/55" />
-                  <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                    <span className="truncate fs-14 font-semibold text-ink-100">
-                      Use <span className="font-mono fs-12.5 font-normal">{list.path}</span> as is
-                    </span>
-                    <span className="fs-11.5 leading-[1.4] text-ink-900/60">{mac} checks it exists when the session starts</span>
-                  </span>
-                  {check(list.path)}
-                </button>
-              )}
-              {list.kind === 'no-match' && (
-                <div className="flex flex-col gap-[3px] p-3.5">
-                  <span className="fs-14 font-semibold text-ink-100/85">No directory matches “{list.query}”</span>
-                  <span className="fs-11.5 text-ink-900/60">Type a full path (~/… or /…) to use any directory.</span>
-                </div>
-              )}
-            </div>
-            {canExpand && (
-              <button
-                type="button"
-                aria-expanded={listOpen}
-                onClick={() => setListOpen(!listOpen)}
-                className="flex h-11 w-full items-center justify-center gap-2 border-t border-line/12 bg-space/50 font-mono fs-11 text-ink-500/80"
-              >
-                <span aria-hidden className="fs-9 text-ink-900/60">
-                  {listOpen ? '▴' : '▾'}
-                </span>
-                {listOpen ? 'Show less' : `Show all ${rows.length}`}
-              </button>
-            )}
-          </div>
         </div>
 
         {/* The cards wait for the Mac's defaults, with nothing drawn in their place (calm). */}

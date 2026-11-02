@@ -45,6 +45,12 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   showInFolder(path: string) {
     ipcRenderer.send('show-in-folder', path);
   },
+  // The text context menu's Cut, Copy, Paste and Select All (spec
+  // 2026-11-02-text-context-menu-design): main runs the window's own edit
+  // command, the one the shortcut runs.
+  edit(command: string) {
+    ipcRenderer.send('edit-command', command);
+  },
   // Detached session windows: main owns the list and is the only thing that
   // can bring a window forward, so the renderer asks rather than acts
   // (spec: 2026-09-23-detached-session-windows-design). Only the main window

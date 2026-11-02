@@ -267,6 +267,15 @@ export interface Insets {
 }
 
 /**
+ * How far the selected body has to move before the camera goes after it, in
+ * world units (a planet's radius is 1). Adding or ending a session renumbers
+ * its cluster's spiral and nudges everything in it by a fraction of a planet;
+ * chasing those would leave the map twitching. A retag is a whole cluster
+ * away, so it clears this by an order of magnitude.
+ */
+export const FOLLOW_MIN_DISTANCE = 1.5
+
+/**
  * Camera that puts `target` in the middle of the map a user can actually
  * SEE — the strip between the sidebar and the detail panel — rather than in
  * the middle of the viewport, half of which the 450px detail panel is sitting

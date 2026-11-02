@@ -19,7 +19,7 @@
 //   /usr/lib/orbital/server/drizzle/           server/drizzle
 //   /usr/lib/orbital/cli.mjs                   server/dist/cli.mjs
 //   /usr/lib/orbital/update                    the root updater's script
-//   /usr/lib/orbital/node_modules/             better-sqlite3, node-pty, the SDK
+//   /usr/lib/orbital/node_modules/             better-sqlite3, node-pty, the SDK, sharp
 //   /usr/bin/orbital                           the CLI wrapper
 //   /usr/lib/systemd/user/orbital.service
 //   /usr/lib/systemd/system/orbital-update.{service,path}
@@ -114,6 +114,15 @@ export const EXTERNALS = {
   // The SDK without any claude-agent-sdk-<platform>-<arch> package: those
   // are separate packages, never copied, and `claude` is found on PATH.
   '@anthropic-ai/claude-agent-sdk': () => true,
+  // The phone's thumbnails (adr phone-thumbnails-are-webp-made-by-sharp):
+  // sharp's JS, the three packages it requires, and its linux-x64 glibc
+  // binary and libvips, which npm installs only on a linux-x64 machine.
+  sharp: (p) => p === 'package.json' || p === 'LICENSE' || p === 'dist' || p.startsWith(`dist${sep}`),
+  '@img/colour': () => true,
+  'detect-libc': () => true,
+  semver: () => true,
+  '@img/sharp-linux-x64': () => true,
+  '@img/sharp-libvips-linux-x64': () => true,
 }
 
 // A platform package of the SDK anywhere under `dir`; the package must carry none.
@@ -160,6 +169,15 @@ function locate(root, name) {
   for (const base of [join(root, 'server', 'node_modules'), join(root, 'node_modules')]) {
     const dir = join(base, name)
     if (existsSync(join(dir, 'package.json'))) return dir
+  }
+  if (name.startsWith('@img/sharp-') && name.includes('linux-x64')) {
+    // npm installs only this machine's binary. CI and the release build on
+    // linux-x64; on a Mac, fetching it with --force swaps out the Mac's own,
+    // so only in a checkout that runs no server.
+    throw new Error(
+      `${name} is not installed: build on linux-x64, or in a scratch checkout run ` +
+        '`npm install --no-save --force --ignore-scripts --os=linux --cpu=x64 --libc=glibc @img/sharp-linux-x64 @img/sharp-libvips-linux-x64`',
+    )
   }
   throw new Error(`${name} is not installed: run npm ci first`)
 }

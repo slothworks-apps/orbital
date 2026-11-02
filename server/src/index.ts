@@ -69,6 +69,7 @@ import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, autoContinueOf, continueTextOf } 
 import { LoginService } from './login/service.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
+import { recordThumbFailuresWith } from './images/thumbs.js';
 import { Presence } from './remote/presence.js';
 import { hostOsVersion } from './remote/osVersion.js';
 import { RemoteService } from './remote/service.js';
@@ -353,6 +354,16 @@ export async function buildServer(overrides: {
   // One log for both sides of the wire; it publishes its own changes on the
   // `errors` topic, so it needs the hub and nothing else.
   const errors = new ErrorLog({ db, hub });
+  // A phone thumbnail that could not be made goes whole; why is kept here.
+  recordThumbFailuresWith((during, err) => {
+    errors.record({
+      source: 'server',
+      kind: 'thumbnail_failed',
+      message: `A phone thumbnail could not be made (${during}): ${err instanceof Error ? err.message : String(err)}`,
+      detail: err instanceof Error ? (err.stack ?? null) : null,
+      context: { during },
+    });
+  });
   // Every directory's live CLI registry, read as one; each context adds its own.
   const registry = new LiveRegistries();
 
@@ -1122,6 +1133,8 @@ export async function buildServer(overrides: {
     const transcriptPath = transcriptPathOf(id);
     if (!transcriptPath) return;
     const tail = new TranscriptTail(transcriptPath);
+    // A cancelled Stop hook and the interrupt marker after it can land in two reads.
+    const cancelledStopHooks = new Set<string>();
     tail.on('entries', (entries) => {
       liveStats.feed(id, entries);
       // Extract and record tool_use blocks from terminal sessions
@@ -1140,7 +1153,7 @@ export async function buildServer(overrides: {
           }
         }
       }
-      for (const msg of entriesToMessages(entries, images)) {
+      for (const msg of entriesToMessages(entries, images, cancelledStopHooks)) {
         hub.publish(topic, { event: 'message', message: msg });
       }
     });

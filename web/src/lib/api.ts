@@ -1,4 +1,5 @@
 import type { McpjsonDecisions, McpjsonServer } from './mcpjson'
+import { NOT_A_NAME, type FindFilesAnswer, type FoundFile } from './findByName'
 import type {
   ApiSession,
   AttachmentUpload,
@@ -64,6 +65,7 @@ import {
   type UpdateWhen,
 } from '@orbital/shared/remote/serverUpdate'
 import type { TerminalInfo } from '../terminal/types'
+import type { DirectoryRow } from './directorySearch'
 
 /**
  * What a send answers. `uuid` is the transcript entry the turn is written
@@ -71,6 +73,10 @@ import type { TerminalInfo } from '../terminal/types'
  * just-sent turn pickable for a rewind; `rewind` says the send was a pending
  * rewind's (spec 2026-09-29-rewind-design § As built).
  */
+
+/** `GET /api/sessions/:id/messages`. */
+export type MessagesPage = { messages: ChatMessage[]; queued?: ChatMessage[]; liveNotice?: ChatMessage | null }
+
 export interface SendResult {
   ok: boolean
   revived?: boolean
@@ -330,12 +336,19 @@ export const api = {
     id: string,
     opts?: { before?: string; limit?: number }
   ): Promise<ChatMessage[]> {
+    return (await this.getMessagesPage(id, opts)).messages
+  },
+
+  /**
+   * A page of the transcript and, on the newest page, what the file does not
+   * hold yet: the messages the CLI keeps queued (`queued`) and the live
+   * notice up now (`liveNotice`). A Mac that predates them sends neither.
+   */
+  async getMessagesPage(id: string, opts?: { before?: string; limit?: number }): Promise<MessagesPage> {
     const url = new URL(apiPath`/api/sessions/${id}/messages`, window.location.origin)
     if (opts?.before !== undefined) url.searchParams.set('before', opts.before)
     if (opts?.limit !== undefined) url.searchParams.set('limit', String(opts.limit))
-
-    const data = await request<{ messages: ChatMessage[] }>('GET', url.pathname + url.search)
-    return data.messages
+    return request<MessagesPage>('GET', url.pathname + url.search)
   },
 
   /**
@@ -580,8 +593,17 @@ export const api = {
     )
   },
 
-  async interrupt(id: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('POST', apiPath`/api/sessions/${id}/interrupt`)
+  /**
+   * `stopHookNotice`: the live Stop hook notice whose Cancel was pressed; the
+   * server does nothing once that notice is down. A Mac that predates it
+   * ignores the body, and never shows the notice.
+   */
+  async interrupt(id: string, opts: { stopHookNotice?: string } = {}): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(
+      'POST',
+      apiPath`/api/sessions/${id}/interrupt`,
+      opts.stopHookNotice === undefined ? undefined : { stopHookNotice: opts.stopHookNotice },
+    )
   },
 
   /**
@@ -850,6 +872,35 @@ export const api = {
   },
 
   /**
+   * Where a bare file name lies in a session's trees (spec
+   * 2026-11-02-bare-file-names-and-path-menu-design § The server): every
+   * match, absolute, with its path relative to the tree it was found in.
+   * `NOT_A_NAME` when the server would not take the name (its 400), which the
+   * press answers as it does no match; `null` when the lookup was not served
+   * — a Mac older than the route — which the press answers by opening the
+   * name as written. Through the relay on the phone.
+   */
+  async findFiles(sessionId: string, name: string, cwd?: string): Promise<FindFilesAnswer | typeof NOT_A_NAME | null> {
+    const params = new URLSearchParams({ session: sessionId, name })
+    if (cwd) params.set('cwd', cwd)
+    const response = await apiFetch(`/api/files/find?${params}`)
+    if (response.status === 400) {
+      const body = (await response.json().catch(() => null)) as { error?: unknown } | null
+      if (body?.error === 'not_a_name') return NOT_A_NAME
+    }
+    if (!response.ok) return null
+    const data = (await response.json()) as { matches?: unknown; more?: unknown }
+    if (!Array.isArray(data.matches)) return null
+    const matches = data.matches.flatMap((m): FoundFile[] => {
+      const it = m as Partial<FoundFile> | null
+      return it && typeof it.path === 'string' && typeof it.relative === 'string'
+        ? [{ path: it.path, relative: it.relative, touched: it.touched === true }]
+        : []
+    })
+    return { matches, more: typeof data.more === 'number' ? data.more : 0 }
+  },
+
+  /**
    * The undecided servers of a project's `.mcp.json`, for the New session
    * question (spec 2026-10-08-mcpjson-approval-design). Through the relay on
    * the phone.
@@ -912,11 +963,12 @@ export const api = {
    * when there was no editor to reveal it in — which is the ordinary state
    * of a machine, not a failure worth reporting.
    */
-  async ideOpenFile(sessionId: string, path: string, line: number | null): Promise<boolean> {
+  async ideOpenFile(sessionId: string, path: string, line: number | null, editor?: string): Promise<boolean> {
     const response = await apiFetch(apiPath`/api/sessions/${sessionId}/ide/open-file`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, ...(line !== null ? { line } : {}) }),
+      // `editor`, an id off the session's `ides`: that editor rather than the last-used one.
+      body: JSON.stringify({ path, ...(line !== null ? { line } : {}), ...(editor ? { editor } : {}) }),
     })
     if (response.status === 404) return false
     if (!response.ok) {
@@ -979,10 +1031,8 @@ export const api = {
    * `lastAt` is the newest session's `lastAt` in that directory — the phone's
    * 9d rows read it as its last use. `machine` asks that member for its own.
    */
-  async listProjects(machine?: string): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
-    const data = await request<{
-      projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>
-    }>('GET', machine === undefined ? '/api/projects' : `/api/projects?${new URLSearchParams({ machine })}`)
+  async listProjects(machine?: string): Promise<DirectoryRow[]> {
+    const data = await request<{ projects: DirectoryRow[] }>('GET', machine === undefined ? '/api/projects' : `/api/projects?${new URLSearchParams({ machine })}`)
     return data.projects
   },
 

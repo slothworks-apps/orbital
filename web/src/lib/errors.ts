@@ -3,6 +3,7 @@ import { api, ApiError } from './api'
 import { useOrbital } from '../store/store'
 import { isUnauthorized } from './unauthorized'
 import { isMemberOffline } from './devices'
+import { copyToClipboard } from './clipboard'
 
 /**
  * Turns whatever was thrown into the long form the error log keeps.
@@ -52,6 +53,21 @@ export function reportError(err: unknown, fallback: string): void {
   const message = err instanceof Error ? err.message : fallback
   useOrbital.setState({ toast: { kind: 'error', message } })
   record(err, message)
+}
+
+/**
+ * Something a menu row could not do, said and recorded (adr
+ * errors-are-recorded-not-announced): the menu has closed by then and
+ * nothing else draws a receipt, so the failure is not dropped. `message` is
+ * both what the toast says and what the log keeps.
+ */
+export function reportFailure(message: string): void {
+  reportError(new Error(message), message)
+}
+
+/** A path to the clipboard from a menu row, and `reportFailure` when it did not land. */
+export async function copyPathOrReport(path: string): Promise<void> {
+  if (!(await copyToClipboard(path))) reportFailure('Could not copy the path to the clipboard')
 }
 
 /**

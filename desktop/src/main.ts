@@ -27,6 +27,7 @@ import { parseTerminalFocused, terminalKeyDecision } from './lib/terminalKeys';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
 import { pickerStartPath } from './lib/chooseDirectory';
 import { parseRevealPath } from './lib/showInFolder';
+import { parseEditCommand } from './lib/editCommand';
 import {
   decideWindowButtons,
   mainWindowUrl,
@@ -1659,6 +1660,12 @@ ipcMain.on('show-in-folder', (event, payload: unknown) => {
   if (!fromOrbitalWindow(event.sender)) return;
   const path = parseRevealPath(payload);
   if (path !== null) shell.showItemInFolder(path);
+});
+// The text context menu's rows: the sender's own edit command, as its shortcut runs it.
+ipcMain.on('edit-command', (event, payload: unknown) => {
+  if (!fromOrbitalWindow(event.sender)) return;
+  const command = parseEditCommand(payload);
+  if (command !== null) event.sender[command]();
 });
 
 // There is deliberately no `window-all-closed` handler: closing the window no

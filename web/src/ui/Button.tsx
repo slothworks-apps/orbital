@@ -28,7 +28,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'outline'
     | 'ink'
     | 'dashed-link'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch'
+    | 'muted-chip'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -108,6 +109,11 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   // Canvas 50a's Pair by hand and 50u's Settings → Updates ›: a quiet text link
   // underlined by a dashed hairline, no box — ink and type from its size or its line.
   'dashed-link': 'cursor-pointer bg-transparent border-b border-dashed border-ink-900/50 text-left',
+  // `Feature - Stop hook` 1d's Cancel on the live hook row: the lowest
+  // emphasis in its box, muted text whose chip border and fill come only on
+  // hover. Disabled at 55% while its request is in flight.
+  'muted-chip':
+    'cursor-pointer bg-transparent text-ink-900/60 border border-transparent hover:border-line/18 hover:bg-line/10 hover:text-ink-100',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -169,6 +175,9 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   'login-card': 'px-3.5 py-1.5 fs-12 leading-(--text-xs--line-height)',
   // 62e: the phone notice's buttons, a 44px target at 14px.
   touch: 'h-fit min-h-11 px-[18px] fs-14',
+  // `Feature - Stop hook` 1d: an action inside a one-line row, mono 11 at
+  // 2px/7px, a 22px box the row lays out around with its −2px margin.
+  'row-action': 'px-[7px] py-[2px] fs-11 leading-[1.5]',
 }
 
 export function Button({
@@ -196,13 +205,17 @@ export function Button({
             ? 'rounded-[7px]'
             : size === 'touch'
               ? 'rounded-[9px]'
+            : size === 'row-action'
+              ? 'rounded-[5px]'
             : size === 'choice-touch'
               ? 'rounded-[12px]'
               : 'rounded-lg'
   // The same for the family: the strip chip is mono, and two font utilities
   // on one element would be settled by stylesheet order.
   // A link takes the family of its line, or of its size.
-  const family = size === 'strip' ? 'font-mono' : link ? '' : 'font-sans'
+  const family = size === 'strip' || size === 'row-action' ? 'font-mono' : link ? '' : 'font-sans'
+  // 1d's Cancel stays more legible while it waits than a disabled button does.
+  const disabledInk = variant === 'muted-chip' ? 'disabled:opacity-55' : 'disabled:opacity-40'
 
   return (
     <button
@@ -213,7 +226,8 @@ export function Button({
         // A link stays a button's own inline box, so it sits in its line of text.
         link ? '' : 'inline-flex items-center justify-center gap-2 transition-colors',
         family,
-        'disabled:cursor-not-allowed disabled:opacity-40',
+        'disabled:cursor-not-allowed',
+        disabledInk,
         rounding,
         variantClasses[variant],
         sizeClasses[size],

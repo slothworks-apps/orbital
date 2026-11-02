@@ -63,6 +63,25 @@ extraResources:
       - lib/**
       - "!lib/**/*.map"
       - prebuilds/darwin-arm64/**
+  # The phone's thumbnails (ADR phone-thumbnails-are-webp-made-by-sharp):
+  # sharp's JS with its three dependencies, and the one native binding and
+  # libvips this target loads.
+  - from: ../node_modules/sharp
+    to: server/node_modules/sharp
+    filter:
+      - package.json
+      - LICENSE
+      - dist/**
+  - from: ../node_modules/@img/colour
+    to: server/node_modules/@img/colour
+  - from: ../node_modules/@img/sharp-darwin-arm64
+    to: server/node_modules/@img/sharp-darwin-arm64
+  - from: ../node_modules/@img/sharp-libvips-darwin-arm64
+    to: server/node_modules/@img/sharp-libvips-darwin-arm64
+  - from: ../node_modules/detect-libc
+    to: server/node_modules/detect-libc
+  - from: ../node_modules/semver
+    to: server/node_modules/semver
 mac:
   # electron-builder's default lookup is build/icon.icns already; set here
   # anyway so it isn't implicit. Regenerate with build/make-icon.sh if the

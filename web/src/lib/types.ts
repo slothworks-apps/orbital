@@ -2,6 +2,7 @@ import type { GroupEnded, GroupStatus, MemberState as SharedMemberState, NotPrim
 import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ceremony'
 import type { MachineRef } from '@orbital/shared/remote/device'
 import { asksForHuman, gateWaits, loginLost } from '@orbital/shared/parked'
+import type { LiveHookNotice } from '@orbital/shared/hookNotice'
 
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
@@ -242,6 +243,14 @@ export interface ApiSession {
    * `orbital-speaks-to-the-ide-itself`). Mirrors `server/src/api/shape.ts`.
    */
   ide?: IdeContext | null
+  /**
+   * Every connected editor with this session's workspace open, the one `ide`
+   * names first and the rest by last use — one Open in row each in a path's
+   * menu (spec 2026-11-02-bare-file-names-and-path-menu-design § Every editor,
+   * not just the last used). Optional: an older server does not send it, and
+   * then `ide` is the only editor known. Mirrors `server/src/api/shape.ts`.
+   */
+  ides?: IdeEditor[]
   /**
    * The compaction running in this session right now, or null — only ever
    * set for a session Orbital runs (spec 2026-09-28-context-compaction-design
@@ -532,6 +541,17 @@ export interface IdeContext {
   selection: IdeSelection | null
 }
 
+/**
+ * One connected editor with a session's workspace open. `id` is what
+ * `POST /api/sessions/:id/ide/open-file` takes to address it; opaque here.
+ * Mirrors `IdeEditor` in `server/src/ide/protocol.ts`.
+ */
+export interface IdeEditor {
+  id: string
+  ideName: string
+  workspaceRoot: string
+}
+
 /** How severe the editor thinks one of its findings is. */
 export type IdeDiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint'
 
@@ -754,6 +774,8 @@ export interface ChatMessage {
    * `server/src/types.ts`.
    */
   uuid?: string
+  /** A message the CLI folded into a running turn: the uuid it was sent under. Mirrors `server/src/types.ts`. */
+  sentUuid?: string
   /** `user` rows only: can be picked as a rewind target. Absent means not. */
   rewindable?: true
   /**
@@ -819,6 +841,12 @@ export interface ChatMessage {
      * restored one folds into. The row's `text` is the CLI's sentence.
      */
     login?: LoginLostNotice | LoginRestoredNotice
+    /**
+     * The live row while hooks hold the session (`live_notice`; canvas
+     * `Feature - Stop hook`), drawn from this. A Mac that predates it sends
+     * only `text`.
+     */
+    hook?: LiveHookNotice
   }
   /** `compaction` rows only. Mirrors `server/src/types.ts`. */
   compaction?: CompactionMark
@@ -1491,6 +1519,9 @@ export type ErrorKind =
   | 'compaction_failed'
   | 'rewind_refused'
   | 'rewind_failed'
+  | 'session_id_collision'
+  | 'thumbnail_failed'
+  | 'file_listing_failed'
 
 export interface ErrorRecord {
   id: number

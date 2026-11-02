@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api, ApiError, type EndedSummary } from '../lib/api'
+import { api, ApiError, type EndedSummary, type MessagesPage } from '../lib/api'
 import type { McpjsonDecisions } from '../lib/mcpjson'
 import { getSocket } from '../lib/socket'
 import {
@@ -109,6 +109,14 @@ export type SessionEvent =
    * the transcript is read again.
    */
   | { event: 'transcript_reset' }
+  /**
+   * The row under the transcript while something runs that no message
+   * shows — today the main loop's `Stop` hooks (spec
+   * 2026-10-31-message-beats-stop-hook-design). `null` takes it down. Live
+   * state only: nothing in the file carries it, so a reload has none. An
+   * older client ignores the event and shows nothing.
+   */
+  | { event: 'live_notice'; message: ChatMessage | null }
   /**
    * The walkthrough's stored narration changed — a narrate query started or
    * landed (spec 2026-09-30-narrate-out-of-band-design § Storage and state).
@@ -412,6 +420,8 @@ export interface OrbitalState {
    * queue behind it.
    */
   pendingDecisions: Record<string, PendingDecision>
+  /** Each session's live notice row (`live_notice`), drawn under its transcript. */
+  liveNotices: Record<string, ChatMessage>
   /**
    * The answers this tab SENT, keyed by DECISION id (which is the
    * `AskUserQuestion` tool_use's `toolUseId`): the complete record of the
@@ -774,7 +784,8 @@ export interface OrbitalActions {
    * receipt. Never throws and never raises a toast: with no editor there is
    * nothing to report, only nothing to show.
    */
-  openInIde(path: string, line?: number | null): Promise<boolean>
+  /** `editor`, an id off the session's `ides`: that editor rather than the last-used one (the path menu's rows). */
+  openInIde(path: string, line?: number | null, editor?: string): Promise<boolean>
   setSidebarCollapsed(sidebarCollapsed: boolean): void
   setWsStatus(wsStatus: string): void
   clearToast(): void
@@ -904,10 +915,87 @@ function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T
   return next
 }
 
-/** Whether `message` is a user turn this tab appended optimistically and the
- * transcript file has not echoed back yet. */
+/**
+ * The id prefix of a turn the server says the CLI holds and the file does
+ * not have yet: a message queued behind a turn in flight, its Stop hooks
+ * say. Mirrors the server's `QUEUED_TURN_PREFIX`.
+ */
+const QUEUED_TURN_PREFIX = 'queued:'
+
+/** Whether `message` is a user turn the transcript file has not echoed back
+ * yet: one this tab appended optimistically, or one the server holds queued. */
 export function isPendingTurn(message: ChatMessage): boolean {
+  return (message.id.startsWith('local:') || message.id.startsWith(QUEUED_TURN_PREFIX)) && message.role === 'user'
+}
+
+/** Whether `message` is a turn this tab sent and appended optimistically itself. */
+export function isOwnPendingTurn(message: ChatMessage): boolean {
   return message.id.startsWith('local:') && message.role === 'user'
+}
+
+/**
+ * `rows` with the server's queued turns after them (`MessagesPage.queued`),
+ * in place of any it returned before: the server's list is the current one.
+ * A queued turn already shown — under its uuid, or as the optimistic copy
+ * this tab sent — is not added again.
+ */
+function withQueuedTurns(rows: readonly ChatMessage[], queued: readonly ChatMessage[] | undefined): ChatMessage[] {
+  const kept = rows.filter((m) => !m.id.startsWith(QUEUED_TURN_PREFIX))
+  const shown = (q: ChatMessage) =>
+    kept.some((m) => (q.uuid !== undefined && carriesUuid(m, q.uuid)) || (isPendingTurn(m) && echoes(q, m)))
+  return [...kept, ...(queued ?? []).filter((q) => !shown(q))]
+}
+
+/** Whether `m` is the turn sent under `uuid`: written under it, or folded into a running turn from it (`sentUuid`). */
+function carriesUuid(m: ChatMessage, uuid: string): boolean {
+  return m.uuid === uuid || m.sentUuid === uuid
+}
+
+/**
+ * The id prefix the server publishes a sent turn under on the session's
+ * topic. Mirrors the server's `SENT_TURN_PREFIX`.
+ */
+const SENT_TURN_PREFIX = 'sent:'
+
+/**
+ * What a transcript held keeps across a read of the file: the turns sent that
+ * the file has not written yet — this tab's own, and the ones the socket
+ * delivered from elsewhere — and nothing the read has. A page built before
+ * the CLI wrote a turn then neither drops it nor shows it twice.
+ */
+function unwrittenTurns(current: readonly ChatMessage[], fetched: readonly ChatMessage[]): ChatMessage[] {
+  return current.filter(
+    (m) =>
+      (isPendingTurn(m) || m.id.startsWith(SENT_TURN_PREFIX)) &&
+      !fetched.some((f) => (m.uuid !== undefined && carriesUuid(f, m.uuid)) || echoes(f, m)),
+  )
+}
+
+/**
+ * How many times each session's live notice changed since this page loaded,
+ * by whatever path. A page asked for before the newest change carries an
+ * older notice than the store holds, and does not seat it.
+ */
+const liveNoticeChanges: Record<string, number> = {}
+
+/** The stamp a page request takes before it goes out, for `seatedLiveNotice`. */
+function liveNoticeStamp(id: string): number {
+  return liveNoticeChanges[id] ?? 0
+}
+
+/**
+ * The page's live notice seated for `id`; nothing from a Mac that sends none,
+ * nor where the notice changed while the page was in flight (`asked`, its
+ * `liveNoticeStamp`): the socket's word is the newer one.
+ */
+function seatedLiveNotice(
+  state: Pick<OrbitalState, 'liveNotices'>,
+  id: string,
+  page: MessagesPage,
+  asked: number,
+): Partial<Pick<OrbitalState, 'liveNotices'>> {
+  if (page.liveNotice === undefined || liveNoticeStamp(id) !== asked) return {}
+  return { liveNotices: withLiveNotice(state.liveNotices, id, page.liveNotice) }
 }
 
 /**
@@ -1217,6 +1305,34 @@ const initialUiState: OrbitalUiState = {
 }
 
 /**
+ * Takes a session's live notice down once a status says it is not working,
+ * on either topic: `sessions` reaches every session, `session:<id>` only the
+ * one shown, so a notice whose end went by unheard does not outlive it.
+ */
+function liveNoticeSettled(
+  state: Pick<OrbitalState, 'liveNotices'>,
+  sessionId: string,
+  status: SessionStatus,
+): Partial<Pick<OrbitalState, 'liveNotices'>> {
+  if (status === 'working' || !(sessionId in state.liveNotices)) return {}
+  return { liveNotices: withLiveNotice(state.liveNotices, sessionId, null) }
+}
+
+/** `liveNotices` with one session's row set, or removed by `null`. */
+function withLiveNotice(
+  notices: Record<string, ChatMessage>,
+  sessionId: string,
+  message: ChatMessage | null,
+): Record<string, ChatMessage> {
+  liveNoticeChanges[sessionId] = liveNoticeStamp(sessionId) + 1
+  if (message) return { ...notices, [sessionId]: message }
+  if (!(sessionId in notices)) return notices
+  const rest = { ...notices }
+  delete rest[sessionId]
+  return rest
+}
+
+/**
  * The trailing half of `leavingSince`: stamps the session the moment it
  * stops holding a place on the map, and never otherwise. Covers every way
  * that can happen — a status event, an upsert (another window unpinning),
@@ -1257,11 +1373,13 @@ export function configureTranscriptPages(size: number | undefined): void {
 }
 
 /** One page of a transcript: the newest, or the one before `before`. */
-function messagesPage(id: string, before?: string): Promise<ChatMessage[]> {
+function messagesPage(id: string, before?: string): Promise<MessagesPage> {
   if (before === undefined) {
-    return transcriptPageSize === undefined ? api.getMessages(id) : api.getMessages(id, { limit: transcriptPageSize })
+    return transcriptPageSize === undefined
+      ? api.getMessagesPage(id)
+      : api.getMessagesPage(id, { limit: transcriptPageSize })
   }
-  return api.getMessages(id, transcriptPageSize === undefined ? { before } : { before, limit: transcriptPageSize })
+  return api.getMessagesPage(id, transcriptPageSize === undefined ? { before } : { before, limit: transcriptPageSize })
 }
 
 export const useOrbital = create<OrbitalStore>()((set, get) => ({
@@ -1284,6 +1402,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   errorsUnseen: 0,
   remote: null,
   pendingDecisions: {},
+  liveNotices: {},
   decisionAnswers: {},
   decisionDrafts: readQuestionDrafts(),
   questionCursors: {},
@@ -1461,6 +1580,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   async resyncAfterReconnect() {
+    // A live notice's end may have gone by while the socket was down; the
+    // server puts one up again only with the next hook.
+    if (Object.keys(get().liveNotices).length > 0) set({ liveNotices: {} })
     try {
       // The full snapshot already covers everything the `sessions` and
       // `errors` topics carried while the socket was down.
@@ -1477,11 +1599,22 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // snapshot's page does not reach it).
       if (selectedId) await get().loadSessionHistory(selectedId)
       // Fetched before the swap, so the open transcript never flashes empty.
+      const asked = selectedId ? liveNoticeStamp(selectedId) : 0
       const fetched = selectedId ? await messagesPage(selectedId) : null
 
-      set(
+      set((state) =>
         selectedId && fetched
-          ? { transcripts: { [selectedId]: fetched }, historyLoaded: { [selectedId]: true } }
+          ? {
+              transcripts: {
+                [selectedId]: withQueuedTurns(
+                  // What the socket delivered while the page was out stays.
+                  [...fetched.messages, ...unwrittenTurns(state.transcripts[selectedId] ?? [], fetched.messages)],
+                  fetched.queued,
+                ),
+              },
+              historyLoaded: { [selectedId]: true },
+              ...seatedLiveNotice(state, selectedId, fetched, asked),
+            }
           : { transcripts: {}, historyLoaded: {} },
       )
 
@@ -1523,17 +1656,20 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   async reloadTranscript(id) {
     if (!get().historyLoaded[id]) return
-    const fetched = await messagesPage(id)
+    const asked = liveNoticeStamp(id)
+    const page = await messagesPage(id)
+    const fetched = page.messages
     set((state) => {
       // Left while the fetch was out: the next open fetches anyway.
       if (!state.historyLoaded[id]) return {}
       // The file is the whole truth except for a turn typed a moment ago
-      // that it has not echoed yet — the same carry-over `select()` makes.
+      // that it has not echoed yet, and the turns the server holds queued.
       const current = state.transcripts[id] ?? []
-      const pending = current.filter(
-        (m) => isPendingTurn(m) && !fetched.some((f) => echoes(f, m)),
-      )
-      return { transcripts: { ...state.transcripts, [id]: [...fetched, ...pending] } }
+      const pending = unwrittenTurns(current, fetched)
+      return {
+        transcripts: { ...state.transcripts, [id]: withQueuedTurns([...fetched, ...pending], page.queued) },
+        ...seatedLiveNotice(state, id, page, asked),
+      }
     })
   },
 
@@ -1646,10 +1782,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           // The echo wins on everything the server owns, but the captions are
           // local-only: an SDK image block carries no name, so dropping them
           // here would blank every caption the moment the echo landed.
-          const provenance = existing[pendingIdx].imageProvenance
-          updated[pendingIdx] = provenance
-            ? { ...msg.message, imageProvenance: provenance }
-            : msg.message
+          // The harness's mark too: a queued turn a harness sent carries it
+          // from the page, and the echo does not.
+          const { imageProvenance: provenance, harnessMessage } = existing[pendingIdx]
+          updated[pendingIdx] = {
+            ...msg.message,
+            ...(provenance ? { imageProvenance: provenance } : {}),
+            ...(harnessMessage && !msg.message.harnessMessage ? { harnessMessage } : {}),
+          }
           set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
           return
         }
@@ -1744,9 +1884,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       const next = { ...session, status: msg.status }
       set({
         sessions: { ...state.sessions, [sessionId]: next },
+        // Whatever it said ran, nothing runs once the session is not working;
+        // a `null` this tab missed must not leave the row standing.
+        ...liveNoticeSettled(state, sessionId, msg.status),
         ...leavingStamp(state, session, next),
         ...(crashed ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } } : {}),
       })
+      return
+    }
+
+    if (msg.event === 'live_notice') {
+      set({ liveNotices: withLiveNotice(state.liveNotices, sessionId, msg.message) })
       return
     }
 
@@ -1856,6 +2004,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       set({
         transcripts,
         transcriptErrors,
+        // Nothing of a turn runs past its end, whatever this tab missed.
+        liveNotices: withLiveNotice(state.liveNotices, sessionId, null),
         // Same clearing, for the recorded error. The flag above cannot cover
         // it: the record is a database row that outlives this transition, so
         // what it needs is a moment to be compared against, not a reset.
@@ -2060,20 +2210,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // Its subagents and tasks too: the list carries only the running ones.
     void get().loadSessionHistory(id)
     try {
-      const fetched = await messagesPage(id)
+      const asked = liveNoticeStamp(id)
+      const page = await messagesPage(id)
       set((state) => {
         // Left again while the fetch was in flight: seating the history now
         // would mark a session nobody listens to as loaded, and the next
         // return would show it as it stood here.
         if (state.ui.selectedId !== id) return {}
         // The file's history goes in front of whatever the subscription
-        // delivered before the fetch resolved.
+        // delivered before the fetch resolved, and the turns the CLI holds
+        // queued after it: the file has none of them yet.
         const existing = state.transcripts[id] ?? []
         const existingIds = new Set(existing.map((m) => m.id))
-        const toPrepend = fetched.filter((m) => !existingIds.has(m.id))
+        const toPrepend = page.messages.filter((m) => !existingIds.has(m.id))
         return {
-          transcripts: { ...state.transcripts, [id]: [...toPrepend, ...existing] },
+          transcripts: { ...state.transcripts, [id]: withQueuedTurns([...toPrepend, ...existing], page.queued) },
           historyLoaded: { ...state.historyLoaded, [id]: true },
+          ...seatedLiveNotice(state, id, page, asked),
         }
       })
       set((state) => {
@@ -2109,7 +2262,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
     let fetched: ChatMessage[]
     try {
-      fetched = await messagesPage(id, firstId)
+      fetched = (await messagesPage(id, firstId)).messages
     } catch {
       return null
     }
@@ -2659,12 +2812,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     set((state) => ({ ui: { ...state.ui, fileViewer: null } }))
   },
 
-  async openInIde(path, line) {
+  async openInIde(path, line, editor) {
     const id = get().ui.selectedId
     // Another device's session has no editor here to open a path in.
     if (!id || !ideHere(get().sessions[id])) return false
     try {
-      return await api.ideOpenFile(id, path, line ?? null)
+      return await api.ideOpenFile(id, path, line ?? null, editor)
     } catch {
       // Silence is the contract for everything IDE (adr
       // `orbital-speaks-to-the-ide-itself`). The gesture only ever appears
@@ -3151,6 +3304,7 @@ function sessionsEventPatch(
     if (rewindSettled) delete rewindSentText[msg.session.id]
     return {
       ...(rewindSettled ? { rewindSending: withoutKey(state.rewindSending, msg.session.id) } : {}),
+      ...liveNoticeSettled(state, msg.session.id, msg.session.status),
       sessions,
       order: sortIdsByLastAtDesc(sessions),
       ...leavingStamp(state, state.sessions[msg.session.id], msg.session),
@@ -3188,6 +3342,7 @@ function sessionsEventPatch(
     return {
       sessions: { ...state.sessions, [msg.sessionId]: next },
       ...leavingStamp(state, existing, next),
+      ...liveNoticeSettled(state, msg.sessionId, msg.status),
     }
   }
 
@@ -3292,13 +3447,16 @@ function flushSessionsEvents() {
  * way back anyway. Same seam as the panel guard above, for the same reason:
  * it sees every writer of `ui.selectedId`.
  *
- * An optimistic `local:` turn goes with it; the file's echo of it is what
- * the refetch finds. A session still shown in the subagent panel keeps its
+ * An optimistic `local:` turn goes with it; the file's echo of it, or the
+ * server's list of turns the CLI holds queued, is what the refetch finds.
+ * So does the live notice, which the same page carries back. A session still shown in the subagent panel keeps its
  * transcript — the panel reads its parent's rows.
  */
 function dropTranscript(id: string) {
   const state = useOrbital.getState()
   if (state.ui.selectedId === id || state.subagentPanel?.sessionId === id) return
+  // Its `null` would not reach this tab any more either.
+  if (id in state.liveNotices) useOrbital.setState({ liveNotices: withLiveNotice(state.liveNotices, id, null) })
   if (!(id in state.transcripts) && !(id in state.historyLoaded)) return
   forgetStreamEnds(state.transcripts[id] ?? [])
   const { [id]: _transcript, ...transcripts } = state.transcripts

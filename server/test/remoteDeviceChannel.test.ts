@@ -252,6 +252,24 @@ describe('device channel, served by this server', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(phone.out).toContainEqual({ t: 'blob_meta', id: 8, status: 404 });
   });
+  it('drops an answer awaited across a reconnect: the new connection reuses its request ids', async () => {
+    let answerHttp!: (res: { statusCode: number; body: string }) => void;
+    const { phone, images } = build({ inject: () => new Promise((r) => { answerHttp = r; }) });
+    phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
+    const entry = images.putBytes('image/png', Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(100, 1)]))!;
+    phone.send({ t: 'http', id: 1, method: 'GET', path: '/api/sessions?limit=2' });
+    phone.send({ t: 'blob_get', id: 2, ref: entry.ref, edge: 512 });
+    phone.rehandshake();
+    phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
+    phone.out.length = 0;
+    answerHttp({ statusCode: 200, body: '{"old":true}' });
+    // Asked again on the new connection, under the same id: only this answer arrives.
+    phone.send({ t: 'blob_get', id: 2, ref: entry.ref, edge: 512 });
+    await vi.waitFor(() => expect(phone.out.some((m) => m.t === 'blob_meta' && m.id === 2)).toBe(true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(phone.out.filter((m) => m.t === 'blob_meta' && m.id === 2)).toHaveLength(1);
+    expect(phone.out.some((m) => m.t === 'http_res')).toBe(false);
+  });
   it('blob_put assembles chunks into the image store and answers the entry', async () => {
     const { phone, images } = build();
     phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
@@ -392,9 +410,9 @@ function fileWorld() {
   phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
   let nextId = 1;
   /** One `file_get`; its `blob_meta`, and its bytes reassembled. */
-  const get = (path: string, as: 'image' | 'text' | 'pdf', session = 'sf') => {
+  const get = (path: string, as: 'image' | 'text' | 'pdf', session = 'sf', edge?: number) => {
     const id = nextId++;
-    phone.send({ t: 'file_get', id, session, path, as });
+    phone.send({ t: 'file_get', id, session, path, as, ...(edge !== undefined ? { edge } : {}) });
     const meta = phone.out.find((m) => m.t === 'blob_meta' && m.id === id);
     const chunks = phone.blobs.filter((b) => b.id === id);
     return { meta, chunks, bytes: Buffer.concat(chunks.map((c) => c.bytes)) };
@@ -429,6 +447,25 @@ describe('device channel file_get', () => {
     const res = get(named, 'image');
     expect(res.meta).toEqual({ t: 'blob_meta', id: 1, status: 200, bytes: 64, mediaType: 'image/png', size: 64, w: 3, h: 2 });
     expect(res.bytes.equals(pngOf(3, 2))).toBe(true);
+  });
+  it('sends the file itself, as it is, when asked for a thumbnail it cannot make', async () => {
+    const { named, phone, get } = fileWorld();
+    get(named, 'image', 'sf', 512);
+    await vi.waitFor(() => expect(phone.out.some((m) => m.t === 'blob_meta' && m.id === 1)).toBe(true));
+    const meta = phone.out.find((m) => m.t === 'blob_meta' && m.id === 1);
+    expect(meta).toEqual({ t: 'blob_meta', id: 1, status: 200, bytes: 64, mediaType: 'image/png', size: 64, w: 3, h: 2 });
+    expect(Buffer.concat(phone.blobs.filter((b) => b.id === 1).map((c) => c.bytes)).equals(pngOf(3, 2))).toBe(true);
+  });
+  it('drops a thumbnail answer awaited across a reconnect', async () => {
+    const { named, phone } = fileWorld();
+    phone.send({ t: 'file_get', id: 1, session: 'sf', path: named, as: 'image', edge: 512 });
+    phone.rehandshake();
+    phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
+    phone.out.length = 0;
+    phone.send({ t: 'file_get', id: 1, session: 'sf', path: named, as: 'image', edge: 512 });
+    await vi.waitFor(() => expect(phone.out.some((m) => m.t === 'blob_meta' && m.id === 1)).toBe(true));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(phone.out.filter((m) => m.t === 'blob_meta' && m.id === 1)).toHaveLength(1);
   });
   it('answers 404 for a missing file and for an unknown session', () => {
     const { named, get } = fileWorld();

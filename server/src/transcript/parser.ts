@@ -1,7 +1,8 @@
 import type { ChatMessage, ImageRefEntry } from '../types.js';
 import type { ImageWriter } from '../images/store.js';
 import {
-  AUTHENTICATION_FAILED, designLoginLine, isDesignSyncTool, loginLostNotice, messageFromLocalCommandEntry, textOfContent,
+  AUTHENTICATION_FAILED, STOP_HOOK_EVENT, designLoginLine, isDesignSyncTool, loginLostNotice, messageFromLocalCommandEntry,
+  stopHookCancelledNotice, textOfContent,
 } from './notices.js';
 import { compactSummaryText, markFromTranscriptBoundary } from './compaction.js';
 import { parseWalkthroughTag, walkthroughChipName, WALKTHROUGH_TAG } from '../walkthrough/tag.js';
@@ -59,6 +60,12 @@ export interface TranscriptEntry {
   /** Set on the user entry carrying a tool_result — the payload stats measure. */
   toolUseResult?: unknown;
   /**
+   * `attachment` entries only: what the CLI attached to the chain — a hook's
+   * outcome among them (`hook_cancelled`, with `hookEvent`). Read only for
+   * the one shape `isStopHookCancelled` names.
+   */
+  attachment?: unknown;
+  /**
    * Set on the synthetic assistant entry of a failed API call
    * (`isApiErrorMessage`): `authentication_failed` for a lost login. Read
    * only as that one string; anything else is as if absent.
@@ -81,6 +88,34 @@ export interface TranscriptEntry {
  */
 export function outsideConversation(e: TranscriptEntry): boolean {
   return e.isSidechain === true || e.isMeta === true;
+}
+
+/**
+ * A message the user sent mid-turn that the CLI folded into the running turn
+ * (CLI 2.1.280): it writes no `user` entry for it, only an `attachment` of
+ * type `queued_command` under a uuid of its own, with the prompt as sent and
+ * the uuid it was sent under in `source_uuid`. Read as the user entry it
+ * stands for, so the message is in the transcript on a reload as it was
+ * live; null for any other entry, a task notification (`commandMode`
+ * `task-notification`) and a message from another session (`origin.kind`
+ * `peer`) among them.
+ */
+export function foldedUserEntry(e: TranscriptEntry): { entry: TranscriptEntry; sentUuid: string | null } | null {
+  if (e.type !== 'attachment' || !e.attachment || typeof e.attachment !== 'object') return null;
+  const a = e.attachment as { type?: unknown; commandMode?: unknown; origin?: unknown; prompt?: unknown; source_uuid?: unknown; isMeta?: unknown };
+  if (a.type !== 'queued_command' || a.commandMode !== 'prompt') return null;
+  const origin = a.origin as { kind?: unknown } | null | undefined;
+  if (origin != null && origin.kind !== 'human') return null;
+  if (typeof a.prompt !== 'string' && !Array.isArray(a.prompt)) return null;
+  return {
+    entry: {
+      ...e,
+      type: 'user',
+      ...(a.isMeta === true ? { isMeta: true } : {}),
+      message: { role: 'user', content: a.prompt as string | Array<Record<string, unknown>> },
+    },
+    sentUuid: typeof a.source_uuid === 'string' ? a.source_uuid : null,
+  };
 }
 
 export function parseTranscriptLine(line: string): TranscriptEntry | null {
@@ -246,6 +281,13 @@ export function isInterruptMarker(text: string): boolean {
   return /^\[Request interrupted by user(?: for tool use)?\]$/.test(text);
 }
 
+/** The `hook_cancelled` attachment the CLI writes when a main-loop `Stop` hook is cut short. */
+function isStopHookCancelled(e: TranscriptEntry): boolean {
+  if (e.type !== 'attachment' || !e.attachment || typeof e.attachment !== 'object') return false;
+  const a = e.attachment as { type?: unknown; hookEvent?: unknown };
+  return a.type === 'hook_cancelled' && a.hookEvent === STOP_HOOK_EVENT;
+}
+
 /**
  * `skip` holds the uuids of user entries that are not the user's words — the
  * messages Orbital sent on a harness's account (`harness_messages`). They
@@ -353,14 +395,27 @@ export function toolResultParts(
   return { text: texts.join('\n'), images: refs };
 }
 
-export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWriter): ChatMessage[] {
+/**
+ * `cancelledStopHooks` carries the uuids of cancelled `Stop` hooks'
+ * attachments between calls: a tail that reads the attachment and the
+ * interrupt marker chained to it in two reads passes the same set to both,
+ * so the marker reads as it does on a reload. Unpassed, it lives for this
+ * call.
+ */
+export function entriesToMessages(
+  entries: TranscriptEntry[],
+  images?: ImageWriter,
+  cancelledStopHooks: Set<string> = new Set(),
+): ChatMessage[] {
   const out: ChatMessage[] = [];
   // The newest compaction mark still waiting for its summary entry.
   let unsummarised: ChatMessage | null = null;
   // The main conversation's DesignSync calls, whose failures may name
   // `/design-login` (spec 2026-10-21-log-in-from-orbital-design § 3).
   const designCalls = new Set<string>();
-  for (const e of entries) {
+  for (const raw of entries) {
+    const folded = foldedUserEntry(raw);
+    const e = folded?.entry ?? raw;
     // The entry's uuid rides on every message it becomes: a rewind names its
     // target by it, and the messages API cuts and places dividers by it
     // (spec 2026-09-29-rewind-design § Ids). So does its `cwd`: a file link
@@ -369,6 +424,7 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
     const origin = {
       ...(typeof e.uuid === 'string' ? { uuid: e.uuid } : {}),
       ...(typeof e.cwd === 'string' && e.cwd ? { cwd: e.cwd } : {}),
+      ...(folded?.sentUuid ? { sentUuid: folded.sentUuid } : {}),
     };
     // A compaction becomes its own mark, carrying the summary from the entry
     // that follows it — the same item the runner builds live (spec
@@ -399,7 +455,23 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
       if (row) out.push({ ...row, ...origin });
       continue;
     }
+    // The interrupt marker chained directly to one is the hook's end, not a
+    // turn the user stopped.
+    if (isStopHookCancelled(e) && typeof e.uuid === 'string') {
+      cancelledStopHooks.add(e.uuid);
+      continue;
+    }
     if ((e.type !== 'user' && e.type !== 'assistant') || !e.message || outsideConversation(e)) continue;
+    // The runner makes the same row live (spec
+    // 2026-10-31-message-beats-stop-hook-design § The cancelled hook).
+    if (
+      e.type === 'user' && typeof e.parentUuid === 'string' && cancelledStopHooks.has(e.parentUuid) &&
+      isInterruptMarker(textOfContent(e.message.content).trim())
+    ) {
+      cancelledStopHooks.delete(e.parentUuid);
+      out.push({ ...stopHookCancelledNotice(`${e.uuid}:0`, e.timestamp), ...origin });
+      continue;
+    }
     // A turn that failed on the login: the same `login_lost` notice the
     // runner publishes live, so a reload and the live view agree. The parser
     // knows no profile; the web uses the session's.

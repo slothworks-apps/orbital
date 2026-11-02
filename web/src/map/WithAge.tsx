@@ -1,5 +1,5 @@
 import { useAsOfNow } from '../lib/asOfClock'
-import { asOfLabel } from '../lib/devices'
+import { withAgeText } from '../lib/devices'
 import type { MachineRef } from '../lib/types'
 
 /**
@@ -11,5 +11,5 @@ import type { MachineRef } from '../lib/types'
  */
 export function WithAge({ text, machine }: { text: string | null; machine: MachineRef | undefined }) {
   const now = useAsOfNow(true)
-  return <>{[text, asOfLabel(machine, now)].filter(Boolean).join(' · ')}</>
+  return <>{withAgeText(text, machine, now)}</>
 }

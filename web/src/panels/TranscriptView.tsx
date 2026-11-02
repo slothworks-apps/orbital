@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { BackgroundTask, ChatMessage, OrbitalModel, Subagent } from '../lib/types'
 import { modelNameForId } from '../lib/models'
 import { formatToolDuration } from '../lib/format'
@@ -13,7 +13,7 @@ import {
   type Scroller,
 } from './transcriptMotion'
 import { JumpToBottom, type JumpSurface } from './JumpToBottom'
-import { isPendingTurn } from '../store/store'
+import { isOwnPendingTurn } from '../store/store'
 import { useCommand } from '../lib/commands'
 import { MessageView } from './MessageView'
 import { NoticeRow } from './NoticeRow'
@@ -420,6 +420,45 @@ export interface TranscriptViewProps {
    * reached the start without it — the transcript stays where it was.
    */
   jumpTo?: { messageId: string; onDone: (found: boolean) => void }
+  /**
+   * The live row of what holds the turn — a running hook (canvas `Feature -
+   * Stop hook` 1a) — drawn after the last row that went out, so the messages
+   * sent behind it follow it. Renders nothing while nothing holds the turn.
+   */
+  liveRow?: ReactNode
+  /**
+   * While the live row is up: which messages wait behind it (`waitingBehind`).
+   * Those are drawn under the row, waiting, with `waitCaption` once under the
+   * last of them (1g), given how many wait.
+   */
+  isWaiting?: (message: ChatMessage) => boolean
+  waitCaption?: (count: number) => ReactNode
+}
+
+/**
+ * Which groups go above the live row and which under it, by index. While a
+ * row is up, every message waiting behind it goes under it, in order (1a).
+ * Otherwise the user turns that end the transcript do — the ones that just
+ * went out, while the row fades — and with none, the row is last.
+ */
+export function holdOrder(
+  groups: readonly TranscriptGroup[],
+  isWaiting: ((message: ChatMessage) => boolean) | undefined,
+): { above: number[]; under: number[] } {
+  const above: number[] = []
+  const under: number[] = []
+  if (isWaiting) {
+    groups.forEach((g, i) => (g.kind === 'message' && isWaiting(g.item.message) ? under : above).push(i))
+    return { above, under }
+  }
+  let from = groups.length
+  while (from > 0) {
+    const g = groups[from - 1]
+    if (g.kind !== 'message' || g.item.message.role !== 'user') break
+    from -= 1
+  }
+  groups.forEach((_, i) => (i < from ? above : under).push(i))
+  return { above, under }
 }
 
 /** Canvas `Feature - Media` 24b ACCEPTANCE: the hairline Show in transcript fades on the message, once. */
@@ -692,6 +731,9 @@ export function TranscriptView({
   surface = 'panel',
   onJump,
   jumpTo,
+  liveRow,
+  isWaiting,
+  waitCaption,
 }: TranscriptViewProps) {
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_MESSAGES)
   // The row under the pointer in pick mode. Forgotten when the mode ends, so
@@ -889,7 +931,9 @@ export function TranscriptView({
   useLayoutEffect(() => {
     if (entering.size === 0) return
     const arrived = groups.filter((g) => entering.has(g.key))
-    if (arrived.some((g) => g.kind === 'message' && isPendingTurn(g.item.message))) {
+    // This tab's own turn only: one another window or the phone sent is
+    // news, as anything else arriving is.
+    if (arrived.some((g) => g.kind === 'message' && isOwnPendingTurn(g.item.message))) {
       if (!stickToBottomRef.current) {
         setStick(true)
         scrollerRef.current?.jump()
@@ -1021,6 +1065,28 @@ export function TranscriptView({
     ? groups.findIndex((g) => g.kind === 'message' && g.item.message.id === previewId)
     : -1
 
+  // The live row sits between what went out and what waits behind it (1a);
+  // with nothing waiting, last. One keyed list, so neither the row nor a
+  // message remounts when a message is sent or delivered around it.
+  const hold = holdOrder(groups, isWaiting)
+  const underSet = new Set(hold.under)
+  const phone = surface === 'phone'
+  const held = (rows: ReactNode[]): ReactNode[] => {
+    const waitingCount = isWaiting ? hold.under.length : 0
+    const caption = waitCaption && waitingCount > 0 && (
+      // 1a/1g: 6px under a lone message, 8px under several.
+      <div key="wait-caption" className={['shrink-0 self-end', waitingCount > 1 ? (phone ? '-mt-1' : '-mt-1.5') : phone ? '-mt-1.5' : '-mt-2'].join(' ')}>
+        {waitCaption(waitingCount)}
+      </div>
+    )
+    return [
+      ...hold.above.map((i) => rows[i]),
+      <Fragment key="live-row">{liveRow}</Fragment>,
+      ...hold.under.map((i) => rows[i]),
+      ...(caption ? [caption] : []),
+    ]
+  }
+
   return (
     // The indicator sits over the scroll container, not inside it, so it does
     // not scroll away with the rows.
@@ -1038,8 +1104,9 @@ export function TranscriptView({
       {pages && (
         <div ref={sentinelRef} data-testid="transcript-sentinel" aria-hidden className="-mb-[15px] h-px shrink-0" />
       )}
-      {groups.map((group, index, all) => {
+      {held(groups.map((group, index, all) => {
         const message = group.kind === 'message' ? group.item.message : undefined
+        const waiting = isWaiting !== undefined && underSet.has(index)
         const target = rewind !== undefined && message !== undefined && rewind.targets.has(message.id)
         const previewed = target && index === previewIndex
         const pickable = target && rewind?.onPick !== undefined
@@ -1075,6 +1142,8 @@ export function TranscriptView({
           className={[
             'shrink-0 motion-safe:transition-opacity motion-safe:duration-150',
             entering.has(group.key) ? 'orbital-row-enter' : '',
+            // 1g: the waiting messages stand 8px apart, not a whole row gap.
+            waiting && index !== hold.under[0] ? (phone ? '-mt-1' : '-mt-1.5') : '',
             pickable ? 'cursor-pointer' : '',
           ].join(' ')}
           style={opacity === undefined ? undefined : { opacity }}
@@ -1233,11 +1302,12 @@ export function TranscriptView({
               group.item.message.role === 'assistant'
             }
             rewindMark={target ? (previewed ? 'active' : 'target') : undefined}
+            waiting={waiting}
           />
         )}
         </div>
         )
-      })}
+      }))}
       {footer}
     </div>
     <JumpToBottom

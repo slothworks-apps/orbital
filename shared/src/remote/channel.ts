@@ -90,6 +90,8 @@ export type GetFileOptions = {
   idleTimeoutMs?: number;
   /** `getFile` only: the `cwd` of the transcript entry the link came from (`ChatMessage.cwd`). */
   cwd?: string;
+  /** `getFile` only: a thumbnail of at most this many pixels on its longest side, when the Mac makes one. */
+  edge?: number;
 };
 /** The Mac's two refusals the composer shows are values; every other failure is a `TunnelError`. */
 export type PutBlobResult =
@@ -327,7 +329,8 @@ export class Channel {
    */
   getFile(session: string, path: string, as: FileAs, opts: GetFileOptions = {}): Promise<FileResult> {
     const cwd = opts.cwd ? { cwd: opts.cwd } : {};
-    return this.receiveBlob((id) => ({ t: 'file_get', id, session, path, as, ...cwd }), opts);
+    const edge = opts.edge !== undefined ? { edge: opts.edge } : {};
+    return this.receiveBlob((id) => ({ t: 'file_get', id, session, path, as, ...cwd, ...edge }), opts);
   }
 
   /** Uploads an image into the Mac's store: the header, every chunk, then one `blob_put_done` answers. */

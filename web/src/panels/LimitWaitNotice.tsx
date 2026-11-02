@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { limitSettings, limitWaitCopy } from '../lib/limits'
@@ -6,6 +6,20 @@ import { openSettingsSection } from '../lib/sessionUrl'
 import type { LimitWait } from '../lib/types'
 import { LIMITS_PATH } from '../limits/route'
 import { useOrbital } from '../store/store'
+
+/** The one action of a transcript notice: the wait's Cancel and Undo, and the Stop hook's Cancel. */
+export function NoticeAction({ onClick, disabled, children }: { onClick: () => void; disabled?: boolean; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="cursor-pointer rounded-[7px] border border-line/18 bg-transparent px-[11px] py-[5px] fs-12 font-semibold text-ink-200/90 transition-[background-color,border-color] duration-[160ms] ease-[ease] hover:border-line/30 hover:bg-line/10 disabled:cursor-default"
+    >
+      {children}
+    </button>
+  )
+}
 
 /**
  * The transcript's last row while a session waits for a plan limit to reset
@@ -47,14 +61,9 @@ export function LimitWaitNotice({ sessionId, wait, hue }: { sessionId: string; w
           />
           <span className="min-w-0 flex-1 fs-13 font-semibold text-ink-100">{copy.title}</span>
           {copy.action && (
-            <button
-              type="button"
-              onClick={act}
-              disabled={busy}
-              className="cursor-pointer rounded-[7px] border border-line/18 bg-transparent px-[11px] py-[5px] fs-12 font-semibold text-ink-200/90 transition-[background-color,border-color] duration-[160ms] ease-[ease] hover:border-line/30 hover:bg-line/10 disabled:cursor-default"
-            >
+            <NoticeAction onClick={act} disabled={busy}>
               {copy.action === 'cancel' ? 'Cancel' : 'Undo'}
-            </button>
+            </NoticeAction>
           )}
         </div>
         <div className="pl-[18px] font-mono fs-10.5 leading-[1.6] text-ink-900/65 [text-wrap:pretty]">

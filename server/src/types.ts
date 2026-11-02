@@ -1,6 +1,7 @@
 import type { WalkthroughTag } from './walkthrough/tag.js';
 import type { RecentTool } from './transcript/recentTools.js';
 import type { HarnessMessageKind } from './harness/types.js';
+import type { LiveHookNotice } from '@orbital/shared/hookNotice';
 
 export type SessionSource = 'terminal' | 'web';
 /** Why Orbital started a session: `harness_draft` is a harness template's drafting conversation. */
@@ -118,6 +119,12 @@ export interface ChatMessage {
    */
   uuid?: string;
   /**
+   * `user` rows of a message the CLI folded into a running turn
+   * (`foldedUserEntry`): the uuid it was sent under, which the file wrote
+   * under `uuid` instead. What tells a sent turn is in the file.
+   */
+  sentUuid?: string;
+  /**
    * The directory the agent was in when it wrote this: the `cwd` of the
    * transcript entry the message came from, the main transcript's or a
    * subagent's. A file link in the message is resolved against it — sent back
@@ -179,6 +186,11 @@ export interface ChatMessage {
     limitReset?: LimitResetNotice;
     /** `login_lost` and `login_restored` rows only. */
     login?: LoginLostNotice | LoginRestoredNotice;
+    /**
+     * The live row while hooks hold the session (`live_notice`), drawn from
+     * this; `text` says the same for a client that predates it.
+     */
+    hook?: LiveHookNotice;
   };
   /** Images this message carries — refs into the image store, never data.
    * A pasted user image is its own message (no text); a tool_result keeps
@@ -320,7 +332,11 @@ export type ErrorKind =
   | 'rewind_refused'
   | 'rewind_failed'
   /** A transcript whose session id another Claude directory already owns. */
-  | 'session_id_collision';
+  | 'session_id_collision'
+  /** A phone thumbnail `sharp` could not load for, encode or write; the image went whole. */
+  | 'thumbnail_failed'
+  /** `git ls-files` failed or timed out for a file name lookup (the walk stood in), or a listing failed outright. */
+  | 'file_listing_failed';
 
 export interface ErrorRecord {
   id: number;

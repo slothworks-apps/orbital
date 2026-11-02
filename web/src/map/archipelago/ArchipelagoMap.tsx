@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { mapStatePills, showCompactBadge, showTrash, trashDropFor, useOrbital } from '../../store/store'
 import { sendCompactAware, useCompactionUi } from '../../store/compaction'
-import { isReadOnly } from '../../lib/types'
+import { isReadOnly, type ApiSession } from '../../lib/types'
 import { reportError } from '../../lib/errors'
+import { isMemberOffline, localClaudeDirId } from '../../lib/devices'
+import { useClaudeDirMonogramOf } from '../../ui/ClaudeDirMark'
 import { useDocumentHidden, useWindowFocused } from '../../lib/useWindowFocused'
 import { useSceneModel } from '../useSceneModel'
 import { withoutDeviceOff } from '../sceneModel'
-import { applyPan, bodyZoomFactor, clampZoom, fitViewTo, screenToWorld, zoomAt, zoomFromWheel, type CameraState } from '../camera'
+import { FOLLOW_MIN_DISTANCE, applyPan, bodyZoomFactor, centerOn, clampZoom, fitViewTo, screenToWorld, zoomAt, zoomFromWheel, type CameraState } from '../camera'
 import { frameCap, parseMapFps } from '../frameSchedule'
 import { HOLE_DROP_RADIUS } from '../simulation'
 import { prefersReducedMotion } from '../transition'
@@ -44,6 +46,11 @@ export function ArchipelagoMap() {
   const revealHistory = useOrbital((s) => s.revealHistory)
   const setDialog = useOrbital((s) => s.setDialog)
   const { insets } = useMapInsets()
+  const insetsRef = useRef(insets)
+  insetsRef.current = insets
+  const monogramOf = useClaudeDirMonogramOf()
+  const dirMark = useCallback((session: ApiSession) => monogramOf(localClaudeDirId(session)), [monogramOf])
+  const followedRef = useRef<{ id: string; x: number; y: number } | null>(null)
 
   const hostRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<ArchipelagoScene | null>(null)
@@ -76,9 +83,18 @@ export function ArchipelagoMap() {
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
-    scene.setInput({ model, activeBoatKey, detachedIds, statePills, showCompactBadge: compactBadge, reduced: prefersReducedMotion() })
+    scene.setInput({ model, activeBoatKey, detachedIds, statePills, showCompactBadge: compactBadge, reduced: prefersReducedMotion(), dirMark })
     scene.setHoleVisible(trash)
-  }, [model, activeBoatKey, detachedIds, statePills, compactBadge, trash])
+    // Follows the selected ship when its island moves — retagging, as on the
+    // planet map. Selecting another ship does not move the camera.
+    const followed = model.planets.find((p) => p.selected && !p.leaving)
+    const at = followed ? scene.islandAt(followed.tagId) : null
+    const previous = followedRef.current
+    followedRef.current = followed && at ? { id: followed.session.id, ...at } : null
+    if (!followed || !at || !previous || previous.id !== followed.session.id) return
+    if (Math.hypot(at.x - previous.x, at.y - previous.y) < FOLLOW_MIN_DISTANCE) return
+    flightRef.current = centerOn(flightRef.current ?? camRef.current, at, insetsRef.current)
+  }, [model, activeBoatKey, detachedIds, statePills, compactBadge, trash, dirMark])
 
   const viewport = useCallback(() => {
     const r = hostRef.current?.getBoundingClientRect()
@@ -260,7 +276,11 @@ export function ArchipelagoMap() {
         if (!s) return
         if (drop === 'armed') {
           const how = trashDropFor(s.source, s.status)
-          if (how === 'end') trashSession(g.id, { undo: true }).catch((err: unknown) => reportError(err, 'Failed to end the session'))
+          if (how === 'end')
+            trashSession(g.id, { undo: true }).catch((err: unknown) => {
+              // An offline device's ship stays put, and says nothing more.
+              if (!isMemberOffline(err)) reportError(err, 'Failed to end the session')
+            })
           else if (how === 'confirm') setConfirmEndId(g.id)
           return
         }

@@ -209,6 +209,13 @@ jobs:
           sudo apt-get install -y orbital
           orbital --help
 
+      # The phone's thumbnails: sharp loads under the bundled Node, from the
+      # package's own node_modules, and makes a WebP.
+      - name: sharp makes a thumbnail
+        working-directory: /usr/lib/orbital
+        run: |
+          ./node --input-type=module -e "const sharp = (await import('sharp')).default; const webp = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#336699' } }).webp().toBuffer(); if (webp.subarray(8, 12).toString() !== 'WEBP') throw new Error('not a WebP'); console.log('sharp', sharp.versions.sharp, 'libvips', sharp.versions.vips, webp.length, 'bytes')"
+
       # The server under the bundled Node, as the unit starts it, on a port
       # and data dir of its own. Its apt read is done once the candidate
       # shows: the local repository lists the installed version.

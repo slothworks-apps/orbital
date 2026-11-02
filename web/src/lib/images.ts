@@ -19,9 +19,9 @@ export type ImageOptions = { thumb?: boolean }
  * Where the bytes of a file a session's text names come from — an image or a
  * PDF on disk (spec 2026-10-09-session-media-design § Bytes of named files).
  * The web answers with `/api/files/image`; a platform that cannot reach that
- * route by URL configures its own, or none.
+ * route by URL configures its own, or none. `thumb` as for `ImageResolver`.
  */
-export type FileResolver = (sessionId: string, path: string, cwd?: string) => string | Promise<string>
+export type FileResolver = (sessionId: string, path: string, cwd?: string, opts?: ImageOptions) => string | Promise<string>
 
 /** A ref may come from another device's transcript: it stays one segment. */
 export const apiImagePath = (ref: string): string => `/api/images/${encodeURIComponent(ref)}`
@@ -68,9 +68,9 @@ export function canResolveFile(path: string): boolean {
   return fileResolver !== null && canShowPath(path)
 }
 
-export function resolveFile(sessionId: string, path: string, cwd?: string): string | Promise<string> {
+export function resolveFile(sessionId: string, path: string, cwd?: string, opts?: ImageOptions): string | Promise<string> {
   if (!fileResolver) return Promise.reject(new Error('no file resolver configured'))
-  return fileResolver(sessionId, path, cwd)
+  return fileResolver(sessionId, path, cwd, opts)
 }
 
 export interface ImageUrl {
@@ -143,6 +143,8 @@ export interface MediaSource {
 export function useMediaSourceUrl(sessionId: string, source: MediaSource, opts?: ImageOptions): ImageUrl {
   const { ref, path, cwd } = source
   const thumb = opts?.thumb === true
-  const key = ref !== undefined ? `${thumb ? 'thumb' : 'ref'}\n${ref}` : `file\n${sessionId}\n${cwd ?? ''}\n${path ?? ''}`
-  return useResolvedUrl(key, () => (ref !== undefined ? resolveImage(ref, { thumb }) : resolveFile(sessionId, path ?? '', cwd)))
+  const key = ref !== undefined
+    ? `${thumb ? 'thumb' : 'ref'}\n${ref}`
+    : `${thumb ? 'file-thumb' : 'file'}\n${sessionId}\n${cwd ?? ''}\n${path ?? ''}`
+  return useResolvedUrl(key, () => (ref !== undefined ? resolveImage(ref, { thumb }) : resolveFile(sessionId, path ?? '', cwd, { thumb })))
 }

@@ -54,17 +54,23 @@ export async function readPath(
     as: FileAs
     /** The `cwd` of the transcript entry the link came from; the Mac reads the path against it. */
     cwd?: string
+    /** An image's thumbnail at this edge, kept apart from the file itself. */
+    edge?: number
     onProgress?: (received: number, total: number | null) => void
   },
 ): Promise<FileOutcome> {
-  const key = pathKey(req.sessionId, req.path, req.cwd)
-  const cachedCopy = () => copyOf(deps, key, true)
+  const fileKey = pathKey(req.sessionId, req.path, req.cwd)
+  const thumbKey = req.edge !== undefined ? `thumb${req.edge}:${fileKey}` : null
+  // The file itself stands in for its thumbnail: it may be all the phone kept.
+  const cachedCopy = async () =>
+    (thumbKey ? await copyOf(deps, thumbKey, true) : null) ?? copyOf(deps, fileKey, true)
   let received = 0
   let answer: FileResult
   try {
     answer = await deps.client.getFile(req.sessionId, req.path, req.as, {
       idleTimeoutMs: FILE_IDLE_TIMEOUT_MS,
       ...(req.cwd ? { cwd: req.cwd } : {}),
+      ...(req.edge !== undefined ? { edge: req.edge } : {}),
       onProgress: (bytes, total) => {
         received = bytes
         req.onProgress?.(bytes, total)
@@ -82,6 +88,10 @@ export async function readPath(
   }
   if (answer.status === 200) {
     const meta = { w: answer.w, h: answer.h, mediaType: answer.mediaType }
+    // The Mac sends a thumbnail only when it is smaller than the file `size`
+    // names; an answer as large as the file is the file itself (an older Mac,
+    // or one that cannot make thumbnails) and is kept once, as the file.
+    const key = thumbKey !== null && (answer.size === null || answer.bytes.length < answer.size) ? thumbKey : fileKey
     // A copy that cannot be written costs the offline view of it, nothing more.
     await deps.cache.put(key, answer.bytes, meta).catch(() => undefined)
     return { kind: 'ready', bytes: answer.bytes, ...meta, readAt: Date.now(), cached: false }

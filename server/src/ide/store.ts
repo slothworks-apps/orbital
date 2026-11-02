@@ -25,6 +25,7 @@ import {
   type IdeContext,
   type IdeDiagnostic,
   type IdeDiffOutcome,
+  type IdeEditor,
   type IdeLock,
   type IdeSelection,
 } from './protocol.js';
@@ -146,6 +147,8 @@ export class IdeStore extends EventEmitter {
   private cwdsByRoot = new Map<string, Set<string>>();
   /** Every `cwd` ever asked about — re-resolved when the editors change. */
   private seenCwds = new Set<string>();
+  /** Root → the `cwd`s to republish, gathered while `changing` runs; null outside it. */
+  private pending: Map<string, Set<string>> | null = null;
 
   constructor(opts: IdeStoreOptions) {
     super();
@@ -217,6 +220,24 @@ export class IdeStore extends EventEmitter {
     return { ideName: entry.lock.ideName, workspaceRoot: root, selection: entry.selection };
   }
 
+  /**
+   * Every connected editor with this `cwd`'s workspace open: the one `locate`
+   * names first, then the rest, the most recently used first. Each is
+   * addressed by its `id` in `openFile`.
+   */
+  editors(cwd: string): IdeEditor[] {
+    const holder = this.entryFor(cwd);
+    const found: Array<{ entry: Entry; root: string }> = [];
+    for (const entry of this.byPort.values()) {
+      if (!entry.ready) continue;
+      const root = workspaceRootFor(cwd, entry.lock.workspaceFolders);
+      if (root !== null) found.push({ entry, root });
+    }
+    found.sort((a, b) =>
+      a.entry === holder ? -1 : b.entry === holder ? 1 : b.entry.activeAt - a.entry.activeAt);
+    return found.map(({ entry, root }) => ({ id: editorIdOf(entry), ideName: entry.lock.ideName, workspaceRoot: root }));
+  }
+
   /** The `cwd`s that resolved to this workspace — its sessions' addresses. */
   cwdsFor(root: string): string[] {
     return [...(this.cwdsByRoot.get(root) ?? [])];
@@ -271,15 +292,41 @@ export class IdeStore extends EventEmitter {
    * path Orbital would refuse to *read* for a session is not one it should
    * ask an editor to open on that session's behalf.
    */
-  async openFile(cwd: string, path: string, line: number | null = null): Promise<boolean> {
-    const entry = this.entryFor(cwd);
+  async openFile(cwd: string, path: string, line: number | null = null, editorId?: string): Promise<boolean> {
+    const entry = editorId === undefined ? this.entryFor(cwd) : this.editorFor(cwd, editorId);
     if (!entry || !insideCwd(cwd, path)) return false;
     // Neither build takes a line: the line travels as the text that starts
     // it, which VS Code looks for. The JetBrains plugin (0.1.14-beta) reads
     // `startText` and ignores it, so there the file opens where it was.
     // VS Code refuses a call without both texts; empty ones select nothing.
     const args = { filePath: path, ...(line === null ? NO_LINE : lineTexts(cwd, path, line)) };
-    return (await entry.connection.callTool(OPEN_FILE_TOOL, args)) !== null;
+    const opened = (await entry.connection.callTool(OPEN_FILE_TOOL, args)) !== null;
+    // Opening in a chosen editor is using it: the project comes over to it,
+    // as it does for a selection there (spec
+    // 2026-11-02-bare-file-names-and-path-menu-design § Every editor).
+    if (opened && editorId !== undefined) this.use(entry);
+    return opened;
+  }
+
+  /** The ready editor `editorId` names, when it has this `cwd`'s workspace open. */
+  private editorFor(cwd: string, editorId: string): Entry | undefined {
+    const entry = [...this.byPort.values()].find((e) => editorIdOf(e) === editorId);
+    if (!entry?.ready || workspaceRootFor(cwd, entry.lock.workspaceFolders) === null) return undefined;
+    return entry;
+  }
+
+  /**
+   * Someone worked in this editor — a selection there, a file opened in it
+   * on purpose: it becomes the last used, and the one its projects belong to
+   * (spec 2026-09-23-ide-bridge-design § Two editors on one project).
+   * `changing` says whose list of editors that reordered.
+   */
+  private use(entry: Entry): void {
+    if (!this.byPort.has(entry.lock.port) || !entry.ready) return;
+    this.changing(() => {
+      entry.activeAt = ++this.uses;
+      for (const root of entry.lock.workspaceFolders) this.entryByRoot.set(root, entry);
+    });
   }
 
   /**
@@ -486,27 +533,22 @@ export class IdeStore extends EventEmitter {
   private dropLock(port: number): void {
     const entry = this.byPort.get(port);
     if (!entry) return;
-    this.byPort.delete(port);
-    this.lockDirByPort.delete(port);
-    if (entry.timer) clearTimeout(entry.timer);
-    entry.connection.removeAllListeners();
-    entry.connection.close();
-    // A root another editor also has open passes to it rather than going
-    // dark: the project is still open, just in one editor fewer.
-    const inherited: string[] = [];
-    for (const root of entry.lock.workspaceFolders) {
-      if (this.entryByRoot.get(root) !== entry) continue;
-      const heir = this.heirOf(root);
-      if (heir) {
-        this.entryByRoot.set(root, heir);
-        inherited.push(root);
-      } else {
-        this.entryByRoot.delete(root);
+    this.changing(() => {
+      this.byPort.delete(port);
+      this.lockDirByPort.delete(port);
+      if (entry.timer) clearTimeout(entry.timer);
+      entry.connection.removeAllListeners();
+      entry.connection.close();
+      // A root another editor also has open passes to it rather than going
+      // dark: the project is still open, just in one editor fewer.
+      for (const root of entry.lock.workspaceFolders) {
+        if (this.entryByRoot.get(root) !== entry) continue;
+        const heir = this.heirOf(root);
+        if (heir) this.entryByRoot.set(root, heir);
+        else this.entryByRoot.delete(root);
       }
-    }
-    this.reresolve();
-    // The root did not move, so `reresolve` saw nothing; the editor behind it did.
-    for (const root of inherited) this.emitChange(root);
+      this.reresolve();
+    });
   }
 
   /** The most recently used ready editor that has this root open, if any. */
@@ -521,22 +563,16 @@ export class IdeStore extends EventEmitter {
 
   private onReady(entry: Entry): void {
     if (!this.byPort.has(entry.lock.port)) return;
-    entry.ready = true;
-    entry.readyAt = Date.now();
-    entry.activeAt = ++this.uses;
-    // An editor that has just opened the project takes it, the way one that
-    // has just been used does (`flush`). The newer connection is also the one
-    // more likely to still be alive.
-    const taken: string[] = [];
-    for (const root of entry.lock.workspaceFolders) {
-      const holder = this.entryByRoot.get(root);
-      if (holder && holder !== entry) taken.push(root);
-      this.entryByRoot.set(root, entry);
-    }
-    this.reresolve();
-    // A root taken from another editor did not move, so `reresolve` saw
-    // nothing; the editor behind it — its name, its selection — did.
-    for (const root of taken) this.emitChange(root);
+    this.changing(() => {
+      entry.ready = true;
+      entry.readyAt = Date.now();
+      entry.activeAt = ++this.uses;
+      // An editor that has just opened the project takes it, the way one that
+      // has just been used does (`use`). The newer connection is also the one
+      // more likely to still be alive.
+      for (const root of entry.lock.workspaceFolders) this.entryByRoot.set(root, entry);
+      this.reresolve();
+    });
   }
 
   /**
@@ -564,44 +600,80 @@ export class IdeStore extends EventEmitter {
     if (!next || sameSelection(entry.selection, next)) return;
     entry.selection = next;
     if (!entry.ready) return;
-    entry.activeAt = ++this.uses;
-    // A selection is someone working in this editor, so a project open in
-    // another editor as well comes over to this one (spec
-    // 2026-09-23-ide-bridge-design § Two editors on one project).
-    for (const root of entry.lock.workspaceFolders) {
-      this.entryByRoot.set(root, entry);
-      this.emitChange(root);
-    }
-  }
-
-  private emitChange(root: string): void {
-    const cwds = this.cwdsFor(root);
-    if (cwds.length > 0) this.emit('change', root, cwds);
+    this.changing(() => {
+      // A selection is someone working in this editor.
+      this.use(entry);
+      // The selection itself is news wherever this editor now holds the project.
+      for (const root of entry.lock.workspaceFolders) this.queue(root, this.cwdsFor(root));
+    });
   }
 
   /**
-   * Re-answers `locate` for every `cwd` already asked about, and says which
-   * ones moved. Needed because an editor opening or closing changes the
-   * answer for directories that were resolved long before — unlike a working
-   * tree, whose membership does not change under a session's feet.
+   * Runs a change to the editors and republishes every `cwd` it touched:
+   * one whose workspace root moved, and one whose `editors` list changed —
+   * an editor added, gone or reordered, the holder included. The list is
+   * compared rather than derived from the roots that moved, because an
+   * editor on a parent or child folder of a session's root changes the list
+   * without moving the root (an editor on `/repo` quitting leaves a session
+   * resolved to `/repo/web` one editor short). Each `cwd` is said once,
+   * under its root after the change, or before it when nothing covers it any
+   * more. Nested calls join the outer one.
+   */
+  private changing(change: () => void): void {
+    if (this.pending !== null) {
+      change();
+      return;
+    }
+    const before = new Map<string, { root: string | null; editors: string }>();
+    for (const cwd of this.seenCwds) {
+      before.set(cwd, { root: this.rootByCwd.get(cwd) ?? null, editors: this.editorsKey(cwd) });
+    }
+    const pending = new Map<string, Set<string>>();
+    this.pending = pending;
+    try {
+      change();
+      for (const [cwd, was] of before) {
+        if (!this.seenCwds.has(cwd)) continue;
+        const root = this.rootByCwd.get(cwd) ?? null;
+        if (root === was.root && this.editorsKey(cwd) === was.editors) continue;
+        const key = root ?? was.root;
+        if (key !== null) this.queue(key, [cwd]);
+      }
+    } finally {
+      this.pending = null;
+    }
+    for (const [root, cwds] of pending) if (cwds.size > 0) this.emit('change', root, [...cwds]);
+  }
+
+  /** What `editors` answers for a `cwd`, as one string to compare. */
+  private editorsKey(cwd: string): string {
+    return this.editors(cwd).map((e) => `${e.id}\0${e.ideName}\0${e.workspaceRoot}`).join('\n');
+  }
+
+  /** Adds `cwds` to what `changing` republishes under `root`. */
+  private queue(root: string, cwds: string[]): void {
+    if (this.pending === null) {
+      if (cwds.length > 0) this.emit('change', root, cwds);
+      return;
+    }
+    let set = this.pending.get(root);
+    if (!set) this.pending.set(root, (set = new Set()));
+    for (const cwd of cwds) set.add(cwd);
+  }
+
+  /**
+   * Re-answers `locate` for every `cwd` already asked about. Needed because an
+   * editor opening or closing changes the answer for directories that were
+   * resolved long before — unlike a working tree, whose membership does not
+   * change under a session's feet. Which ones moved, `changing` says.
    */
   private reresolve(): void {
     const roots = [...this.entryByRoot.keys()];
-    const touched = new Map<string, string[]>();
     for (const cwd of this.seenCwds) {
       const before = this.rootByCwd.get(cwd) ?? null;
       const after = workspaceRootFor(cwd, roots);
-      if (after === before) continue;
-      this.setRoot(cwd, after);
-      // Grouped under whichever root is the news: the one gained, or the one
-      // lost when nothing covers the directory any more.
-      const key = after ?? before;
-      if (key === null) continue;
-      const list = touched.get(key);
-      if (list) list.push(cwd);
-      else touched.set(key, [cwd]);
+      if (after !== before) this.setRoot(cwd, after);
     }
-    for (const [root, cwds] of touched) this.emit('change', root, cwds);
   }
 
   private setRoot(cwd: string, root: string | null): void {
@@ -617,6 +689,11 @@ export class IdeStore extends EventEmitter {
     if (!cwds) this.cwdsByRoot.set(root, (cwds = new Set()));
     cwds.add(cwd);
   }
+}
+
+/** How `editors` and `openFile` name an editor: its port, which no two connected editors share. */
+function editorIdOf(entry: Entry): string {
+  return String(entry.lock.port);
 }
 
 /** `openFile`'s texts for no line: VS Code requires both, and empty ones select nothing. */

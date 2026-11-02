@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import type { InputHTMLAttributes, Ref, TextareaHTMLAttributes } from 'react'
 
 export type FieldSize = 'sm' | 'md' | 'lg'
 
@@ -32,11 +32,17 @@ const fieldClass = (
   sizes: Record<FieldSize, string>,
   invalid: boolean,
   className?: string,
+  seam?: InputSeam,
 ) =>
   [
-    'w-full text-ink-100 placeholder:text-ink-900/70 focus:outline-none',
-    variant === 'bare' || variant === 'chip' ? '' : `focus:ring-1 ${invalid ? 'focus:ring-red-400/70' : 'focus:ring-ink-300'}`,
-    variant === 'bare'
+    'w-full text-ink-100 focus:outline-none',
+    variant === 'combobox' ? 'placeholder:text-ink-900/45' : 'placeholder:text-ink-900/70',
+    variant === 'bare' || variant === 'chip' || variant === 'combobox'
+      ? ''
+      : `focus:ring-1 ${invalid ? 'focus:ring-red-400/70' : 'focus:ring-ink-300'}`,
+    variant === 'combobox'
+      ? comboboxClass(seam)
+      : variant === 'bare'
       ? // Bare variant: no box at all — the caller's frame draws the edge
         // (canvas 50a's device name over a dashed underline), 14px semibold.
         'border-0 bg-transparent p-0 fs-14 font-semibold'
@@ -57,16 +63,42 @@ const fieldClass = (
     .filter(Boolean)
     .join(' ')
 
-type InputVariant = 'field' | 'inline' | 'bare' | 'chip'
+/**
+ * Combobox variant: New session's PROJECT DIRECTORY field (canvas `Feature -
+ * Directory suggestions` 1a–1c) — the `lg` field at a fixed 38px, with an
+ * accent border and ring while focused. Canvas 1a/1c ONE SHAPE: while its list
+ * is open, the corners on the list's side go square and that border drops to
+ * the hairline the list continues from. The seam colour is a `focus:` utility
+ * too, or the focus border (a later variant in the stylesheet) would cover it;
+ * the list only opens on a focused field.
+ */
+const comboboxClass = (seam?: InputSeam) =>
+  [
+    'block h-[38px] border border-line/18 bg-space/60 px-3 fs-12.5 transition-[border-color,box-shadow] duration-[120ms] ease-out',
+    'focus:border-accent/50 focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)]',
+    seam === 'top'
+      ? 'rounded-b-[9px] rounded-t-none focus:border-t-line/10'
+      : seam === 'bottom'
+      ? 'rounded-t-[9px] rounded-b-none focus:border-b-line/10'
+      : 'rounded-[9px]',
+  ].join(' ')
+
+type InputVariant = 'field' | 'inline' | 'bare' | 'chip' | 'combobox'
+
+/** The edge of a combobox field an open list hangs from. */
+export type InputSeam = 'top' | 'bottom'
 
 export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
   font?: 'sans' | 'mono'
   /**
    * 'field' (default) is the standard bordered input; 'inline' is for editing a value in place (borderless until
    * focused); 'bare' has no box of its own, for a field whose frame is drawn around it; 'chip' is 'bare' in a
-   * chip's type, for a field inside a chip.
+   * chip's type, for a field inside a chip; 'combobox' is a field with a suggestion list hanging from it.
    */
   variant?: InputVariant
+  ref?: Ref<HTMLInputElement>
+  /** The combobox variant's edge its open list hangs from; unset while the list is closed. */
+  seam?: InputSeam
   /** Field geometry: 'md' (default, app-wide), 'sm' (settings rows, canvas 1h), 'lg' (dialog fields, canvas 1d). */
   size?: FieldSize
   /** Marks the value as failing validation: red border + `aria-invalid`. Pair with `title` to say what's wrong. */
@@ -81,6 +113,7 @@ export function Input({
   size = 'md',
   invalid = false,
   className,
+  seam,
   ...rest
 }: InputProps) {
   return (
@@ -89,7 +122,7 @@ export function Input({
       data-variant={variant}
       data-size={size}
       aria-invalid={invalid || undefined}
-      className={fieldClass(font, variant, size, sizeClasses, invalid, className)}
+      className={fieldClass(font, variant, size, sizeClasses, invalid, className, seam)}
       {...rest}
     />
   )

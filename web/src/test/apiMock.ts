@@ -37,5 +37,10 @@ export async function mockApiModule(): Promise<typeof apiModule> {
   const api = Object.fromEntries(
     Object.keys(actual.api).map((name) => [name, vi.fn(async () => undefined)]),
   ) as unknown as typeof actual.api
+  // The page reads through `getMessages` unless a test stubs it, so a test
+  // that stubs the transcript as a plain list gets a page without the extras.
+  api.getMessagesPage = vi.fn(async (...args: Parameters<typeof actual.api.getMessagesPage>) => ({
+    messages: (await api.getMessages(...args)) ?? [],
+  }))
   return { ...actual, api }
 }

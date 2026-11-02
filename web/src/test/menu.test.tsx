@@ -101,6 +101,9 @@ describe('MenuButton', () => {
     fireEvent.click(trigger)
     const row = screen.getByRole('menuitem', { name: 'Session stats' })
     expect(row).toHaveAttribute('aria-disabled', 'true')
+    // The menu opens on the first enabled row; the pointer can still rest on this one.
+    expect(document.activeElement).not.toBe(row)
+    row.focus()
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Enter' })
     expect(stats).not.toHaveBeenCalled()
     expect(screen.getByRole('menu')).toBeInTheDocument()

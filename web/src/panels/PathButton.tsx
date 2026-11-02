@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useOrbital } from '../store/store'
-import { fileOpenHandlers, useFileCwd, useFileMessage, useLongPress, useMessageId } from '../lib/fileOpen'
+import { api } from '../lib/api'
+import { fileOpenHandlers, useFileCwd, useFileMessage, useFindsByName, useLongPress, useMessageId } from '../lib/fileOpen'
+import { GAVE_UP, outcomeOf, usePendingPress, type FoundFile } from '../lib/findByName'
 import { isMediaPath } from '../lib/pathLinks'
+import { insideWorkspace, relativeUnder, treeRoots } from '../lib/pathMenu'
 import { ideHere } from '../lib/devices'
+import { workingDirOf } from '../lib/types'
+import { leafOf } from '../lib/whereForm'
 import { MediaViewer } from './MediaViewer'
+import { PathMenu, type PathMenuProps } from './PathMenu'
 
 /**
  * The pressable file path (spec: 2026-09-19-file-viewer-design § The
@@ -34,6 +40,16 @@ import { MediaViewer } from './MediaViewer'
  * The gesture appears ONLY when the selected session reports an editor. With
  * none, the modifier does nothing, nothing is drawn differently, and the
  * component is exactly what it was before this existed.
+ *
+ * ## A bare name, and the right-click
+ *
+ * Spec 2026-11-02-bare-file-names-and-path-menu-design, canvas `Feature - Path
+ * menu glyphs`. A `bare` path is a file name with no directory, from a code
+ * span: a press asks the server where it lies first, holding the pressed pill
+ * meanwhile and the ellipsis past `FIND_PENDING_MS` (1e); one match opens as
+ * its full path would, several or none open the chooser under the link (1c).
+ * A right-click on any path opens its menu at the pointer (1b), on the
+ * desktop only — the phone keeps its long-press.
  */
 
 /** How long the press's receipt stays up (canvas 20d, 20f: "holds 1.6s"). */
@@ -72,6 +88,8 @@ export interface PathButtonProps {
    * Defaults to `:line` when a line is set.
    */
   suffix?: string
+  /** `path` is a bare file name, looked up on a press (`data-bare` from `rehypePathLinks`). */
+  bare?: boolean
 }
 
 const VARIANT_CLASSES: Record<PathButtonVariant, string> = {
@@ -109,20 +127,7 @@ function useSelectedIde(): { ideName: string | null; workspaceRoot: string | nul
   return { ideName, workspaceRoot }
 }
 
-/**
- * Canvas 20d, "only when it'd work": ⌥ does nothing and shows nothing unless
- * an editor window's workspace contains that file.
- *
- * A relative path is one the session wrote about its own `cwd`, which sits
- * inside the workspace by construction — so only an absolute path is checked,
- * and only against the root the editor reported.
- */
-function insideWorkspace(path: string, workspaceRoot: string): boolean {
-  if (!path.startsWith('/')) return true
-  return path === workspaceRoot || path.startsWith(`${workspaceRoot}/`)
-}
-
-export function PathButton({ path, line = null, variant = 'row', suffix }: PathButtonProps) {
+export function PathButton({ path, line = null, variant = 'row', suffix, bare = false }: PathButtonProps) {
   const openFile = useOrbital((s) => s.openFile)
   const openInIde = useOrbital((s) => s.openInIde)
   const { ideName, workspaceRoot } = useSelectedIde()
@@ -137,13 +142,22 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
 
   const [hovered, setHovered] = useState(false)
   const [held, setHeld] = useState(false)
-  const [receipt, setReceipt] = useState(false)
+  /** The editor the last ⌥-click or menu row sent the file to, while its receipt holds. */
+  const [receipt, setReceipt] = useState<string | null>(null)
   // An image or PDF path opens the media view in place instead of the text
   // viewer, on that item of the session's media (spec
   // 2026-10-09-session-media-design); it is not a viewer state, so it lives
-  // here rather than in the store.
+  // here rather than in the store. The path it opens on: the one written, or
+  // where a bare name was found.
   const media = isMediaPath(path)
-  const [mediaOpen, setMediaOpen] = useState(false)
+  const [mediaPath, setMediaPath] = useState<string | null>(null)
+  const buttonRef = useRef<HTMLSpanElement | null>(null)
+  // The wait for the server: a bare name's lookup, or a right-click locating the file.
+  const pending = usePendingPress()
+  // The chooser or the menu, while open. `n` keys each opening, so a second
+  // right-click is a new menu, back on its first view.
+  const [popup, setPopup] = useState<(Pick<PathMenuProps, 'at' | 'start' | 'picks'> & { n: number }) | null>(null)
+  const retry = useRef<() => void>(() => {})
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const receiptTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // The phone's seam (`lib/fileOpen.ts`): when configured, a press goes to
@@ -153,6 +167,8 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
   const fileMessage = useFileMessage()
   const messageId = useMessageId()
   const longPress = useLongPress(routed ? path : null)
+  // Redraws when the answer changes: the phone learns its Mac's version from a hello that can come after the transcript.
+  const findsByName = useFindsByName(bare)
 
   // Only while the pointer is over this path, so one listener exists at a
   // time no matter how many paths a transcript carries. The pointer events
@@ -180,28 +196,149 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
     []
   )
 
+  function showReceiptFor(editor: string) {
+    setReceipt(editor)
+    if (receiptTimer.current) clearTimeout(receiptTimer.current)
+    receiptTimer.current = setTimeout(() => setReceipt(null), IDE_RECEIPT_MS)
+  }
+
+  function openPopup(next: Pick<PathMenuProps, 'at' | 'start' | 'picks'>) {
+    setPopup((prev) => ({ ...next, n: (prev?.n ?? 0) + 1 }))
+  }
+
+  /** What the chooser's facts name: the directory looked in, and the device asked. */
+  function lookupFacts() {
+    const session = selectedId ? useOrbital.getState().sessions[selectedId] : undefined
+    return {
+      // 1c NO MATCH names the directory by its last segment: `web/`.
+      under: `${leafOf(cwd ?? (session ? workingDirOf(session) : ''))}/`,
+      device: session?.machine?.name || 'This Mac',
+    }
+  }
+
+  const findTask = () =>
+    selectedId ? api.findFiles(selectedId, path, cwd).catch(() => null) : Promise.resolve(null)
+
+  /** Opens `target` as a press on it would: the media view, else the viewer. */
+  function openHere(target: string) {
+    if (isMediaPath(target)) setMediaPath(target)
+    else openFile(target, line, cwd)
+  }
+
+  /** The phone's press, on `target`: the path as written, or where a bare name was found. */
+  function openRouted(target: string) {
+    routed?.open({ kind: 'path', path: target, line, messageId: fileMessage?.messageId, ...(cwd ? { cwd } : {}) })
+  }
+
+  /**
+   * A press on a bare name (spec § What a press does): the lookup, then the
+   * one match opened, the chooser under the link, or — refused by a Mac
+   * without the route — the name opened as written, as before.
+   */
+  function pressBare() {
+    retry.current = pressBare
+    setPopup(null)
+    pending.run(buttonRef.current, findTask, (answer) => {
+      const outcome = outcomeOf(answer, path, lookupFacts())
+      const open = (target: string) => (routed ? openRouted(target) : openHere(target))
+      if (outcome.kind === 'as-written') return open(path)
+      if (outcome.kind === 'open') return open(outcome.file.path)
+      if (routed) {
+        routed.choose?.({ choice: outcome.choice, open: (file: FoundFile) => openRouted(file.path), retry: pressBare })
+        return
+      }
+      const at = buttonRef.current?.closest('code') ?? buttonRef.current
+      if (at) openPopup({ at, start: { kind: 'choose', choice: outcome.choice }, picks: 'open' })
+    })
+  }
+
+  /** The menu for the path as written, once the server has said where it lies. */
+  function menuAsWritten(at: { x: number; y: number }) {
+    const task = () =>
+      selectedId ? api.locateFile(selectedId, path, cwd).catch(() => null) : Promise.resolve(null)
+    pending.run(buttonRef.current, task, (found) => {
+      const absolute = found === GAVE_UP ? null : found
+      const session = selectedId ? useOrbital.getState().sessions[selectedId] : undefined
+      openPopup({
+        at,
+        picks: 'actions',
+        start: {
+          kind: 'file',
+          file: absolute
+            ? { path: absolute, located: true, relative: session ? relativeUnder(absolute, treeRoots(session)) : null }
+            : { path, located: false, relative: null },
+        },
+      })
+    })
+  }
+
+  /**
+   * A right-click (spec § The context menu), the desktop's alone. A bare name
+   * is looked up first: one match shows its actions, several the chooser.
+   * `preventDefault` also keeps the document's own text menu away.
+   */
+  function onMenu(event: ReactMouseEvent) {
+    event.preventDefault()
+    event.stopPropagation()
+    const at = { x: event.clientX, y: event.clientY }
+    const open = () => {
+      retry.current = open
+      setPopup(null)
+      if (!bare) return menuAsWritten(at)
+      pending.run(buttonRef.current, findTask, (answer) => {
+        const outcome = outcomeOf(answer, path, lookupFacts())
+        if (outcome.kind === 'as-written') return menuAsWritten(at)
+        if (outcome.kind === 'open') {
+          const { path: found, relative } = outcome.file
+          return openPopup({ at, picks: 'actions', start: { kind: 'file', file: { path: found, located: true, relative } } })
+        }
+        openPopup({ at, picks: 'actions', start: { kind: 'choose', choice: outcome.choice } })
+      })
+    }
+    open()
+  }
+
   // The gesture is armed only where it could do something (canvas 20d, "only
   // when it'd work"). `isOpen` is left out on purpose: the file being open in
   // the viewer says nothing about whether it is worth opening in the editor,
   // so the dead press belongs to the plain click alone.
+  // A bare name is not a path an editor can open until it is looked up.
   const reachable =
-    ideName !== null && workspaceRoot !== null && insideWorkspace(path, workspaceRoot)
+    !bare && ideName !== null && workspaceRoot !== null && insideWorkspace(path, workspaceRoot)
   const armed = reachable && held && hovered
 
-  const showReceipt = receipt && ideName !== null
+  const showReceipt = receipt !== null
   // 20d writes the destination after the path while ⌥ is held, and replaces
   // it with the receipt on the press.
   const destination = showReceipt
-    ? `opened in ${ideName}`
+    ? `opened in ${receipt}`
     : armed
       ? `↗ ${ideName}`
       : null
 
+  // 1e: the pressed pill holds from the press until the answer replaces it,
+  // and while the chooser or the menu it opened stands (1a's held chip).
+  const holding = pending.phase !== 'idle' || popup !== null
+
+  // The phone, against a Mac without the lookup: the name is drawn as it was
+  // before bare names were pressable — text, never a link that fails.
+  if (bare && !findsByName) {
+    return (
+      <>
+        {path}
+        {lineSuffix}
+      </>
+    )
+  }
+
   const button = (
     <span
+      ref={buttonRef}
       role="button"
       tabIndex={0}
       data-path-button
+      data-bare={bare || undefined}
+      data-pending={pending.phase !== 'idle' || undefined}
       data-open={isOpen || undefined}
       data-ide-armed={armed || undefined}
       data-ide-receipt={showReceipt || undefined}
@@ -209,7 +346,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
       onPointerDown={longPress.onPointerDown}
       onPointerUp={longPress.onPointerUp}
       onPointerCancel={longPress.onPointerCancel}
-      onContextMenu={longPress.onContextMenu}
+      onContextMenu={routed ? longPress.onContextMenu : onMenu}
       onClickCapture={longPress.onClickCapture}
       onPointerEnter={(event) => {
         setHovered(true)
@@ -234,8 +371,12 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
       }}
       onClick={(event) => {
         event.stopPropagation()
+        if (bare) {
+          pressBare()
+          return
+        }
         if (routed) {
-          routed.open({ kind: 'path', path, line, messageId: fileMessage?.messageId, ...(cwd ? { cwd } : {}) })
+          openRouted(path)
           return
         }
         // The modifier wins over everything, the OPEN state included: the
@@ -244,22 +385,19 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
         if (reachable && event.altKey) {
           event.preventDefault()
           void openInIde(path, line).then((opened) => {
-            if (!opened) return
-            setReceipt(true)
-            if (receiptTimer.current) clearTimeout(receiptTimer.current)
-            receiptTimer.current = setTimeout(() => setReceipt(false), IDE_RECEIPT_MS)
+            if (opened && ideName !== null) showReceiptFor(ideName)
           })
           return
         }
         if (media) {
-          setMediaOpen(true)
+          setMediaPath(path)
           return
         }
         if (isOpen) return
         openFile(path, line, cwd)
       }}
       className={[
-        'group/path inline rounded-[4px] underline underline-offset-2 [overflow-wrap:anywhere] box-decoration-clone',
+        'group/path relative inline rounded-[4px] underline underline-offset-2 [overflow-wrap:anywhere] box-decoration-clone',
         '[font:inherit] transition-[background-color,color,text-decoration-color] duration-[120ms] ease-[ease]',
         VARIANT_CLASSES[variant],
         armed
@@ -274,6 +412,9 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
               // path, so the hover emphasis has to be suppressed rather than
               // merely not applied.
               'cursor-pointer decoration-dotted decoration-line/30'
+            : holding
+              ? // 1e PRESS: the pressed pill, a hover that stays.
+                'cursor-pointer bg-line/16 text-ink-50 decoration-solid decoration-accent/80'
             : isOpen
               ? // 8e OPEN: dimmed pill, faded dotted underline, dead press.
                 'cursor-default bg-line/6 text-ink-500/60 decoration-dotted decoration-line/20'
@@ -307,23 +448,54 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
           {destination}
         </span>
       )}
+      {/* 1e STILL WAITING: a static ellipsis just past the chip, faded in
+          over 200 ms once the wait passes FIND_PENDING_MS. Hung off the
+          link, so nothing around it moves; no pulse, no spinner. The chip's
+          own padding past this button's edge, plus 1e's 3px, sets it off. */}
+      {bare && (
+        <span
+          aria-hidden
+          className={[
+            'pointer-events-none absolute left-full top-0 ml-[5px] text-ink-900/70 no-underline',
+            pending.phase === 'slow' ? 'opacity-100 transition-opacity duration-200 ease-[ease]' : 'opacity-0',
+          ].join(' ')}
+        >
+          …
+        </span>
+      )}
     </span>
   )
 
-  if (!media || routed) return button
+  if (routed) return button
   return (
     <>
       {button}
-      {/* The view portals out of the DOM but not out of React's event tree:
-          without this, a click on its backdrop would bubble to the tool row
-          the path sits in and toggle it. */}
-      <span onClick={(event) => event.stopPropagation()}>
-        <MediaViewer
-          open={mediaOpen}
-          sessionId={selectedId}
-          target={{ kind: 'path', path, cwd, messageId: fileMessage?.messageId ?? messageId }}
-          onClose={() => setMediaOpen(false)}
-        />
+      {/* The views portal out of the DOM but not out of React's event tree:
+          without this, a click on a backdrop or a menu row would bubble to
+          the tool row the path sits in and toggle it. */}
+      <span onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.stopPropagation()}>
+        {media && (
+          <MediaViewer
+            open={mediaPath !== null}
+            sessionId={selectedId}
+            target={{ kind: 'path', path: mediaPath ?? path, cwd, messageId: fileMessage?.messageId ?? messageId }}
+            onClose={() => setMediaPath(null)}
+          />
+        )}
+        {popup && (
+          <PathMenu
+            key={popup.n}
+            at={popup.at}
+            start={popup.start}
+            picks={popup.picks}
+            sessionId={selectedId}
+            line={line}
+            onOpen={(file) => openHere(file.path)}
+            onRetry={() => retry.current()}
+            onEditorOpened={showReceiptFor}
+            onClose={() => setPopup(null)}
+          />
+        )}
       </span>
     </>
   )

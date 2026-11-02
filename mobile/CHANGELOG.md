@@ -4,6 +4,17 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-11-01
+### Added
+- A file name Claude writes on its own in a code chip, like `findAll.ts`, opens when you tap it; when several files have that name, a sheet lists them to pick from. Needs Orbital 0.46.0 or later on the Mac; before that the name stays plain text.
+- New session: the directory field opens on your last directory; tap into it for the ten most recent, and type any part of a path to find every directory a session has run in.
+- A row under the transcript says when a project's hook holds a session; a Stop hook's row has a Cancel that stops it and answers a message waiting for it at once, and messages waiting behind a hook are marked as waiting. Needs Orbital for Mac 0.46.0 or later.
+### Fixed
+- A session no longer fails to open with an error when its harness log holds an entry this version of the app does not know.
+- A session's Media and the thumbnails in replies load much faster: images an agent saved come as small previews, and open at full size only in the viewer. Needs Orbital for Mac 0.46.0 or later; an older Mac sends them whole, as before. With the Mac out of reach, a thumbnail shows from the full image the phone already saved.
+- A message you send while a session is still busy (a Stop hook running, say) no longer disappears when you leave the session and come back. Needs Orbital for Mac 0.46.0 or later.
+- A message you send while the agent is still working and that it takes into the running turn now shows in the transcript after reopening the session, instead of missing there.
+
 ## [0.22.1] — 2026-10-29
 ### Fixed
 - What's new lists every version since the one you last ran, so an update that skips a release no longer hides its changes.

@@ -10,9 +10,13 @@ import { RewindStore, type PendingRewind } from '../rewind/store.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import { deleteTag } from '../tags/sharedTags.js';
 import { expandHome } from '../paths.js';
-import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes, resolveForSession } from '../files/preview.js';
+import {
+  NamedPathCache, readFilePreview, readImageFile, readInSandboxes, resolveForSession, sessionTranscriptFiles,
+} from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { completeFilePath } from '../files/complete.js';
+import { findByName, ListingCache } from '../files/findByName.js';
+import { isBareFileName } from '@orbital/shared/paths';
 import { createDirectory, directoryState, listDirs } from '../files/directory.js';
 import { locateOnDisk } from '../media/items.js';
 import { SubagentMedia, sessionMedia, type SessionMediaContext } from '../media/sessionMedia.js';
@@ -31,6 +35,7 @@ import {
   tags,
 } from '../db/schema.js';
 import {
+  SENT_TURN_PREFIX,
   decisionQuestions,
   type DecisionAnswer,
   type Runner,
@@ -133,6 +138,8 @@ export interface RouteContext {
    * 2026-09-23-ide-bridge-design). Read through `toApiSession`, and directly
    * by the open-files route. */
   ide: IdeStore;
+  /** The listings `GET /api/files/find` searches; a test injects its own lister. One of the routes' own without. */
+  fileListings?: ListingCache;
   /** Every subagent's own transcript, keyed the same way `subagents` is — see
    * `SubagentTranscripts` (spec `2026-09-22-subagent-transcript-panel-design.md`
    * § 3). The panel's one read model. */
@@ -499,6 +506,23 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * (spec 2026-09-23-ide-bridge-design § Open files, for `@` completion).
    */
   const openTabs = new OpenTabsReader(ctx.ide);
+  /** Sandbox listings for `GET /api/files/find`, held a moment across a press, a pick and a right-click. */
+  const listings = ctx.fileListings ?? new ListingCache({
+    onFailure: (dir, during, err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      ctx.errors.record({
+        source: 'server',
+        kind: 'file_listing_failed',
+        message: during === 'git'
+          ? `git could not list ${dir} for a file name lookup; the directory was walked instead: ${message}`
+          : `${dir} could not be listed for a file name lookup: ${message}`,
+        detail: [err instanceof Error ? err.stack : null, (err as { stderr?: unknown })?.stderr]
+          .filter((part): part is string => typeof part === 'string' && part !== '')
+          .join('\n\n') || null,
+        context: { dir, during },
+      });
+    },
+  });
   /** Publishes one session's snapshot on `sessions`; nothing for an unknown id. */
   const publishSession = (id: string): void => {
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
@@ -708,7 +732,25 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // session a second time above itself.
     const end = q.before ? messages.findIndex((m) => m.id === q.before) : messages.length;
     if (end === -1) return { messages: [] };
-    return { messages: messages.slice(Math.max(0, end - limit), end) };
+    const page = messages.slice(Math.max(0, end - limit), end);
+    if (q.before) return { messages: page };
+    // The newest page also carries what the file cannot: the messages sent
+    // that the CLI holds and has not written yet, and the live notice the
+    // topic published before this client listened. Fields of their own, so a
+    // client that does not know them draws exactly what it did.
+    // A message the CLI folded into a running turn is in the file under
+    // another uuid, the one it was sent under riding as `sentUuid`. Built
+    // only when the runner holds a sent turn to ask about.
+    let inFile: Set<string> | null = null;
+    const holds = (uuid: string) => {
+      inFile ??= new Set(messages.flatMap((m) => [m.uuid, m.sentUuid].filter((u): u is string => typeof u === 'string')));
+      return inFile.has(uuid);
+    };
+    return {
+      messages: page,
+      queued: withHarnessMessages(id, ctx.runner.sentTurns(id, holds)),
+      liveNotice: ctx.runner.liveNotice(id),
+    };
   });
 
   /** Subagents' media candidates, per subagent file (spec 2026-10-13-session-media-more-design § Performance). */
@@ -953,6 +995,22 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
   });
 
+  // Where a bare file name a session wrote lies (spec
+  // 2026-11-02-bare-file-names-and-path-menu-design § The server). Listed
+  // only inside the sandboxes the reads above use, the first with a match
+  // answering, the home directory never; `findByName` holds the rest.
+  app.get('/api/files/find', async (req, reply) => {
+    const q = req.query as Record<string, string>;
+    if (!q.session || !q.name) return reply.code(400).send({ error: 'missing_params' });
+    if (!isBareFileName(q.name)) return reply.code(400).send({ error: 'not_a_name' });
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, q.session)).get() as
+      | SessionRow
+      | undefined;
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    const transcript = ctx.transcriptPath(q.session, row.project_dir, row.claude_dir_id);
+    return findByName(sandboxesOf(row, q.cwd), q.name, () => sessionTranscriptFiles(transcript), listings);
+  });
+
   /**
    * The composer's `/` catalog (spec 2026-09-20-composer-design § Server).
    *
@@ -1115,12 +1173,19 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    *
    * `204`, not the file: nothing came back and nothing is shown. The receipt
    * the browser draws is the request having succeeded.
+   *
+   * `editor`, an id from the session's `ides`, sends the file to that editor
+   * rather than the last-used one, and makes it the last used; an editor that
+   * is gone or does not have the workspace open is the same `404`.
    */
   app.post('/api/sessions/:id/ide/open-file', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { path?: unknown; line?: unknown };
+    const body = (req.body ?? {}) as { path?: unknown; line?: unknown; editor?: unknown };
     if (typeof body.path !== 'string' || body.path === '') {
       return reply.code(400).send({ error: 'missing_path' });
+    }
+    if (body.editor !== undefined && (typeof body.editor !== 'string' || body.editor === '')) {
+      return reply.code(400).send({ error: 'invalid_editor' });
     }
     const line =
       typeof body.line === 'number' && Number.isSafeInteger(body.line) && body.line > 0
@@ -1132,7 +1197,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .where(eq(sessions.id, id))
       .get();
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    const opened = await ctx.ide.openFile(row.cwd, expandHome(body.path), line);
+    const opened = await ctx.ide.openFile(row.cwd, expandHome(body.path), line, body.editor);
     if (!opened) return reply.code(404).send({ error: 'no_ide' });
     return reply.code(204).send();
   });
@@ -1876,7 +1941,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   function publishSentTurn(id: string, uuid: string, text: string, attachments?: string[]) {
     const images = (attachments ?? []).flatMap((ref) => ctx.images.entry(ref) ?? []);
     const turn: ChatMessage = {
-      id: `sent:${uuid}`,
+      id: `${SENT_TURN_PREFIX}${uuid}`,
       role: 'user',
       text,
       timestamp: new Date().toISOString(),
@@ -2115,7 +2180,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   app.post('/api/sessions/:id/interrupt', async (req) => {
-    await ctx.runner.interrupt((req.params as { id: string }).id);
+    // The live Stop hook notice's Cancel names its notice: a request that
+    // arrives once it is down does nothing (`Runner.interrupt`). The Stop
+    // button sends no body.
+    const { stopHookNotice } = (req.body ?? {}) as { stopHookNotice?: unknown };
+    await ctx.runner.interrupt(
+      (req.params as { id: string }).id,
+      typeof stopHookNotice === 'string' ? { stopHookNotice } : {},
+    );
     return { ok: true };
   });
 

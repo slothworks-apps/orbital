@@ -397,6 +397,69 @@ describe('IdeStore: two editors on one project', () => {
     expect(store.locate('/w/a/src')).toBeNull();
   });
 
+  it('lists every editor on the project, the one holding it first, and none for another project', () => {
+    const { webstorm } = connectBoth();
+    expect(store.editors('/w/a/src')).toEqual([
+      { id: '17265', ideName: 'Visual Studio Code', workspaceRoot: '/w/a' },
+      { id: '60108', ideName: 'WebStorm', workspaceRoot: '/w/a' },
+    ]);
+    webstorm.emit('selection', selectionAt('/w/a/x.ts', 3, 'text'));
+    vi.advanceTimersByTime(IDE_SELECTION_COALESCE_MS);
+    expect(store.editors('/w/a/src').map((e) => e.ideName)).toEqual(['WebStorm', 'Visual Studio Code']);
+    expect(store.editors('/w/b')).toEqual([]);
+  });
+
+  it('leaves out an editor whose port has not answered yet', () => {
+    connect(60108, ['/w/a']);
+    store.applyLockEvent(writeLock(17265, ['/w/a'], { ideName: 'Visual Studio Code' }), 'add');
+    expect(store.editors('/w/a').map((e) => e.ideName)).toEqual(['WebStorm']);
+  });
+
+  it('opens a file in the editor it is asked to, and that editor then holds the project', async () => {
+    const { webstorm, vscode } = connectBoth();
+    for (const connection of [webstorm, vscode]) connection.tools.add(OPEN_FILE_TOOL);
+    store.locate('/w/a/src');
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+
+    expect(await store.openFile('/w/a/src', '/w/a/src/x.ts', null, '60108')).toBe(true);
+    expect(webstorm.calls.at(-1)?.name).toBe(OPEN_FILE_TOOL);
+    expect(vscode.calls.some((call) => call.name === OPEN_FILE_TOOL)).toBe(false);
+    expect(store.locate('/w/a/src')?.ideName).toBe('WebStorm');
+    expect(seen).toEqual([['/w/a', ['/w/a/src']]]);
+
+    // Without an id, the last used — now WebStorm — as before.
+    await store.openFile('/w/a/src', '/w/a/src/y.ts');
+    expect(webstorm.calls.at(-1)?.args).toMatchObject({ filePath: '/w/a/src/y.ts' });
+  });
+
+  it('refuses an editor id that is unknown, or whose editor has another project open', async () => {
+    const { vscode } = connectBoth();
+    const other = connect(50000, ['/w/b']);
+    for (const connection of [vscode, other]) connection.tools.add(OPEN_FILE_TOOL);
+    expect(await store.openFile('/w/a', '/w/a/x.ts', null, '1')).toBe(false);
+    expect(await store.openFile('/w/a', '/w/a/x.ts', null, '50000')).toBe(false);
+    expect(other.calls).toHaveLength(0);
+  });
+
+  it('does not hand the project over when the chosen editor failed to open the file', async () => {
+    const { webstorm } = connectBoth();
+    // WebStorm lacks the tool, so the call answers null.
+    expect(await store.openFile('/w/a', '/w/a/x.ts', null, '60108')).toBe(false);
+    expect(webstorm.calls.at(-1)?.name).toBe(OPEN_FILE_TOOL);
+    expect(store.locate('/w/a')?.ideName).toBe('Visual Studio Code');
+  });
+
+  it('says so when an editor that did not hold the project goes', () => {
+    const { webstorm } = connectBoth();
+    store.locate('/w/a/src');
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+    webstorm.emit('closed');
+    expect(seen).toEqual([['/w/a', ['/w/a/src']]]);
+    expect(store.editors('/w/a/src').map((e) => e.ideName)).toEqual(['Visual Studio Code']);
+  });
+
   it('closes a diff tab in the editor that opened it, wherever the project went since', async () => {
     const { webstorm, vscode } = connectBoth();
     for (const connection of [webstorm, vscode]) {
@@ -415,6 +478,58 @@ describe('IdeStore: two editors on one project', () => {
     await pending;
     expect(vscode.calls.some((call) => call.name === CLOSE_TAB_TOOL)).toBe(true);
     expect(webstorm.calls.some((call) => call.name === CLOSE_TAB_TOOL)).toBe(false);
+  });
+});
+
+describe('IdeStore: editors on nested folders', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it('says so when an editor on a parent folder comes and goes, though the session root stays', () => {
+    connect(60108, ['/repo/web']);
+    store.locate('/repo/web/src');
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+
+    const parent = connect(17265, ['/repo'], { ideName: 'Visual Studio Code' });
+    expect(seen).toEqual([['/repo/web', ['/repo/web/src']]]);
+    expect(store.editors('/repo/web/src').map((e) => e.ideName)).toEqual(['WebStorm', 'Visual Studio Code']);
+
+    seen.length = 0;
+    parent.emit('closed');
+    expect(seen).toEqual([['/repo/web', ['/repo/web/src']]]);
+    expect(store.editors('/repo/web/src').map((e) => e.ideName)).toEqual(['WebStorm']);
+  });
+
+  it('says so when an editor on a child folder goes, for a session at the parent', () => {
+    connect(60108, ['/repo']);
+    const child = connect(17265, ['/repo/web'], { ideName: 'Visual Studio Code' });
+    store.locate('/repo/web/src');
+    store.locate('/repo/docs');
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+    child.emit('closed');
+    // `/repo/web/src` falls back to `/repo`; `/repo/docs` never had the child editor.
+    expect(seen).toEqual([['/repo', ['/repo/web/src']]]);
+  });
+
+  it('says so when using an editor reorders the list without moving the holder', () => {
+    connect(60108, ['/repo/web']);
+    vi.advanceTimersByTime(1);
+    const older = connect(17265, ['/repo'], { ideName: 'Visual Studio Code' });
+    vi.advanceTimersByTime(1);
+    connect(17266, ['/repo'], { ideName: 'Cursor' });
+    store.locate('/repo/web/src');
+    expect(store.editors('/repo/web/src').map((e) => e.ideName)).toEqual(['WebStorm', 'Cursor', 'Visual Studio Code']);
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+
+    older.emit('selection', selectionAt('/repo/x.ts', 3, 'text'));
+    vi.advanceTimersByTime(IDE_SELECTION_COALESCE_MS);
+    expect(store.locate('/repo/web/src')?.ideName).toBe('WebStorm');
+    expect(store.editors('/repo/web/src').map((e) => e.ideName)).toEqual(['WebStorm', 'Visual Studio Code', 'Cursor']);
+    expect(seen).toEqual([['/repo/web', ['/repo/web/src']]]);
   });
 });
 

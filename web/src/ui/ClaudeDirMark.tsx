@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { claudeDirMark, claudeDirMonograms, type ClaudeDirMarkInfo } from '../lib/claudeDirs'
 import { useOrbital } from '../store/store'
@@ -18,6 +18,14 @@ const SIZES = {
   /** 44d's bottom sheet rows. */
   sheet: 'min-w-[18px] h-fit min-h-[18px] px-[3px] rounded-[5px] fs-10',
 } as const satisfies Record<ClaudeDirMarkSize, string>
+
+/**
+ * The mark's tile classes at one of its sizes: `ClaudeDirMark`'s, and the
+ * Archipelago's ship label, which writes its HTML by hand, takes them from here.
+ */
+export function claudeDirMarkClass(size: ClaudeDirMarkSize = 'desktop'): string {
+  return `inline-grid flex-none place-items-center box-border bg-ink-600/20 font-mono font-semibold leading-none tracking-normal text-ink-50 ${SIZES[size]}`
+}
 
 /**
  * A Claude directory's mark (canvas 44f "Mark"): a filled, borderless square
@@ -44,11 +52,7 @@ export function ClaudeDirMark({
       data-claude-dir-mark
       title={title}
       aria-hidden={title === undefined ? true : undefined}
-      className={[
-        'inline-grid flex-none place-items-center box-border bg-ink-600/20 font-mono font-semibold leading-none tracking-normal text-ink-50',
-        SIZES[size],
-        missing ? 'opacity-55' : '',
-      ].join(' ')}
+      className={[claudeDirMarkClass(size), missing ? 'opacity-55' : ''].join(' ')}
     >
       {mono}
     </span>
@@ -65,6 +69,16 @@ export function useClaudeDirMark(claudeDirId: number | null | undefined): Claude
   const dirs = useOrbital(useShallow((s) => s.claudeDirs))
   const monograms = useMemo(() => claudeDirMonograms(dirs), [dirs])
   return useMemo(() => claudeDirMark(dirs, claudeDirId, monograms), [dirs, claudeDirId, monograms])
+}
+
+/**
+ * Every session's directory monogram at once, for a surface that draws many
+ * (the Archipelago's ship labels): null as `useClaudeDirMark` is.
+ */
+export function useClaudeDirMonogramOf(): (claudeDirId: number | null | undefined) => string | null {
+  const dirs = useOrbital(useShallow((s) => s.claudeDirs))
+  const monograms = useClaudeDirMonograms()
+  return useCallback((claudeDirId) => claudeDirMark(dirs, claudeDirId, monograms)?.mono ?? null, [dirs, monograms])
 }
 
 /** Every directory's monogram, for a picker that lists them all. */
