@@ -25,6 +25,7 @@ import {
   type IdeContext,
   type IdeDiagnostic,
   type IdeDiffOutcome,
+  type IdeEditor,
   type IdeLock,
   type IdeSelection,
 } from './protocol.js';
@@ -217,6 +218,24 @@ export class IdeStore extends EventEmitter {
     return { ideName: entry.lock.ideName, workspaceRoot: root, selection: entry.selection };
   }
 
+  /**
+   * Every connected editor with this `cwd`'s workspace open: the one `locate`
+   * names first, then the rest, the most recently used first. Each is
+   * addressed by its `id` in `openFile`.
+   */
+  editors(cwd: string): IdeEditor[] {
+    const holder = this.entryFor(cwd);
+    const found: Array<{ entry: Entry; root: string }> = [];
+    for (const entry of this.byPort.values()) {
+      if (!entry.ready) continue;
+      const root = workspaceRootFor(cwd, entry.lock.workspaceFolders);
+      if (root !== null) found.push({ entry, root });
+    }
+    found.sort((a, b) =>
+      a.entry === holder ? -1 : b.entry === holder ? 1 : b.entry.activeAt - a.entry.activeAt);
+    return found.map(({ entry, root }) => ({ id: editorIdOf(entry), ideName: entry.lock.ideName, workspaceRoot: root }));
+  }
+
   /** The `cwd`s that resolved to this workspace — its sessions' addresses. */
   cwdsFor(root: string): string[] {
     return [...(this.cwdsByRoot.get(root) ?? [])];
@@ -271,15 +290,38 @@ export class IdeStore extends EventEmitter {
    * path Orbital would refuse to *read* for a session is not one it should
    * ask an editor to open on that session's behalf.
    */
-  async openFile(cwd: string, path: string, line: number | null = null): Promise<boolean> {
-    const entry = this.entryFor(cwd);
+  async openFile(cwd: string, path: string, line: number | null = null, editorId?: string): Promise<boolean> {
+    const entry = editorId === undefined ? this.entryFor(cwd) : this.editorFor(cwd, editorId);
     if (!entry || !insideCwd(cwd, path)) return false;
     // Neither build takes a line: the line travels as the text that starts
     // it, which VS Code looks for. The JetBrains plugin (0.1.14-beta) reads
     // `startText` and ignores it, so there the file opens where it was.
     // VS Code refuses a call without both texts; empty ones select nothing.
     const args = { filePath: path, ...(line === null ? NO_LINE : lineTexts(cwd, path, line)) };
-    return (await entry.connection.callTool(OPEN_FILE_TOOL, args)) !== null;
+    const opened = (await entry.connection.callTool(OPEN_FILE_TOOL, args)) !== null;
+    // Opening in a chosen editor is using it: the project comes over to it,
+    // as it does for a selection there (spec
+    // 2026-11-02-bare-file-names-and-path-menu-design § Every editor).
+    if (opened && editorId !== undefined) this.use(entry);
+    return opened;
+  }
+
+  /** The ready editor `editorId` names, when it has this `cwd`'s workspace open. */
+  private editorFor(cwd: string, editorId: string): Entry | undefined {
+    const entry = [...this.byPort.values()].find((e) => editorIdOf(e) === editorId);
+    if (!entry?.ready || workspaceRootFor(cwd, entry.lock.workspaceFolders) === null) return undefined;
+    return entry;
+  }
+
+  /** Makes this editor the one its projects belong to, and says which roots moved to it. */
+  private use(entry: Entry): void {
+    if (!this.byPort.has(entry.lock.port) || !entry.ready) return;
+    entry.activeAt = ++this.uses;
+    for (const root of entry.lock.workspaceFolders) {
+      if (this.entryByRoot.get(root) === entry) continue;
+      this.entryByRoot.set(root, entry);
+      this.emitChange(root);
+    }
   }
 
   /**
@@ -495,7 +537,12 @@ export class IdeStore extends EventEmitter {
     // dark: the project is still open, just in one editor fewer.
     const inherited: string[] = [];
     for (const root of entry.lock.workspaceFolders) {
-      if (this.entryByRoot.get(root) !== entry) continue;
+      if (this.entryByRoot.get(root) !== entry) {
+        // Another editor holds it and keeps it; the list of editors on it
+        // (`editors`) lost one all the same.
+        if (entry.ready && this.entryByRoot.has(root)) inherited.push(root);
+        continue;
+      }
       const heir = this.heirOf(root);
       if (heir) {
         this.entryByRoot.set(root, heir);
@@ -505,7 +552,8 @@ export class IdeStore extends EventEmitter {
       }
     }
     this.reresolve();
-    // The root did not move, so `reresolve` saw nothing; the editor behind it did.
+    // The root did not move, so `reresolve` saw nothing; the editor behind
+    // it, or the list of editors on it, did.
     for (const root of inherited) this.emitChange(root);
   }
 
@@ -617,6 +665,11 @@ export class IdeStore extends EventEmitter {
     if (!cwds) this.cwdsByRoot.set(root, (cwds = new Set()));
     cwds.add(cwd);
   }
+}
+
+/** How `editors` and `openFile` name an editor: its port, which no two connected editors share. */
+function editorIdOf(entry: Entry): string {
+  return String(entry.lock.port);
 }
 
 /** `openFile`'s texts for no line: VS Code requires both, and empty ones select nothing. */

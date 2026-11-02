@@ -208,7 +208,7 @@ export const CONTROL_OPERATIONS: readonly ControlOperation[] = [
   { name: 'read_file', area: 'files', method: 'GET', path: '/api/files', does: 'A text file a session may show.', params: ['session: string', 'path: string', 'cwd?: string'] },
   { name: 'complete_path', area: 'files', method: 'GET', path: '/api/files/complete', does: '@-path completion in a session\'s directory.', params: ['session?: string', 'cwd?: string', 'prefix?: string'] },
   { name: 'ide_open_files', area: 'ide', method: 'GET', path: '/api/sessions/:id/ide/open-files', does: 'Editor tabs open on the session\'s working tree.', params: [ID] },
-  { name: 'ide_open_file', area: 'ide', method: 'POST', path: '/api/sessions/:id/ide/open-file', does: 'Opens a file in the connected editor.', params: [ID, 'path: string', 'line?: number'] },
+  { name: 'ide_open_file', area: 'ide', method: 'POST', path: '/api/sessions/:id/ide/open-file', does: 'Opens a file in the connected editor.', params: [ID, 'path: string', 'line?: number', 'editor?: string — an id from the session\'s ides'] },
   { name: 'ide_diagnostics', area: 'ide', method: 'GET', path: '/api/sessions/:id/ide/diagnostics', does: 'The editor\'s diagnostics.', params: [ID, 'path?: string'] },
 
   // stats, limits, git

@@ -1137,7 +1137,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   app.post('/api/sessions/:id/ide/open-file', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { path?: unknown; line?: unknown };
+    const body = (req.body ?? {}) as { path?: unknown; line?: unknown; editor?: unknown };
     if (typeof body.path !== 'string' || body.path === '') {
       return reply.code(400).send({ error: 'missing_path' });
     }
@@ -1151,10 +1151,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .where(eq(sessions.id, id))
       .get();
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    const opened = await ctx.ide.openFile(row.cwd, expandHome(body.path), line);
+    const opened = await ctx.ide.openFile(row.cwd, expandHome(body.path), line, body.editor);
     if (!opened) return reply.code(404).send({ error: 'no_ide' });
     return reply.code(204).send();
   });
+   *
+   * `editor`, an id from the session's `ides`, sends the file to that editor
+   * rather than the last-used one, and makes it the last used; an editor that
+   * is gone or does not have the workspace open is the same `404`.
 
   /**
    * The editor's own findings for this session's workspace — everything it
@@ -1162,6 +1166,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * (spec § Talking back to the editor).
    *
    * What makes this worth a route at all: the editor's inspections are
+    if (body.editor !== undefined && (typeof body.editor !== 'string' || body.editor === '')) {
+      return reply.code(400).send({ error: 'invalid_editor' });
+    }
    * things no test run reports, so they answer "did that edit break
    * anything" without a build. The same `404` covers every kind of no
    * editor.
