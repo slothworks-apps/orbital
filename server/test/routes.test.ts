@@ -4332,6 +4332,19 @@ describe('GET /api/sessions/:id/ide/open-files', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it('sends the file to the editor an id names, and refuses an id that is not one', async () => {
+    const { app } = makeApp({ ide: ideOn('/w/x', 'ok') });
+    const open = (editor: unknown) => app.inject({
+      method: 'POST', url: '/api/sessions/s1/ide/open-file', payload: { path: '/w/x/src/a.ts', editor },
+    });
+    expect((await open('60108')).statusCode).toBe(204);
+    expect((await open('1')).statusCode).toBe(404);
+    expect((await open(60108)).statusCode).toBe(400);
+    expect((await open('')).statusCode).toBe(400);
+    const shape = await app.inject({ method: 'GET', url: '/api/sessions/s1' });
+    expect(shape.json().session.ides).toEqual([{ id: '60108', ideName: 'WebStorm', workspaceRoot: '/w/x' }]);
+  });
+
   it('400s a request with no path, and 404s one with no editor', async () => {
     const { app } = makeApp({ ide: ideOn('/w/x', 'ok') });
     const noPath = await app.inject({
