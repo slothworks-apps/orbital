@@ -206,7 +206,6 @@ function ClusterLabel({
   onFit: (tagId: number) => void
 }) {
   const groupRef = useRef<Group>(null)
-  const [hovered, setHovered] = useState(false)
   // Presses on the label stay with it: bubbling on, they would reach the
   // canvas's raycaster with offsets measured against the label (`StatePill`).
   const stop = (event: { stopPropagation: () => void }) => event.stopPropagation()
@@ -236,6 +235,7 @@ function ClusterLabel({
       {/* zIndexRange keeps map text under the z-10 side panels and z-50 dialogs (drei's default range is in the millions). */}
       <Html center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
         <span
+          className="group"
           style={{
             // Bottom edge on the anchor rather than centred on it, so the gap
             // is measured from the text, whatever its line height.
@@ -254,8 +254,6 @@ function ClusterLabel({
             pointerEvents: label.empty ? 'none' : 'auto',
             position: 'relative',
           }}
-          onPointerEnter={() => setHovered(true)}
-          onPointerLeave={() => setHovered(false)}
           onPointerDown={stop}
           onPointerMove={stop}
           onPointerUp={stop}
@@ -285,12 +283,12 @@ function ClusterLabel({
               fontSize: 14,
               letterSpacing: 0,
               lineHeight: 1,
-              color: `oklch(80% .13 ${label.hue} / .9)`,
+              color: `oklch(var(--tt-l) var(--tt-c) ${label.hue})`,
               cursor: 'pointer',
-              opacity: hovered ? 1 : 0,
-              pointerEvents: hovered ? 'auto' : 'none',
-              transition: 'opacity .18s ease',
             }}
+            // Shown while the name is hovered, by CSS: a label that fades
+            // out under the pointer takes the target with it.
+            className="pointer-events-none opacity-0 transition-opacity duration-[180ms] group-hover:pointer-events-auto group-hover:opacity-100"
           >
             ⌖
           </button>
@@ -1179,18 +1177,15 @@ export function SpaceMap() {
     return fitViewTo(bodiesAt, viewport, mapInsets)
   }, [sim, model.hole.x, model.hole.y, mapInsets, leavingIds, trashShown, sunsOn, planetScale])
 
-  const handleFit = useCallback(() => {
-    cancelCameraMotion()
-    flyTo(cameraRef.current, fitCamera())
-  }, [cancelCameraMotion, flyTo, fitCamera])
-
   const handleFitTag = useCallback(
-    (tagId: number) => {
+    (tagId?: number) => {
       cancelCameraMotion()
       flyTo(cameraRef.current, fitCamera(tagId))
     },
     [cancelCameraMotion, flyTo, fitCamera]
   )
+  // Not `handleFitTag` itself: a click would hand it the event as a tag.
+  const handleFit = useCallback(() => handleFitTag(), [handleFitTag])
 
   /**
    * Fit once per page load, on the first frame that has both sessions to

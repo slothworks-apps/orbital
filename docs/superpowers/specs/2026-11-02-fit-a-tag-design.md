@@ -43,9 +43,10 @@ by hand, every time.
 
 - **Who:** anyone with more than one tag on the map.
 - **Where:** on by default. It is invisible until the name is hovered, and
-  hovering a name did nothing before, so nobody loses anything.
+  hovering a name did nothing before.
 - **What someone notices after updating:** nothing until they hover a
-  cluster name.
+  cluster name — except that a press on the name no longer starts a map
+  pan (Behaviour above).
 - **Settings:** none. There is nothing in it people would set differently.
 - Planets theme only. Desk lays its mats out as a list without a camera to
   fly, and Archipelago is Experimental with its own fit.
