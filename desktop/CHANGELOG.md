@@ -16,6 +16,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Fixed
 - A session's panel no longer fails to open with an error when its harness log holds an entry this version does not know.
 - Images reach the phone as small previews, about a third of their old size, and images an agent saved to disk do too instead of at full size, so the phone's gallery and transcript thumbnails load much faster.
+- Orbital installed on Ubuntu makes the same small previews for the phone; before, it sent every image at full size.
 - A message you send while a session is still busy (a Stop hook running, say) no longer disappears from its transcript when you switch to another session and back.
 - A message you send while the agent is still working and that it takes into the running turn now shows in the transcript after reopening the session, instead of missing there.
 

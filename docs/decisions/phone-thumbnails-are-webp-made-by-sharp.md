@@ -54,5 +54,8 @@ records what fails.
 
 - The DMG grows by about 19 MB unpacked (libvips is most of it).
 - Thumbnails made as JPEG are swept and made again as WebP.
-- The Linux package (`scripts/build-deb.mjs`) does not carry `sharp`: a
-  server installed from it loads without it and sends images whole.
+- The Linux package (`scripts/build-deb.mjs`) carries `sharp` with its
+  linux-x64 glibc binary and libvips, about 19 MB unpacked, so a server on
+  Ubuntu makes thumbnails too. npm installs that binary only on a linux-x64
+  machine, which is where CI and the release build the package; the CI job
+  makes a WebP with the installed package's own Node.
