@@ -10,7 +10,9 @@ import { RewindStore, type PendingRewind } from '../rewind/store.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import { deleteTag } from '../tags/sharedTags.js';
 import { expandHome } from '../paths.js';
-import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes, resolveForSession } from '../files/preview.js';
+import {
+  NamedPathCache, readFilePreview, readImageFile, readInSandboxes, resolveForSession, sessionTranscriptFiles,
+} from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { completeFilePath } from '../files/complete.js';
 import { findByName, ListingCache } from '../files/findByName.js';
@@ -505,7 +507,22 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   const openTabs = new OpenTabsReader(ctx.ide);
   /** Sandbox listings for `GET /api/files/find`, held a moment across a press, a pick and a right-click. */
-  const listings = ctx.fileListings ?? new ListingCache();
+  const listings = ctx.fileListings ?? new ListingCache({
+    onFailure: (dir, during, err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      ctx.errors.record({
+        source: 'server',
+        kind: 'file_listing_failed',
+        message: during === 'git'
+          ? `git could not list ${dir} for a file name lookup; the directory was walked instead: ${message}`
+          : `${dir} could not be listed for a file name lookup: ${message}`,
+        detail: [err instanceof Error ? err.stack : null, (err as { stderr?: unknown })?.stderr]
+          .filter((part): part is string => typeof part === 'string' && part !== '')
+          .join('\n\n') || null,
+        context: { dir, during },
+      });
+    },
+  });
   /** Publishes one session's snapshot on `sessions`; nothing for an unknown id. */
   const publishSession = (id: string): void => {
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
@@ -990,7 +1007,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    return findByName(sandboxesOf(row, q.cwd), q.name, namedBy(q.session, row), listings);
+    const transcript = ctx.transcriptPath(q.session, row.project_dir, row.claude_dir_id);
+    return findByName(sandboxesOf(row, q.cwd), q.name, () => sessionTranscriptFiles(transcript), listings);
   });
 
   /**

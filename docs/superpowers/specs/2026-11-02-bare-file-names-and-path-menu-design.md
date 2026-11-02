@@ -132,16 +132,29 @@ at most `FIND_LIST_MAX` matches, `more` counting the rest.
   untracked ones the agent may have just written, `.gitignore`d ones left
   out, which keeps `node_modules` and build output out). Outside git, a walk
   of the directory that skips the usual heavy directories (`node_modules`,
-  `.git`, build output) and stops at a file-count cap. Matching is by exact
-  basename.
-- **Confinement.** Every match goes through `resolveForSession` against the
-  sandbox it was found in, so a symlink out of it is dropped like any other
-  path outside it.
+  `.git`, build output) and stops at a file-count cap, one directory read at
+  a time. Matching is by exact basename. The tree's own git config is not
+  trusted to run anything: `git` runs with `core.fsmonitor` and hooks off
+  and without optional locks. A `git` that fails or times out (the walk
+  stands in) and a listing that fails outright are recorded in the error
+  log.
+- **Confinement.** Every match is confined the way `resolveForSession`
+  confines a path, against the sandbox it was found in: its real path must
+  lie inside the sandbox's, so a symlink out of it is dropped like any other
+  path outside it — unless the session's transcripts name it, as for a read.
 - **Cost.** Nothing runs at render time. The lookup runs on a press, and its
   listing is cached per sandbox directory for a short time (a named
-  constant), so a press, a pick and a right-click in a row list it once.
-- **`touched`** (author's call): a match is touched when `namedBy` says the
-  session's transcripts name its absolute path. Tool inputs (`Read`, `Edit`,
+  constant) and dropped when that ends, so a press, a pick and a right-click
+  in a row list it once. A failed listing is not kept. The session's
+  transcript files are read once per lookup for every match together, which
+  answers both `touched` and the named symlinks above.
+- **A file just written** (author's call): a listing held from an earlier
+  press can predate it. When no sandbox has a match and some answered from a
+  held listing, those are listed afresh and the search runs once more, so
+  only a "not found" pays for a second listing.
+- **`touched`** (author's call): a match is touched when the session's
+  transcripts name its absolute path, by the rule `namedInTranscript`
+  applies. Tool inputs (`Read`, `Edit`,
   `Write`) carry absolute `file_path`s, so this covers the files the session
   worked on; a file only ever written relatively in prose does not count,
   which keeps the route from scanning transcripts.

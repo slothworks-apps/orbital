@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { expandHome } from '../paths.js';
@@ -112,18 +113,47 @@ function escapedLetterBefore(haystack: Buffer, at: number): boolean {
  * a rejected occurrence does not end the search. */
 function containsBounded(haystack: Buffer, needle: Buffer): boolean {
   for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + 1)) {
-    const before = at > 0 ? String.fromCharCode(haystack[at - 1]) : '';
-    // Dots that end a sentence, "saved to /tmp/shot.png.", end the path
-    // too — unless the path goes on after them, as in `/tmp/shot.png.bak`.
-    let end = at + needle.length;
-    while (end < haystack.length && haystack[end] === 0x2e) end++;
-    const after = end < haystack.length ? String.fromCharCode(haystack[end]) : '';
-    const beforeOk =
-      !LEADING_PATH_CHAR.test(before) ||
-      (JSON_ESCAPE_LETTER.test(before) && escapedLetterBefore(haystack, at));
-    if (beforeOk && !PATH_CHAR.test(after)) return true;
+    if (boundedAt(haystack, at, needle.length)) return true;
   }
   return false;
+}
+
+/** Whether the occurrence of `length` bytes at `at` has no path byte on either side. */
+function boundedAt(haystack: Buffer, at: number, length: number): boolean {
+  const before = at > 0 ? String.fromCharCode(haystack[at - 1]) : '';
+  // Dots that end a sentence, "saved to /tmp/shot.png.", end the path
+  // too — unless the path goes on after them, as in `/tmp/shot.png.bak`.
+  let end = at + length;
+  while (end < haystack.length && haystack[end] === 0x2e) end++;
+  const after = end < haystack.length ? String.fromCharCode(haystack[end]) : '';
+  const beforeOk =
+    !LEADING_PATH_CHAR.test(before) ||
+    (JSON_ESCAPE_LETTER.test(before) && escapedLetterBefore(haystack, at));
+  return beforeOk && !PATH_CHAR.test(after);
+}
+
+/**
+ * The byte strings a transcript may spell `rawPath` with, or null for a path
+ * that is not absolute: as written, expanded and in its `~/` form, each also
+ * in its JSON string forms, since JSONL writers escape `"`, `\` and non-ASCII.
+ */
+function needlesFor(rawPath: string, home: string): Buffer[] | null {
+  const written = rawPath.trim();
+  const expanded = expandHome(written, home);
+  if (!isAbsolute(expanded)) return null;
+
+  const spellings = new Set([written, expanded]);
+  if (expanded.startsWith(home + sep)) spellings.add('~' + expanded.slice(home.length));
+  const needles: Buffer[] = [];
+  for (const spelling of spellings) {
+    needles.push(Buffer.from(spelling));
+    const json = JSON.stringify(spelling).slice(1, -1);
+    if (json !== spelling) needles.push(Buffer.from(json));
+    // `JSON.stringify` keeps non-ASCII as is; ASCII-only writers do not.
+    const ascii = json.replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+    if (ascii !== json) needles.push(Buffer.from(ascii));
+  }
+  return needles;
 }
 
 /**
@@ -142,21 +172,8 @@ export function namedInTranscript(
   rawPath: string,
   home: string = homedir(),
 ): boolean {
-  const written = rawPath.trim();
-  const expanded = expandHome(written, home);
-  if (!isAbsolute(expanded)) return false;
-
-  const spellings = new Set([written, expanded]);
-  if (expanded.startsWith(home + sep)) spellings.add('~' + expanded.slice(home.length));
-  const needles: Buffer[] = [];
-  for (const spelling of spellings) {
-    needles.push(Buffer.from(spelling));
-    const json = JSON.stringify(spelling).slice(1, -1);
-    if (json !== spelling) needles.push(Buffer.from(json));
-    // `JSON.stringify` keeps non-ASCII as is; ASCII-only writers do not.
-    const ascii = json.replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
-    if (ascii !== json) needles.push(Buffer.from(ascii));
-  }
+  const needles = needlesFor(rawPath, home);
+  if (needles === null) return false;
 
   for (const path of transcriptPaths) {
     let bytes: Buffer;
@@ -168,6 +185,57 @@ export function namedInTranscript(
     if (needles.some((needle) => containsBounded(bytes, needle))) return true;
   }
   return false;
+}
+
+/**
+ * Which of `rawPaths` a session's transcripts name, by the rule of
+ * `namedInTranscript`, each transcript file read once for all of them — what
+ * a lookup asking about many paths at a time uses (`findByName`), where one
+ * `namedInTranscript` per path would read the transcripts once per path.
+ *
+ * The needles are grouped by the bytes after their last `/`, which several
+ * candidates of one basename share: each group's tail is searched for once
+ * per file, and every needle of the group is compared where the tail ends.
+ */
+export async function namedAmongInTranscript(
+  transcriptPaths: string[],
+  rawPaths: Iterable<string>,
+  home: string = homedir(),
+): Promise<Set<string>> {
+  const groups = new Map<string, { tail: Buffer; items: Array<{ raw: string; needle: Buffer }> }>();
+  for (const raw of new Set(rawPaths)) {
+    for (const needle of needlesFor(raw, home) ?? []) {
+      const slash = needle.lastIndexOf(0x2f);
+      const tail = slash === -1 || slash === needle.length - 1 ? needle : needle.subarray(slash + 1);
+      const key = tail.toString('latin1');
+      let group = groups.get(key);
+      if (!group) groups.set(key, (group = { tail, items: [] }));
+      group.items.push({ raw, needle });
+    }
+  }
+
+  const named = new Set<string>();
+  for (const path of transcriptPaths) {
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(path);
+    } catch {
+      continue;
+    }
+    for (const { tail, items } of groups.values()) {
+      if (items.every((item) => named.has(item.raw))) continue;
+      for (let at = bytes.indexOf(tail); at !== -1; at = bytes.indexOf(tail, at + 1)) {
+        const end = at + tail.length;
+        for (const { raw, needle } of items) {
+          if (named.has(raw)) continue;
+          const start = end - needle.length;
+          if (start < 0 || bytes.compare(needle, 0, needle.length, start, end) !== 0) continue;
+          if (boundedAt(bytes, start, needle.length)) named.add(raw);
+        }
+      }
+    }
+  }
+  return named;
 }
 
 /** A session's transcript files: the main JSONL, then every subagent's. */

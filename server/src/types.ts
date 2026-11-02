@@ -334,7 +334,9 @@ export type ErrorKind =
   /** A transcript whose session id another Claude directory already owns. */
   | 'session_id_collision'
   /** A phone thumbnail `sharp` could not load for, encode or write; the image went whole. */
-  | 'thumbnail_failed';
+  | 'thumbnail_failed'
+  /** `git ls-files` failed or timed out for a file name lookup (the walk stood in), or a listing failed outright. */
+  | 'file_listing_failed';
 
 export interface ErrorRecord {
   id: number;

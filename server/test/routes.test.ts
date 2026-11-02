@@ -3,13 +3,13 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, chmodSync, copyFileSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { FILE_COMPLETE_MAX } from '../src/files/complete.js';
-import { FIND_BY_NAME_MAX, ListingCache } from '../src/files/findByName.js';
+import { FIND_LIST_MAX, ListingCache } from '../src/files/findByName.js';
 import { DIRS_MAX } from '../src/files/directory.js';
 import { OUTPUT_TAIL_BYTES } from '../src/files/taskOutput.js';
 import { ATTACHMENT_MAX_BYTES, FILE_ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
@@ -2974,21 +2974,38 @@ describe('GET /api/files/find', () => {
     expect((await find(app, 'sf', 'dir.ts')).json()).toEqual({ matches: [], more: 0 });
   });
 
-  it('shows FIND_BY_NAME_MAX matches, shortest path first, and counts the rest', async () => {
+  it('answers FIND_LIST_MAX matches, shortest path first, and counts the rest', async () => {
     const cwd = makeTmpDir('find-many');
-    const total = FIND_BY_NAME_MAX + 3;
-    for (let i = 0; i < total; i++) write(cwd, `${'d'.repeat(i + 1)}/x.ts`);
+    const total = FIND_LIST_MAX + 3;
+    for (let i = 0; i < total; i++) write(cwd, `d${i}/x.ts`);
     const body = (await find(sessionIn(cwd), 'sf', 'x.ts')).json();
-    expect(body.matches).toHaveLength(FIND_BY_NAME_MAX);
-    expect(body.matches[0].relative).toBe('d/x.ts');
+    expect(body.matches).toHaveLength(FIND_LIST_MAX);
+    expect(body.matches[0].relative).toBe('d0/x.ts');
     expect(body.more).toBe(3);
+  });
+
+  it('does not let a tree\'s own git config run a command while listing it', async () => {
+    const cwd = makeTmpDir('find-fsmonitor');
+    execFileSync('git', ['init', '-q'], { cwd });
+    write(cwd, 'a.ts');
+    execFileSync('git', ['add', 'a.ts'], { cwd });
+    const marker = join(makeTmpDir('find-fsmonitor-marker'), 'ran');
+    const hook = join(cwd, 'hook.sh');
+    writeFileSync(hook, `#!/bin/sh\ntouch '${marker}'\n`);
+    chmodSync(hook, 0o755);
+    execFileSync('git', ['config', 'core.fsmonitor', hook], { cwd });
+    const res = await find(sessionIn(cwd), 'sf', 'a.ts');
+    expect(res.json().matches.map((m: { relative: string }) => m.relative)).toEqual(['a.ts']);
+    expect(existsSync(marker)).toBe(false);
   });
 
   it('never lists the home directory', async () => {
     const listed: string[] = [];
-    const listings = new ListingCache(async (dir) => {
-      listed.push(dir);
-      return ['a.ts'];
+    const listings = new ListingCache({
+      list: async (dir) => {
+        listed.push(dir);
+        return ['a.ts'];
+      },
     });
     const res = await find(sessionIn(homedir(), [], listings), 'sf', 'a.ts');
     expect(res.json()).toEqual({ matches: [], more: 0 });
