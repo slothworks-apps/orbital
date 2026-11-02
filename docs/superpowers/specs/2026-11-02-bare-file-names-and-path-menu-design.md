@@ -80,8 +80,13 @@ anchors to the link's rectangle, either through `MenuPopup` directly or by
 letting `ContextMenu` take an element anchor (builder's call).
 Rows the session itself touched (a path its transcript names) come first,
 then the rest by path, shortest first. The list shows at most
-`FIND_BY_NAME_MAX` rows (1c draws six); past them an inert last row says how
-many more there are (`+14 more`) and cannot be hovered or picked.
+six rows (1c); past them a last row says how many more there are
+(`+14 more`). Picking it swaps the popup in place to every match, scrolling
+six rows at a time (author's call, after review: 1c draws the row inert,
+which left the other matches of an `index.ts` in a monorepo unreachable).
+The server returns at most `FIND_LIST_MAX` (100) matches; past those an
+inert note says how many more there are. The phone's sheet scrolls and
+lists every returned match.
 
 ### While the lookup runs (1e)
 
@@ -99,7 +104,8 @@ many more there are (`+14 more`) and cannot be hovered or picked.
 ### The server: `GET /api/files/find`
 
 `GET /api/files/find?session=…&name=…[&cwd=…]` answers
-`{ matches: [{ path, relative, touched }], more: number }`, `path` absolute.
+`{ matches: [{ path, relative, touched }], more: number }`, `path` absolute;
+at most `FIND_LIST_MAX` matches, `more` counting the rest.
 
 - `name` must be a bare name: no `/`, no `\`, not `.` or `..`, and it must
   pass the same extension check. Anything else is a 400.
