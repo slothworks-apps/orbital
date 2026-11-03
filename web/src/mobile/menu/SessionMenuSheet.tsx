@@ -7,6 +7,8 @@ import { useOrbital } from '../../store/store'
 import { patchSession } from '../session/patchSession'
 import { useMobile } from '../state'
 import { sessionSupports } from '../version'
+import { useEndWorktreeRow } from '../../lib/useEndWorktreeRow'
+import { Checkbox } from '../../ui/Checkbox'
 import { useSessionDeviceName, useSessionRefusedLine } from '../useDevice'
 import { BottomSheet, ConfirmBody } from '../ui'
 import { noteOutcome } from './MenuOutcome'
@@ -49,6 +51,11 @@ export function SessionMenuSheet({
   const shape = menuFor(session, offline, sessionSupports('takeOver', session.id))
   const canTakeOver = shape.items.includes('takeover')
   const pinned = session.pinnedAt != null
+  // Canvas 63h PHONE END SHEET: End offers to remove the worktree, as the
+  // desktop's End does, with the same rules (`useEndWorktreeRow`). Read as
+  // the sheet opens, so End's confirm has it at once; only from a Mac that
+  // serves it.
+  const endRow = useEndWorktreeRow(session, !offline && sessionSupports('worktreeLaunch', id))
 
   // The desktop panel's `commitTitle`: the store first, the old title back if the PATCH fails.
   const rename = (next: string) => {
@@ -83,8 +90,16 @@ export function SessionMenuSheet({
     if (busy) return
     setBusy(true)
     try {
-      await useOrbital.getState().endSession(id)
+      const outcome = endRow.settle(await useOrbital.getState().endSession(id, endRow.request))
+      // Refused (the worktree changed under the row): nothing ended; the
+      // confirm stays, on the state read again, with a line saying so.
+      if (!outcome.ended) {
+        setBusy(false)
+        return
+      }
       noteOutcome({ sessionId: id, kind: 'ended' })
+      // Ended, but the worktree stayed: said once, never as a failed End.
+      if (outcome.stayed) useOrbital.setState({ toast: { kind: 'info', message: outcome.stayed } })
     } catch (err) {
       reportError(err, 'Failed to end the session')
     }
@@ -141,7 +156,22 @@ export function SessionMenuSheet({
           </>
         }
         detail={stops.length > 0 ? <Lines lines={stops} /> : undefined}
-        confirmLabel="End session"
+        extra={
+          endRow.copy || endRow.note ? (
+            <>
+              {endRow.copy && (
+                <WorktreeEndRow
+                  ticked={endRow.ticked}
+                  line={endRow.copy.line}
+                  loses={endRow.copy.loses}
+                  onToggle={endRow.toggle}
+                />
+              )}
+              {endRow.note && <p className="mt-2 px-1 fs-12.5 leading-[1.45] text-ink-900/70">{endRow.note}</p>}
+            </>
+          ) : undefined
+        }
+        confirmLabel={endRow.copy?.endLabel ?? 'End session'}
         onConfirm={() => void end()}
         onCancel={() => setView('menu')}
         busy={busy}
@@ -341,6 +371,36 @@ function MediaGlyph() {
         <span key={i} className="block h-[5px] w-[5px] rounded-[1.2px] bg-current" />
       ))}
     </span>
+  )
+}
+
+/**
+ * End's "Also remove worktree" row on the phone (canvas 63h PHONE END SHEET):
+ * a 60px row whose checkbox is the 22px `touch` box. Its line names what the
+ * variant keeps or, ticked in C2a, what goes — in the soft error ink.
+ */
+function WorktreeEndRow({ ticked, line, loses, onToggle }: { ticked: boolean; line: string; loses: boolean; onToggle: () => void }) {
+  return (
+    <div className="mt-3.5 flex min-h-15 items-center rounded-[12px] border border-line/12 bg-space-deep/60 px-3.5 py-2.5">
+      <Checkbox
+        size="touch"
+        checked={ticked}
+        onChange={onToggle}
+        label={
+          <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+            <span className="fs-14 font-semibold">Also remove worktree</span>
+            <span
+              className={[
+                'fs-12.5 leading-[1.4] transition-colors duration-150 ease-[ease]',
+                loses ? 'text-danger-pale' : 'text-ink-900/70',
+              ].join(' ')}
+            >
+              {line}
+            </span>
+          </span>
+        }
+      />
+    </div>
   )
 }
 

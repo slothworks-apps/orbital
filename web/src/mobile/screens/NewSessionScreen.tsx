@@ -29,6 +29,10 @@ import { PhotoButtons, SlashButton, attachPhoto } from './ComposerButtons'
 import { MissingDirectorySheet } from './MissingDirectorySheet'
 import { blocksLaunch, directoryLine, useDirectoryState } from '../../lib/useDirectoryState'
 import { defaultSupports, deviceSupports } from '../version'
+import { useWorktreeChoice } from '../../lib/useWorktreeChoice'
+import { useLaunchAttempt } from '../../lib/useLaunchAttempt'
+import { recentDirectories, worktreeLaunchError } from '../../lib/worktree'
+import { NewSessionWorktree } from './NewSessionWorktree'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
 
 /** The device sheet's ages are in minutes at the finest. */
@@ -42,6 +46,7 @@ export function NewSessionScreen() {
   const tags = useOrbital((s) => s.tags)
   const sessions = useOrbital((s) => s.sessions)
   const launchSession = useOrbital((s) => s.launchSession)
+  const launchAttempt = useLaunchAttempt()
   const { allAsleep, macName, macVersion, link, rechecking, devices, members } = useMobile(
     useShallow((s) => ({
       allAsleep: isMacAsleep(s), macName: s.macName, macVersion: s.macVersion,
@@ -135,6 +140,17 @@ export function NewSessionScreen() {
   // The same for where the picker's sheet sends you to manage profiles.
   const profilesSection = machine !== null ? deviceSupports('profileLogin', machine, devices) : defaultSupports('profileLogin', macVersion)
   const dirState = useDirectoryState(cwd, checksDir && !asleep, machine ?? undefined)
+  /**
+   * The WORKTREE group (spec 2026-11-02-work-in-a-worktree-design § The
+   * phone): only from a device that serves it, asked while the path is a
+   * directory or not yet known to be anything else, as the desktop asks.
+   */
+  const servesWorktree = machine !== null ? deviceSupports('worktreeLaunch', machine, devices) : defaultSupports('worktreeLaunch', macVersion)
+  const worktree = useWorktreeChoice(
+    cwd,
+    servesWorktree && !asleep && (dirState === null || dirState === 'directory'),
+    machine ?? undefined,
+  )
 
   // The chosen device's defaults and recent directories (canvas 50j: they
   // follow the device); its Claude directory ids are its own, so a choice
@@ -150,9 +166,11 @@ export function NewSessionScreen() {
     void Promise.allSettled([api.sessionDefaults(machine ?? undefined), api.listProjects(machine ?? undefined)]).then(([d, p]) => {
       if (!current) return
       if (p.status === 'fulfilled') {
-        setProjects(p.value)
+        // A worktree's directory shows as its repository, once (spec § The home of a worktree session).
+        const recent = recentDirectories(p.value)
+        setProjects(recent)
         // 1d AT REST: the field opens on the device's last directory, as the desktop's does.
-        if (cwdPrefilled.current) setCwd(p.value[0]?.cwd ?? '')
+        if (cwdPrefilled.current) setCwd(recent[0]?.cwd ?? '')
       }
       setDefaults(d.status === 'fulfilled' ? d.value : null)
     })
@@ -199,7 +217,7 @@ export function NewSessionScreen() {
 
   // An upload still in flight holds Start back: the launch sends only what has landed.
   const canStart =
-    Boolean(cwd.trim() && prompt.trim()) && !pending && !asleep && !attachments.uploading && !blocksLaunch(dirState)
+    Boolean(cwd.trim() && prompt.trim()) && !pending && !asleep && !attachments.uploading && !blocksLaunch(dirState) && !worktree.blocked
 
   /**
    * Start: asks about the project's undecided `.mcp.json` servers first, when
@@ -257,10 +275,12 @@ export function NewSessionScreen() {
     }
     try {
       const refs = images.map((image) => image.entry.ref)
-      const sessionId = await launchSession(
-        launchRequest({ cwd, prompt, files, mode, model, claudeDirId, refs, mcpjson, machine }),
-        images,
-      )
+      const body = launchRequest({ cwd, prompt, files, mode, model, claudeDirId, refs, mcpjson, machine, worktree: worktree.launch })
+      // One id per attempt: Start pressed again after the tunnel gave up on a
+      // slow worktree launch repeats it, and the Mac answers with the first
+      // launch rather than making a second session and worktree.
+      const sessionId = await launchSession({ ...body, sessionId: launchAttempt.idFor(body) }, images)
+      launchAttempt.settle()
       // The next New session opens on it (canvas 50j).
       if (machine !== null) rememberDevice(machine)
       attachments.reset()
@@ -268,8 +288,11 @@ export function NewSessionScreen() {
     } catch (err) {
       // The refusal is said on the form, under its field or its Start.
       setQuestion(null)
+      // A worktree the Mac could not make is said in the group, where it was chosen (63c A4).
+      const refused = worktree.launch ? worktreeLaunchError(err) : null
       // Said here, never through `reportError`: its `/api/errors` POST is not the phone's to make.
-      if (noSuchDirectory(err)) setNotFound(true)
+      if (refused) worktree.setLaunchError(refused.message || 'Orbital could not make the worktree.')
+      else if (noSuchDirectory(err)) setNotFound(true)
       else setFailure(startFailureLine(err, mac))
       setPending(false)
     }
@@ -466,6 +489,9 @@ export function NewSessionScreen() {
             </p>
           )}
         </div>
+
+        {/* Canvas 63g: under DIRECTORY, only for a git repository on a Mac that serves it. */}
+        {worktree.repo && <NewSessionWorktree choice={worktree} tags={tags} />}
 
         {/* The cards wait for the Mac's defaults, with nothing drawn in their place (calm). */}
         {loaded && (

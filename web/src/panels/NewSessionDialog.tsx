@@ -53,6 +53,10 @@ import {
 } from '../lib/devices'
 import { Select } from '../ui/Select'
 import { KindGlyph } from '../ui/KindGlyph'
+import { useWorktreeChoice } from '../lib/useWorktreeChoice'
+import { useLaunchAttempt } from '../lib/useLaunchAttempt'
+import { recentDirectories, worktreeLaunchError, worktreeSummary } from '../lib/worktree'
+import { WorktreeGroup } from './WorktreeGroup'
 
 export interface NewSessionDialogProps {
   open: boolean
@@ -498,8 +502,18 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
 
   const dirState = useDirectoryState(cwd, open, machine)
   const dirLine = directoryLine(dirState, remote ? deviceName : 'this Mac')
+  // The WORKTREE group's repository and choice (canvas 63a). Asked while the
+  // path is a directory or not yet known to be anything else.
+  const worktree = useWorktreeChoice(cwd, open && (dirState === null || dirState === 'directory'), machine)
+  const setWorktreeLaunchError = worktree.setLaunchError
+  /** RECENT, with a worktree's directory shown as its repository, once. */
+  const recent = useMemo(() => recentDirectories(projects), [projects])
+
+  const launchAttempt = useLaunchAttempt()
 
   /** The launch itself, with the question's answers when it was asked. */
+  const worktreeLaunch = worktree.launch
+  const worktreeBlocked = worktree.blocked
   const launch = useCallback(async (mcpjson?: McpjsonDecisions) => {
     setPending(true)
     try {
@@ -517,7 +531,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       // subscribe to the new session's topic before its request goes out, and
       // the socket is the store's to reach.
       // See `docs/fixes/first-turn-can-outrun-the-ws-subscription.md`.
-      const sessionId = await launchSession({
+      const body = {
         cwd: cwd.trim(),
         prompt: promptWithFiles(prompt, files.map((file) => file.path)),
         permissionMode,
@@ -533,7 +547,12 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         ...(refs.length > 0 ? { attachments: refs } : {}),
         ...(mcpjson ? { mcpjson } : {}),
         ...(machine ? { machine } : {}),
-      }, images)
+        ...(worktreeLaunch ? { worktree: worktreeLaunch } : {}),
+      }
+      // One id per attempt: Launch pressed again on the same form after a
+      // lost answer repeats it, and the server answers instead of launching twice.
+      const sessionId = await launchSession({ ...body, sessionId: launchAttempt.idFor(body) }, images)
+      launchAttempt.settle()
       // A tag is remembered only when it was the user's pick — this launch's,
       // or the previous one's left standing — never a rule's match or the
       // selected planet's tag.
@@ -559,11 +578,18 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       onClose()
       await select(sessionId)
     } catch (err) {
-      reportError(err, 'Failed to launch session')
+      // A worktree the server could not make is said where it was chosen
+      // (63c A4), and the dialog stays as it was; anything else is reported.
+      const refused = worktreeLaunch ? worktreeLaunchError(err) : null
+      if (refused) {
+        setQuestion(null)
+        setMissingDir(null)
+        setWorktreeLaunchError(refused.message || 'Orbital could not make the worktree.')
+      } else reportError(err, 'Failed to launch session')
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, setWorktreeLaunchError, launchAttempt])
 
   /**
    * Launch: asks about the project's undecided `.mcp.json` servers first,
@@ -571,7 +597,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
    * spawns until the question is answered (47e "Trigger").
    */
   const handleLaunch = useCallback(async () => {
-    if (!cwd.trim() || pending || awaitingCustomModel) return
+    if (!cwd.trim() || pending || awaitingCustomModel || worktreeBlocked) return
     setPending(true)
     setChooserOpen(false)
     // Asked again rather than read off the line: the field may have changed
@@ -594,7 +620,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       return
     }
     await launch()
-  }, [cwd, pending, awaitingCustomModel, choosesDir, claudeDirId, launch, machine])
+  }, [cwd, pending, awaitingCustomModel, worktreeBlocked, choosesDir, claudeDirId, launch, machine])
 
   /**
    * *Create and launch*. A directory just made has no `.mcp.json` to ask
@@ -742,7 +768,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         open={open}
         title="New session"
         eyebrow="LAUNCH"
-        size="lg"
+        size="2xl"
         onClose={onClose}
         surfaceRef={dropTargetRef}
         dropArmed={dropArmed && !question && !missingDir}
@@ -764,17 +790,24 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           // planet in WORK`): the footer is where the session's shape is
           // summarised, and what it is carrying is part of that shape. The count
           // leads because it is the part that just changed.
+          // 63a: while a worktree error stands, the line says what Launch waits for.
+          worktree.problems.some((p) => p.field !== 'launch') ? (
+            'Fix the worktree line above to launch'
+          ) : (
           <>
             {/* One template string, not JSX text: a trailing space before a
                 newline is stripped by JSX, which would run the count straight
                 into the model name. */}
             {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
             {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
+            {/* Spec § The footer summary: where the worktree comes from. */}
+            {worktreeLaunch ? ` · ${worktreeSummary(worktree.branch, worktreeLaunch.base)}` : null}
             {/* 50g `gFoot`: the device, once there is a choice of one. */}
             {showDevice ? ` · on ${remote ? deviceName : 'this device'}` : null}
             {choosesDir && claudeDirName ? ` · under ${claudeDirName}` : null}
             {footerTagName ? <> · <span className="text-ink-300">{footerTagName.toUpperCase()}</span></> : null}
           </>
+          )
         }
         footer={
           <>
@@ -785,7 +818,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               variant="primary"
               size="lg"
               onClick={() => void handleLaunch()}
-              disabled={pending || !cwd.trim() || awaitingCustomModel || blocksLaunch(dirState)}
+              disabled={pending || !cwd.trim() || awaitingCustomModel || blocksLaunch(dirState) || worktreeBlocked}
             >
               Launch session <span className="font-mono fs-10 opacity-70">⌘⏎</span>
             </Button>
@@ -806,8 +839,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 wrapped rather than dimmed one by one so the 20px rhythm survives. */}
             <div
               data-content-dim
-              className={['flex flex-col gap-5', dropArmed ? 'opacity-35' : ''].join(' ')}
+              // Canvas 63a: two columns 28px apart — where the session runs on
+              // the left, how it runs on the right — 18px between groups.
+              className={['grid grid-cols-2 items-start gap-7', dropArmed ? 'opacity-35' : ''].join(' ')}
             >
+              <div className="flex min-w-0 flex-col gap-[18px]">
               {showDevice && (
                 // Canvas 50g DEVICE FIRST: above the directory, which only
                 // means something on a device.
@@ -875,7 +911,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     {dirLine}
                   </p>
                 )}
-                {projects.length > 0 && (
+                {recent.length > 0 && (
                   <div
                     className={['flex flex-wrap items-center gap-1.5', chooserOpen ? 'invisible' : ''].join(' ')}
                     role="group"
@@ -886,7 +922,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     </span>
                     {/* Recent paths are mono pills in 1d (3px/9px, 10.5px), not the
                         sans tag chips the TAG row uses — kept as plain buttons. */}
-                    {projects.slice(0, 4).map(({ cwd: dir }) => (
+                    {recent.slice(0, 4).map(({ cwd: dir }) => (
                       <button
                         key={dir}
                         type="button"
@@ -918,6 +954,10 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 )}
               </div>
 
+              {/* Canvas 63a: WORKTREE under the directory it is about — only for a
+                  git repository on the chosen device; nothing at all otherwise. */}
+              {worktree.repo && <WorktreeGroup choice={worktree} tags={tags} />}
+
               {/* Canvas 44c: two or three directories sit in the form, between the
                   project and the model, because the directory decides which models
                   are offered. Four or more move to the header control. */}
@@ -940,7 +980,40 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                   <ClaudeDirSegments dirs={claudeDirs} value={claudeDirId} onChange={setClaudeDirId} />
                 </div>
               )}
+              {/* TAG sits with the where, not on canvas 63a's right: the real model list runs
+                  to four rows of cards there, and the dialog would scroll at 1440×900. */}
+              <div className="flex flex-col gap-2">
+                <FieldLabel>
+                  TAG
+                  {tagHint && <span className="tracking-[0.04em] text-ink-900/60">{tagHint}</span>}
+                </FieldLabel>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tag">
+                  {tags.map((tag) => (
+                    <Chip
+                      key={tag.id}
+                      size="field"
+                      label={tag.name}
+                      hue={tag.hue}
+                      active={tagId === tag.id}
+                      onClick={() => handleSelectTag(tag.id)}
+                    />
+                  ))}
+                  {/* Not in the website's demo, whose fake server keeps no tags it did not start with. */}
+                  {!isDemo() && <NewTagChip
+                    draft={newTagDraft}
+                    onDraft={setNewTagDraft}
+                    tags={tags}
+                    onPick={handleSelectTag}
+                    onMade={(id) => {
+                      setMadeTagId(id)
+                      handleSelectTag(id)
+                    }}
+                  />}
+                </div>
+              </div>
+              </div>
 
+              <div className="flex min-w-0 flex-col gap-[18px]">
               <div className="flex flex-col gap-2">
                 <FieldLabel>
                   MODEL
@@ -958,6 +1031,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                   )}
                 </FieldLabel>
                 <ModelCards
+                  dense
                   models={models}
                   value={model}
                   defaultValue={settings.default_model ?? null}
@@ -995,35 +1069,6 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 <FieldLabel>PERMISSION MODE</FieldLabel>
                 <ModeCards value={permissionMode} onChange={setPermissionMode} />
               </div>
-
-              <div className="flex flex-col gap-2">
-                <FieldLabel>
-                  TAG
-                  {tagHint && <span className="tracking-[0.04em] text-ink-900/60">{tagHint}</span>}
-                </FieldLabel>
-                <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tag">
-                  {tags.map((tag) => (
-                    <Chip
-                      key={tag.id}
-                      size="field"
-                      label={tag.name}
-                      hue={tag.hue}
-                      active={tagId === tag.id}
-                      onClick={() => handleSelectTag(tag.id)}
-                    />
-                  ))}
-                  {/* Not in the website's demo, whose fake server keeps no tags it did not start with. */}
-                  {!isDemo() && <NewTagChip
-                    draft={newTagDraft}
-                    onDraft={setNewTagDraft}
-                    tags={tags}
-                    onPick={handleSelectTag}
-                    onMade={(id) => {
-                      setMadeTagId(id)
-                      handleSelectTag(id)
-                    }}
-                  />}
-                </div>
               </div>
 
             </div>

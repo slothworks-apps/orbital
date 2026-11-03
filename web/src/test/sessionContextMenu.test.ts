@@ -48,6 +48,12 @@ describe('contextMenuGroups', () => {
     expect(active).toEqual(['open', 'copy-path'])
   })
 
+  it('closes the deliberate group with Remove worktree for a worktree session, a terminal one included', () => {
+    expect(actions(contextMenuGroups(session(), { ...online, worktree: true })).at(-1)?.at(-1)).toBe('remove-worktree')
+    const terminal = actions(contextMenuGroups(session({ source: 'terminal', status: 'ended' }), { ...online, worktree: true }))
+    expect(terminal.at(-1)).toEqual(['remove-worktree'])
+  })
+
   it('makes nothing inert while the machine is online', () => {
     expect(contextMenuGroups(session(), online).flat().every((row) => !row.disabled)).toBe(true)
   })

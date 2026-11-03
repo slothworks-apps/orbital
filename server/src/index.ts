@@ -52,7 +52,9 @@ import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
 import { TerminalStore, type TerminalStoreOptions } from './terminal/store.js';
 import { RecentToolsStore } from './transcript/recentTools.js';
 import { OutputFollower } from './files/taskOutput.js';
-import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
+import { MAX_PROMPT_CHARS, SessionTitler, type TitleQueryFn } from './titler/titler.js';
+import { nameBranch } from './worktree/naming.js';
+import { worktreeContextOf } from './worktree/service.js';
 import { HarnessService } from './harness/service.js';
 import { askWatcher } from './harness/watcher.js';
 import { askOnce } from './harness/ask.js';
@@ -839,13 +841,21 @@ export async function buildServer(overrides: {
     // 2026-09-30-session-instructions-design § 1). Default-on rows read
     // `!== 'false'` so an unknown key — an install from before the rows —
     // counts as on, exactly like a fresh database.
-    appendix: () =>
-      composeAppendix({
+    //
+    // The worktree is read from the session's working tree at every start,
+    // resumes included, so nothing about it is stored (spec
+    // 2026-11-02-work-in-a-worktree-design § What the session is told). A
+    // session without a row yet is in the directory it starts in.
+    appendix: ({ sessionId, cwd }) => {
+      const row = rowOf(sessionId);
+      return composeAppendix({
         tipsOn: settingsStore.get('session_instructions_tips') !== 'false',
         commentary: settingsStore.get('narrate_commentary') === 'true',
         customOn: settingsStore.get('session_instructions_custom') !== 'false',
         customText: settingsStore.get('session_instructions_custom_text'),
-      }),
+        worktree: worktreeContextOf(row ? trees.workingDir(row) : cwd),
+      });
+    },
     onStatus: (sessionId, status) => {
       // A turn actually starting is what retires the interrupted mark — the
       // session has moved on from the turn the restart cut short. It hangs
@@ -1676,6 +1686,19 @@ export async function buildServer(overrides: {
       preview: (value: string) =>
         countSweepable(db, retentionCutoff(parseRetentionDays(value), Date.now())),
     },
+    // Names a worktree's branch at launch, under the account the session will run under.
+    // A failure is recorded; the user gets the temporary name and no word of it.
+    nameBranch: ({ sessionId, prompt, recentNames, claudeDirId }) =>
+      nameBranch(
+        {
+          queryFn: overrides.titleQueryFn ?? query, claudeExecutablePath: claudeCli.path, maxPromptChars: MAX_PROMPT_CHARS,
+          onFailure: (failure) => errors.record({
+            source: 'server', kind: 'branch_naming_failed', sessionId,
+            message: failure.message, detail: failure.detail, context: { reason: failure.reason },
+          }),
+        },
+        { prompt, recentNames, env: envForDir(claudeDirId ?? claudeDirs.defaultId()) },
+      ),
     spawnOnMember: async (machine, body) => {
       const link = federation.link(machine);
       if (!link) return { status: 404, body: { error: 'unknown_device' } };

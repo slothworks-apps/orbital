@@ -5,6 +5,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ## [Unreleased]
 ### Added
 - The phone follows Experimental updates when your Mac turns them on for the group, gets each release early, and shows "· experimental" next to its version in Settings. Needs the update from TestFlight or Google Play and Orbital for Mac with Experimental updates.
+- New session can start a session in its own git worktree, turned on by itself when another live session already works in that checkout, with an optional branch name and a choice of base. Ending a session in a worktree offers to remove it; the branch always stays. Needs Orbital for Mac 0.47.0 or later.
 
 ## [0.23.0] — 2026-11-01
 ### Added

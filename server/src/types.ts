@@ -336,7 +336,11 @@ export type ErrorKind =
   /** A phone thumbnail `sharp` could not load for, encode or write; the image went whole. */
   | 'thumbnail_failed'
   /** `git ls-files` failed or timed out for a file name lookup (the walk stood in), or a listing failed outright. */
-  | 'file_listing_failed';
+  | 'file_listing_failed'
+  /** Git refused to remove a session's worktree, or a failed worktree launch could not be fully undone. */
+  | 'worktree_failed'
+  /** The call naming a worktree's branch failed, timed out or answered nothing usable; the temporary name stood in. */
+  | 'branch_naming_failed';
 
 export interface ErrorRecord {
   id: number;

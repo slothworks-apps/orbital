@@ -2051,6 +2051,7 @@ describe('trashSession', () => {
 
   beforeEach(() => {
     useOrbital.setState({ sessions: { sd: session() }, order: ['sd'] })
+    vi.mocked(api.endSession).mockResolvedValue({ ok: true })
   })
 
   it('ends optimistically, saves, and raises the undo toast on success', async () => {
@@ -2072,6 +2073,26 @@ describe('trashSession', () => {
 
     expect(api.endSession).toHaveBeenCalledWith('sd', { unpin: false })
     expect(useOrbital.getState().toast).toBeNull()
+  })
+
+  it('a worktree that changed under End ends nothing: the status comes back, the refusal is the answer', async () => {
+    vi.mocked(api.endSession).mockResolvedValueOnce({ error: 'worktree_state_changed' })
+    const answer = await useOrbital
+      .getState()
+      .trashSession('sd', { undo: false, removeWorktree: 'clean', worktreePath: '/r/.claude/worktrees/x' })
+
+    expect(api.endSession).toHaveBeenCalledWith('sd', { unpin: false, removeWorktree: 'clean', worktreePath: '/r/.claude/worktrees/x' })
+    expect(answer).toEqual({ error: 'worktree_state_changed' })
+    expect(useOrbital.getState().sessions.sd.status).toBe('idle')
+  })
+
+  it('a worktree that stayed is still an End: the status stays ended', async () => {
+    const stayed = { ok: true as const, worktreeRemoved: false as const, error: 'worktree_failed' as const, message: 'locked' }
+    vi.mocked(api.endSession).mockResolvedValueOnce(stayed)
+    const answer = await useOrbital.getState().trashSession('sd', { undo: false, removeWorktree: 'clean' })
+
+    expect(answer).toEqual(stayed)
+    expect(useOrbital.getState().sessions.sd.status).toBe('ended')
   })
 
   it('undo reopens the session, optimistically idle, without touching a pin it never had', async () => {

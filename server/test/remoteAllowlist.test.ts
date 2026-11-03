@@ -235,6 +235,20 @@ describe('remote allowlist', () => {
       }
     });
   });
+  it('allows the worktree routes, each in its group and for its one method', () => {
+    for (const [method, path, group] of [
+      ['GET', '/api/worktree/options?cwd=%2Fw%2Fx', 'spawn'],
+      ['POST', '/api/worktree/fetch', 'spawn'],
+      ['GET', '/api/sessions/abc/worktree', 'sessions'],
+      ['POST', '/api/sessions/abc/worktree/remove', 'sessions'],
+      ['POST', '/api/sessions/abc/worktree/keep', 'sessions'],
+    ] as const) {
+      expect(allowedPath(method, path)?.group, `${method} ${path}`).toBe(group);
+      for (const m of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+        if (m !== method) expect(isAllowed(m, path), `${m} ${path}`).toBe(false);
+      }
+    }
+  });
   it('a member cannot make this device join another', () => {
     expect(isAllowed('POST', '/api/remote/join')).toBe(false);
   });

@@ -200,3 +200,97 @@ export function locateGit(cwd: string): { dirs: GitDirs; location: GitLocation }
   const location = readGitLocation(dirs);
   return location ? { dirs, location } : null;
 }
+
+/**
+ * The last value of `<section> "<subsection>"`'s `key` in a git config
+ * file's text, or null when it is not set. Read without spawning git: a
+ * session's start reads it, and must not block on a process. Section and
+ * key names are matched case-insensitively and the subsection exactly, as
+ * git does; quotes, escapes, comments and continued lines are understood.
+ * `include` directives are not followed.
+ */
+export function parseGitConfigValue(text: string, section: string, subsection: string, key: string): string | null {
+  const wantSection = section.toLowerCase();
+  const wantKey = key.toLowerCase();
+  let inSection = false;
+  let found: string | null = null;
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    const header = /^\s*\[\s*([A-Za-z0-9.-]+)(?:\s+"((?:[^"\\]|\\.)*)")?\s*\]\s*(.*)$/.exec(line);
+    if (header) {
+      const [, name, sub, rest] = header;
+      if (sub !== undefined) {
+        inSection = name.toLowerCase() === wantSection && sub.replace(/\\(.)/g, '$1') === subsection;
+      } else {
+        // The old `[section.subsection]` form, whose subsection git lowercases.
+        const dot = name.indexOf('.');
+        inSection = dot > 0
+          && name.slice(0, dot).toLowerCase() === wantSection
+          && name.slice(dot + 1).toLowerCase() === subsection.toLowerCase();
+      }
+      line = rest;
+      if (!line.trim()) continue;
+    }
+    if (!inSection) continue;
+    const entry = /^\s*([A-Za-z][A-Za-z0-9-]*)\s*(?:=(.*))?$/.exec(line);
+    if (!entry || entry[1].toLowerCase() !== wantKey) continue;
+    if (entry[2] === undefined) {
+      found = 'true';
+      continue;
+    }
+    let raw = entry[2];
+    // A value ending in an unescaped backslash goes on to the next line.
+    while (/(^|[^\\])(\\\\)*\\$/.test(raw) && i + 1 < lines.length) raw = raw.slice(0, -1) + lines[++i];
+    found = parseConfigValue(raw);
+  }
+  return found;
+}
+
+const CONFIG_ESCAPES: Record<string, string> = { n: '\n', t: '\t', b: '\b' };
+
+/** A config value as git reads it: quotes dropped, escapes taken, an unquoted comment cut, the ends trimmed. */
+function parseConfigValue(raw: string): string {
+  let out = '';
+  let quoted = false;
+  let pendingSpace = '';
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (c === '\\' && i + 1 < raw.length) {
+      const n = raw[++i];
+      out += pendingSpace + (CONFIG_ESCAPES[n] ?? n);
+      pendingSpace = '';
+      continue;
+    }
+    if (c === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (!quoted && (c === '#' || c === ';')) break;
+    if (!quoted && (c === ' ' || c === '\t')) {
+      if (out !== '') pendingSpace += c;
+      continue;
+    }
+    out += pendingSpace + c;
+    pendingSpace = '';
+  }
+  return out;
+}
+
+/**
+ * A branch's config value, as `git config --get branch.<branch>.<key>` from
+ * the tree would read it: the repository's `config`, then the tree's own
+ * `config.worktree`, the later one winning.
+ */
+export function readBranchConfig(dirs: GitDirs, branch: string, key: string): string | null {
+  let value: string | null = null;
+  const files = [join(dirs.commonDir, 'config')];
+  if (dirs.gitDir !== dirs.commonDir) files.push(join(dirs.gitDir, 'config.worktree'));
+  else files.push(join(dirs.commonDir, 'config.worktree'));
+  for (const file of files) {
+    const text = readText(file);
+    if (text === null) continue;
+    value = parseGitConfigValue(text, 'branch', branch, key) ?? value;
+  }
+  return value;
+}

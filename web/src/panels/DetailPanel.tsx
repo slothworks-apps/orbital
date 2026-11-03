@@ -69,6 +69,9 @@ import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { HarnessPill } from './HarnessPill'
 import { DevicePill } from './DevicePill'
+import { WorktreeCleanupStrip } from './WorktreeCleanup'
+import { useSessionWorktree } from '../lib/useSessionWorktree'
+import { removalOffered } from '../lib/worktree'
 import {
   deviceChips, deviceLock, ideHere, localClaudeDirId, machineOffline, namesShown, stateAsOf,
   type DeviceLock,
@@ -523,6 +526,10 @@ export function DetailPanel({
     shown != null
   )
 
+  // The session's linked worktree, for the cleanup strip under the where row
+  // and ⋯ → Remove worktree (canvas 63e). Read while the panel is up only.
+  const worktree = useSessionWorktree(session, Boolean(id) && (standalone ? Boolean(selectedId) : mounted))
+
   // Standalone has nothing to slide away to: it shows whenever its session is
   // selected, which is from the moment the window seats it.
   if ((standalone ? !selectedId : !mounted) || !id) return null
@@ -877,8 +884,21 @@ export function DetailPanel({
             onCollapse={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
             walkthroughEntry={walkthroughEntry}
             pathBudgetPx={standalone ? standaloneWidth : detailWidth}
+            worktree={
+              session?.git?.worktree
+                ? {
+                    removable: removalOffered(worktree.state),
+                    onRemove: () => setDialog('remove-worktree'),
+                  }
+                : undefined
+            }
           />
         </div>
+
+        {/* Canvas 63e: removing the worktree, directly under the where row so
+            it need not name it again — never in the transcript. Draws nothing
+            unless the session qualifies (spec 2026-11-02-work-in-a-worktree-design). */}
+        <WorktreeCleanupStrip session={session} worktree={worktree} />
 
         {/* Row 2 — the title, on a line of its own (9d). At rest it is a
             two-line clamp that ellipsises; editing swaps in the textarea it

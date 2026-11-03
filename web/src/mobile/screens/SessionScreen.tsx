@@ -21,6 +21,7 @@
  *   tool rows: chips, images   session/TranscriptChip.tsx        Z1, through `PhoneToolRowContext`
  *   path and image presses     files/open.ts (`installFileOpen`) T2.1
  *   composer focus + hint      `focusComposer` (state)           T1.1 calls it on Reopen
+ *   worktree cleanup row       where/WorktreeCleanup.tsx         under an ended session's tail (canvas 63g)
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
@@ -50,8 +51,9 @@ import { keepsSelection, useMobile } from '../state'
 import { sessionReady } from '../deviceList'
 import { useSessionAsleep, useSessionReady } from '../useDevice'
 import { clientRef } from '../transport/clientRef'
-import { MobileScreen } from '../ui'
+import { MobileScreen, SheetPresence } from '../ui'
 import { WhereLine } from '../where/WhereLine'
+import { WorktreeCleanupRow, WorktreeCleanupSheet, useWorktreeCleanup } from '../where/WorktreeCleanup'
 import { phoneLoginSurface } from '../session/loginSurface'
 import { SessionComposer } from './SessionComposer'
 import { primaryTag } from '../../lib/primaryTag'
@@ -144,7 +146,9 @@ function SessionView({ id }: { id: string }) {
   )
   const handleOpenTask = useCallback((task: BackgroundTask) => openTask({ sessionId: id, taskId: task.id }), [openTask, id])
 
-  const tailKey = useTranscriptTailKey({ session, offline })
+  // Removing the session's worktree (canvas 63g CLEANUP): one read for the row and its sheet.
+  const cleanup = useWorktreeCleanup(session, offline)
+  const tailKey = `${useTranscriptTailKey({ session, offline })}|${cleanup.tailKey}`
   const { liveRow, isWaiting, waitCaption } = useLiveHookRow({ session, offline })
 
   // ↩ Show in chat from the media viewer (canvas 24g): page back to the message and scroll to it.
@@ -229,7 +233,14 @@ function SessionView({ id }: { id: string }) {
         onOpenSubagent={handleOpenSubagent}
         backgroundTasks={session?.backgroundTasks ?? NO_TASKS}
         onOpenTaskOutput={handleOpenTask}
-        footer={session ? <TranscriptTail session={session} offline={offline} /> : undefined}
+        footer={
+          session ? (
+            <>
+              <TranscriptTail session={session} offline={offline} />
+              {cleanup.shown && <WorktreeCleanupRow cleanup={cleanup} className="my-3" />}
+            </>
+          ) : undefined
+        }
         footerKey={tailKey}
         liveRow={liveRow}
         isWaiting={isWaiting}
@@ -239,6 +250,7 @@ function SessionView({ id }: { id: string }) {
       </QuestionCardPhoneContext.Provider>
       </PhoneToolRowContext.Provider>
       </LoginNoticeContext.Provider>
+      <SheetPresence>{cleanup.sheet && <WorktreeCleanupSheet cleanup={cleanup} />}</SheetPresence>
     </MobileScreen>
   )
 }

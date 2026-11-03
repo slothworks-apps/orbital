@@ -191,6 +191,8 @@ describe('openDb', () => {
       default_model: 'sonnet',
       remember_model_per_project: 'true',
       name_sessions_automatically: 'true',
+      worktree_auto_on_when_occupied: 'true',
+      worktree_copy_patterns: '',
       map_show_model: 'true',
       map_show_trash: 'true',
       map_limit_sun_positions: '{}',

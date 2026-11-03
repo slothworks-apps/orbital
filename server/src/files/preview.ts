@@ -365,7 +365,8 @@ export function enclosingRoot(
   return best;
 }
 
-function isWithin(path: string, dir: string): boolean {
+/** `path` lies strictly below `dir`. */
+export function isWithin(path: string, dir: string): boolean {
   return path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
 }
 
