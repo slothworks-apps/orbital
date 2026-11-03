@@ -1,8 +1,8 @@
 name: CI
 
+# Only pull requests: main changes through them alone, so a push to main
+# carries what CI has already checked, and release.yml is what runs there.
 on:
-  push:
-    branches: [main]
   pull_request:
 
 concurrency:
@@ -332,8 +332,8 @@ jobs:
 
   # The phone app's version is copied into package.json and the Xcode
   # project; a bump that misses a copy fails here, and so does a minimum
-  # version above what the repo has reached. In a pull request, so does a
-  # shipped version below the base branch's (ADR
+  # version above what the repo has reached, and so does a shipped version
+  # below the base branch's (ADR
   # a-shipped-version-never-goes-back). It reads a handful of files, so it
   # runs on every change rather than behind a filter.
   versions:
@@ -343,13 +343,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - if: github.event_name != 'pull_request'
-        run: node scripts/check-versions.mjs
       # The base branch as it is now, not as it was when the PR opened: the
       # checkout is the PR merged into it, so a bump that landed on the base
       # since then is already in both.
-      - if: github.event_name == 'pull_request'
-        env:
+      - env:
           BASE_REF: ${{ github.base_ref }}
         run: |
           git fetch --no-tags --depth=1 origin "refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
@@ -388,7 +385,6 @@ jobs:
     # `--no-verify` or a fork skips it. This scans every commit in the pull
     # request with the same .gitleaks.toml. The binary rather than
     # gitleaks-action, which needs a paid licence in an organisation.
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     env:
       GITLEAKS_VERSION: 8.30.1
@@ -415,7 +411,7 @@ jobs:
     # Refuses a pull request that adds a dependency, or an action, with a
     # known vulnerability.
     needs: changes
-    if: github.event_name == 'pull_request' && contains(fromJSON(needs.changes.outputs.filters), 'dependencies')
+    if: contains(fromJSON(needs.changes.outputs.filters), 'dependencies')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
