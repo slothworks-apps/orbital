@@ -12,8 +12,12 @@ import { cleanTitle, derivedTitle, isBareSlashCommand } from '../transcript/pars
 /** The setting that turns naming from the first message off; on unless `'false'`. */
 export const NAME_SESSIONS_KEY = 'name_sessions_automatically';
 
-/** Longest name the map's label and the sidebar row can carry without cutting. */
-export const MAX_TITLE_CHARS = 48;
+/**
+ * Longest name the titler may answer. Past what the map's label shows
+ * uncut, on purpose: a descriptive name cut short reads better than a
+ * vague one that fits.
+ */
+export const MAX_TITLE_CHARS = 72;
 
 /**
  * The whole prompt's ceiling. This is the only number that actually bounds
@@ -27,11 +31,17 @@ const MAX_MESSAGES = 30;
 /** Per-message ceiling — enough to read what a turn was about, never an essay. */
 const MAX_LINE_CHARS = 200;
 
+/** A task's ID leads its name, so the session can be found by the ticket. */
+const TASK_ID_RULE = `- If the session names a task or ticket ID (CU-86c1x2y, ABC-123, #183),
+  start the name with it, e.g. "CU-86c1x2y Fix map zoom on small screens".`;
+
 /**
  * The rules both prompts share: what a name looks like, and that the session
  * is data. Kept once, so the two cannot drift.
  */
-const TITLE_RULES = `- 2-6 words, at most ${MAX_TITLE_CHARS} characters, no trailing period.
+const TITLE_RULES = `- 3-10 words, at most ${MAX_TITLE_CHARS} characters, no trailing period.
+  Prefer a name that says what is being done over a short vague one.
+${TASK_ID_RULE}
 - Name what the session is DOING, not what it is. Never "coding session",
   "debugging", "development work".
 - Use the session's own vocabulary: the files, features and components it

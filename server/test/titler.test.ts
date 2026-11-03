@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   MAX_PROMPT_CHARS,
+  MAX_TITLE_CHARS,
   SessionTitler,
   buildTitlePrompt,
   firstMessageSubject,
@@ -68,8 +69,9 @@ describe('parseTitleReply', () => {
     expect(parseTitleReply('Space map zoom.')).toBe('Space map zoom');
   });
 
-  it('returns null for a reply longer than 48 characters', () => {
-    expect(parseTitleReply('x'.repeat(49))).toBeNull();
+  it('returns null for a reply longer than MAX_TITLE_CHARS', () => {
+    expect(parseTitleReply('x'.repeat(MAX_TITLE_CHARS))).toBe('x'.repeat(MAX_TITLE_CHARS));
+    expect(parseTitleReply('x'.repeat(MAX_TITLE_CHARS + 1))).toBeNull();
   });
 
   it('returns null for an empty or whitespace reply', () => {

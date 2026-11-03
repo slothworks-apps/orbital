@@ -13,6 +13,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Changed
 - The maximised viewer fills the window: an image or a PDF page grows to fit the space (never past its own size) and sits centred in it, with its caption always just above the strip of the conversation's images.
 - New session is wider and has two columns, so the first prompt stays in view without scrolling.
+- Session names Orbital writes are longer and say more about the work, and start with the task's ID (CU-…, ABC-123, #183) when your message names one.
 ### Fixed
 - Clicking a page in a PDF's page list in the maximised viewer turns to that page instead of closing the viewer.
 - A session started with a harness keeps its name when you first reply in it, instead of being renamed after your reply ("yes", say). It is named once, from the harness it follows.
