@@ -6,7 +6,7 @@ import { api } from '../lib/api'
 import { command, matches, shortcutLabel } from '../lib/keymap'
 import { reportError } from '../lib/errors'
 import { blocksLaunch, directoryLine, useDirectoryState } from '../lib/useDirectoryState'
-import { shortenPath } from '../lib/format'
+import { formatContextWindow, shortenPath } from '../lib/format'
 import { canChooseDirectory, chooseDirectory } from '../lib/desktop'
 import { Dialog } from '../ui/Dialog'
 import { useEscapeLayer } from '../ui/escapeLayer'
@@ -33,7 +33,7 @@ import {
 } from './ClaudeDirChoice'
 import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import { permissionMode as permissionModeDescriptor } from '../lib/permissionModes'
-import type { PermissionMode, Tag } from '../lib/types'
+import type { OrbitalModel, PermissionMode, Tag } from '../lib/types'
 import {
   answerSummary,
   decisionsOf,
@@ -52,6 +52,10 @@ import {
   LOCAL_DEVICE, deviceChips, deviceOf, deviceOptions, localTagOf, openingDevice, showDeviceRow,
 } from '../lib/devices'
 import { Select } from '../ui/Select'
+import type { SelectOption } from '../ui/Select'
+import { AutoHeight } from '../ui/AutoHeight'
+import { Collapse } from '../ui/Collapse'
+import { useNoticeSwap } from '../ui/useNoticeSwap'
 import { KindGlyph } from '../ui/KindGlyph'
 import { useWorktreeChoice } from '../lib/useWorktreeChoice'
 import { useLaunchAttempt } from '../lib/useLaunchAttempt'
@@ -73,6 +77,15 @@ const PREVIEW_DEBOUNCE_MS = 300
  * settings table: a device id means something only to the device reading it.
  */
 const LAST_DEVICE_KEY = 'orbital.newSession.device'
+/**
+ * Canvas 63a: the models stay tiles while every one of them plus Other fits
+ * in two rows of four; past that, MODEL is one dropdown field.
+ */
+const MODEL_TILES_MAX = 8
+/** Canvas 63a: the gap between a column's groups (`gap-[18px]`), which a folded WORKTREE takes back. */
+const WORKTREE_GAP_PX = 18
+/** The model dropdown's Other row — a value no model id can take. */
+const OTHER_MODEL = '\u0000other'
 
 function rememberedDevice(): string | null {
   try {
@@ -285,6 +298,27 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   }
   /** The chosen directory's catalog: each account has its own models; another device's default one's there. */
   const models = useClaudeDirModels(remote ? null : claudeDirId, open, machine)
+  /**
+   * Tiles or a dropdown, decided again with every catalog (63a). A switch
+   * fades the old picker out, with the catalog it had, then the new one in;
+   * the slot eases to its new height meanwhile.
+   */
+  const modelPickerId = models.length + 1 > MODEL_TILES_MAX ? 'dropdown' : 'tiles'
+  const modelPicker = useNoticeSwap(useMemo(() => ({ id: modelPickerId, models }), [modelPickerId, models]))
+  // The swap keeps the catalog it was given; only the outgoing picker draws from it.
+  const pickerModels = modelPicker.shown?.id === modelPickerId ? models : (modelPicker.shown?.models ?? models)
+  const pickModel = (next: string) => {
+    setModelOverridden(true)
+    setOtherActive(false)
+    setModel(next)
+  }
+  const pickOtherModel = () => {
+    if (otherActive) return
+    setModelOverridden(true)
+    setOtherActive(true)
+    setCustomInitial(null)
+    setModel(null)
+  }
 
   const canBrowse = canChooseDirectory()
   /** Only the last request's projects land: switching device twice quickly must not show the first's. */
@@ -955,12 +989,19 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               </div>
 
               {/* Canvas 63a: WORKTREE under the directory it is about — only for a
-                  git repository on the chosen device; nothing at all otherwise. */}
-              {worktree.repo && <WorktreeGroup choice={worktree} tags={tags} />}
+                  git repository on the chosen device; nothing at all otherwise. The
+                  answer lands after the dialog is up, so the group unfolds into its
+                  room rather than shoving the dialog taller in one frame. */}
+              <Collapse open={worktree.repo !== null} pull={-WORKTREE_GAP_PX} unclip>
+                {worktree.repo && <WorktreeGroup choice={worktree} tags={tags} />}
+              </Collapse>
 
-              {/* Canvas 44c: two or three directories sit in the form, between the
-                  project and the model, because the directory decides which models
-                  are offered. Four or more move to the header control. */}
+              </div>
+
+              <div className="flex min-w-0 flex-col gap-[18px]">
+              {/* Canvas 63a: PROFILE heads the right column, right above the models
+                  it decides (canvas 44c). Two or three profiles sit in the form; four
+                  or more move to the header control. */}
               {choosesDir && claudeDirs.length <= CLAUDE_DIR_SEGMENTS_MAX && (
                 <div className="flex flex-col gap-2">
                   <FieldLabel>
@@ -980,8 +1021,75 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                   <ClaudeDirSegments dirs={claudeDirs} value={claudeDirId} onChange={setClaudeDirId} />
                 </div>
               )}
-              {/* TAG sits with the where, not on canvas 63a's right: the real model list runs
-                  to four rows of cards there, and the dialog would scroll at 1440×900. */}
+              <div className="flex flex-col gap-2">
+                <FieldLabel>
+                  MODEL
+                  {choosesDir && claudeDirName && (
+                    <span className="tracking-[0.04em] text-ink-900/60">· offered by {claudeDirName}’s account</span>
+                  )}
+                  <span aria-hidden className="flex-1" />
+                  {rememberPerProject && lastModelRow && (
+                    // canvas 4b: right-hand note, .06em tracking. Renders the
+                    // matched row's shortVersion (never a raw id) and only when
+                    // something actually matched — F1.
+                    <span className="tracking-[0.06em] text-ink-900/50">
+                      last used here: {lastModelRow.shortVersion}
+                    </span>
+                  )}
+                </FieldLabel>
+                {/* Bleeds 20px past the column so the selected tile's glow is not
+                    cut by the height transition's clip; the padding gives it back. */}
+                <AutoHeight className="-m-5">
+                  <div
+                    className={[
+                      'p-5 transition-opacity duration-150 ease-out motion-reduce:transition-none',
+                      modelPicker.visible ? 'opacity-100' : 'opacity-0',
+                    ].join(' ')}
+                  >
+                    {modelPicker.shown?.id === 'dropdown' ? (
+                      <Select
+                        variant="model"
+                        aria-label="Model"
+                        className="w-full"
+                        options={modelOptions(pickerModels)}
+                        value={otherActive ? OTHER_MODEL : (model ?? '')}
+                        placeholder="Default model"
+                        onChange={(next) => (next === OTHER_MODEL ? pickOtherModel() : pickModel(next))}
+                      />
+                    ) : (
+                      <ModelCards
+                        dense
+                        models={pickerModels}
+                        value={model}
+                        defaultValue={settings.default_model ?? null}
+                        onChange={pickModel}
+                        other={{ active: otherActive, onSelect: pickOtherModel }}
+                      />
+                    )}
+                  </div>
+                </AutoHeight>
+                {otherActive && (
+                  <CustomModelField
+                    // Remounts when preselection swaps in another remembered id, or the
+                    // directory changes: the same id is checked again under the new account.
+                    key={`${claudeDirId ?? ''}:${customInitial ?? ''}`}
+                    size="lg"
+                    initial={customInitial ? { id: customInitial, trusted: true } : undefined}
+                    // Picked by hand (63a: "opens the ID field, focused"); a remembered id is not.
+                    autoFocus={customInitial === null}
+                    onValidated={(id) => setModel(id)}
+                    onCleared={() => setModel(null)}
+                    claudeDir={choosesDir && claudeDirId !== null ? claudeDirId : undefined}
+                  />
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <FieldLabel>PERMISSION MODE</FieldLabel>
+                <ModeCards value={permissionMode} onChange={setPermissionMode} />
+              </div>
+
+              {/* Canvas 63a: TAG closes the how, under the permission mode. */}
               <div className="flex flex-col gap-2">
                 <FieldLabel>
                   TAG
@@ -1010,64 +1118,6 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     }}
                   />}
                 </div>
-              </div>
-              </div>
-
-              <div className="flex min-w-0 flex-col gap-[18px]">
-              <div className="flex flex-col gap-2">
-                <FieldLabel>
-                  MODEL
-                  {choosesDir && claudeDirName && (
-                    <span className="tracking-[0.04em] text-ink-900/60">· offered by {claudeDirName}’s account</span>
-                  )}
-                  <span aria-hidden className="flex-1" />
-                  {rememberPerProject && lastModelRow && (
-                    // canvas 4b: right-hand note, .06em tracking. Renders the
-                    // matched row's shortVersion (never a raw id) and only when
-                    // something actually matched — F1.
-                    <span className="tracking-[0.06em] text-ink-900/50">
-                      last used here: {lastModelRow.shortVersion}
-                    </span>
-                  )}
-                </FieldLabel>
-                <ModelCards
-                  dense
-                  models={models}
-                  value={model}
-                  defaultValue={settings.default_model ?? null}
-                  onChange={(next) => {
-                    setModelOverridden(true)
-                    setOtherActive(false)
-                    setModel(next)
-                  }}
-                  other={{
-                    active: otherActive,
-                    onSelect: () => {
-                      if (otherActive) return
-                      setModelOverridden(true)
-                      setOtherActive(true)
-                      setCustomInitial(null)
-                      setModel(null)
-                    },
-                  }}
-                />
-                {otherActive && (
-                  <CustomModelField
-                    // Remounts when preselection swaps in another remembered id, or the
-                    // directory changes: the same id is checked again under the new account.
-                    key={`${claudeDirId ?? ''}:${customInitial ?? ''}`}
-                    size="lg"
-                    initial={customInitial ? { id: customInitial, trusted: true } : undefined}
-                    onValidated={(id) => setModel(id)}
-                    onCleared={() => setModel(null)}
-                    claudeDir={choosesDir && claudeDirId !== null ? claudeDirId : undefined}
-                  />
-                )}
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <FieldLabel>PERMISSION MODE</FieldLabel>
-                <ModeCards value={permissionMode} onChange={setPermissionMode} />
               </div>
               </div>
 
@@ -1152,6 +1202,18 @@ function existingTag(tags: Tag[], name: string): Tag | undefined {
  * hand; a name that exists already, in any case, picks that tag. Escape,
  * leaving the field or an empty name backs out.
  */
+/** The model dropdown's rows (63a): name and context window, Other last. */
+function modelOptions(models: OrbitalModel[]): SelectOption<string>[] {
+  return [
+    ...models.map((m) => ({
+      value: m.value,
+      label: m.shortVersion,
+      sub: m.contextWindow !== null ? `${formatContextWindow(m.contextWindow).toUpperCase()} CTX` : undefined,
+    })),
+    { value: OTHER_MODEL, label: 'Other', sub: 'ANY ID' },
+  ]
+}
+
 function NewTagChip({ draft, onDraft, tags, onPick, onMade }: {
   draft: string | null
   onDraft: (draft: string | null) => void

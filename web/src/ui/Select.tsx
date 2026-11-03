@@ -101,9 +101,13 @@ export interface SelectProps<T> {
    * `branch` is 63c's BASE field (`Feature - Work in a worktree`, Worktree
    * Group) — a mono field the width of its column carrying the name and its
    * `triggerTrail` note, over a menu as wide as the field whose rows put an
-   * option's `sub` under its name and its `trail` on its right, ✓ trailing.
+   * option's `sub` under its name and its `trail` on its right, ✓ trailing;
+   * `model` is 63a's MODEL dropdown (`Feature - Work in a worktree`) — the
+   * `device` field and rows without a glyph, a menu as wide as the field and
+   * capped at `MODEL_LIST_MAX_HEIGHT`, the selection marked with the model
+   * tiles' accent dot rather than a ✓.
    */
-  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device' | 'chip' | 'swatch' | 'branch'
+  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device' | 'chip' | 'swatch' | 'branch' | 'model'
   /** `branch` only: an error stands on the field — its edge takes the soft error ink. */
   invalid?: boolean
   /** A search field over one group of the options (`SelectSearch`). */
@@ -144,6 +148,12 @@ const GHOST_POPUP_MIN_WIDTH = 186
 const CHIP_POPUP_MIN_WIDTH = 220
 /** The `swatch` menu scrolls past this height (artboard 1f). */
 const SWATCH_LIST_MAX_HEIGHT = 330
+/**
+ * The `model` menu's rows scroll past this height: canvas 63a caps the whole
+ * menu at 306px, its 5px padding included, so the cut row is the only sign
+ * of more.
+ */
+const MODEL_LIST_MAX_HEIGHT = 296
 /** The `branch` menu hangs this far under its field (canvas 63c, Worktree Group). */
 const BRANCH_POPUP_GAP = 6
 /** Type-ahead buffer lifetime, the same window the platform controls use. */
@@ -276,8 +286,8 @@ export function Select<T extends string | number>({
   // menu off the trigger's RIGHT edge, because the trigger sits at the right
   // end of a 300px panel and a left-aligned menu would spill onto the map.
   usePopupPosition(open, triggerRef, popupRef, {
-    gap: variant === 'branch' ? BRANCH_POPUP_GAP : POPUP_GAP,
-    matchAnchorWidth: variant === 'branch',
+    gap: variant === 'branch' || variant === 'model' ? BRANCH_POPUP_GAP : POPUP_GAP,
+    matchAnchorWidth: variant === 'branch' || variant === 'model',
     align: variant === 'ghost' || variant === 'chip' ? 'right' : 'left',
     minWidth:
       variant === 'tag'
@@ -445,7 +455,9 @@ export function Select<T extends string | number>({
   const isPill = variant === 'pill'
   const isTag = variant === 'tag'
   const isGhost = variant === 'ghost'
-  const isDevice = variant === 'device'
+  const isModel = variant === 'model'
+  // 63a draws the model field and its rows as 50g's device ones without a glyph.
+  const isDevice = variant === 'device' || isModel
   const isChip = variant === 'chip'
   const isSwatch = variant === 'swatch'
   const isBranch = variant === 'branch'
@@ -518,6 +530,7 @@ export function Select<T extends string | number>({
           option={option}
           selected={isSelected}
           active={isActive}
+          mark={isModel ? 'dot' : 'check'}
           onHover={() => setActiveIndex(index)}
           onPick={() => commit(index)}
         />
@@ -816,7 +829,14 @@ export function Select<T extends string | number>({
               aria-labelledby={aria['aria-labelledby']}
               aria-activedescendant={options.length > 0 && shown(activeIndex) ? optionId(activeIndex) : undefined}
               className="flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain"
-              style={isSwatch ? { maxHeight: SWATCH_LIST_MAX_HEIGHT } : undefined}
+              style={
+                isSwatch
+                  ? { maxHeight: SWATCH_LIST_MAX_HEIGHT }
+                  : isModel
+                    ? // 63a hides the scrollbar: the cut row says there is more.
+                      { maxHeight: MODEL_LIST_MAX_HEIGHT, scrollbarWidth: 'none' }
+                    : undefined
+              }
             >
               {!search ? (
                 renderRuns(allIndices)
@@ -877,7 +897,8 @@ export function Select<T extends string | number>({
 /**
  * One row of the `device` menu (canvas 50g `gOpts`): 8px/10px inside a 7px
  * radius, 10px gaps; the glyph, the name in sans 13px/600, the sub-line in
- * mono 10.5px filling the row, and the ✓ column. Inert rows are muted to
+ * mono 10.5px filling the row, and the ✓ column — or, for the `model` menu
+ * (63a), the model tiles' 7px accent dot. Inert rows are muted to
  * .5 and keep the default cursor. The selected row rests at .07, the active
  * one (hover or arrows) at .09 — 50g's hover tint.
  */
@@ -888,6 +909,7 @@ function DeviceRow<T>({
   active,
   onHover,
   onPick,
+  mark,
 }: {
   id: string
   option: SelectOption<T>
@@ -895,6 +917,7 @@ function DeviceRow<T>({
   active: boolean
   onHover: () => void
   onPick: () => void
+  mark: 'check' | 'dot'
 }) {
   return (
     <div
@@ -924,9 +947,13 @@ function DeviceRow<T>({
       >
         {option.sub}
       </span>
-      <span aria-hidden className={`shrink-0 font-mono fs-10 text-accent ${selected ? '' : 'opacity-0'}`}>
-        ✓
-      </span>
+      {mark === 'dot' ? (
+        <span aria-hidden className={`h-[7px] w-[7px] shrink-0 rounded-full bg-accent ${selected ? '' : 'opacity-0'}`} />
+      ) : (
+        <span aria-hidden className={`shrink-0 font-mono fs-10 text-accent ${selected ? '' : 'opacity-0'}`}>
+          ✓
+        </span>
+      )}
     </div>
   )
 }

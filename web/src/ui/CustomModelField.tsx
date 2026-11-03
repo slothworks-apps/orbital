@@ -5,6 +5,7 @@ import { Input, type FieldSize } from './Input'
 export interface CustomModelFieldProps extends UseCustomModelOptions {
   /** `lg` in the New session dialog, `sm` in the Settings row — the fields around it. */
   size?: FieldSize
+  autoFocus?: boolean
 }
 
 /**
@@ -13,7 +14,7 @@ export interface CustomModelFieldProps extends UseCustomModelOptions {
  * exists for it (spec 2026-09-16-agent-model-design § Other model), so it
  * reuses the field and caption styles already around it.
  */
-export function CustomModelField({ size = 'lg', ...options }: CustomModelFieldProps) {
+export function CustomModelField({ size = 'lg', autoFocus, ...options }: CustomModelFieldProps) {
   const field = useCustomModel(options)
 
   return (
@@ -21,6 +22,7 @@ export function CustomModelField({ size = 'lg', ...options }: CustomModelFieldPr
       <Input
         font="mono"
         size={size}
+        autoFocus={autoFocus}
         aria-label="Model id"
         placeholder="claude-opus-4-6"
         spellCheck={false}
