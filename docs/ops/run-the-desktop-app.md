@@ -9,6 +9,8 @@ related:
   - 2026-09-16-electron-wrapper-design
   - trim-and-sign-the-desktop-package
   - desktop-app-is-developer-id-signed
+  - a-release-reaches-experimental-before-stable
+  - 2026-11-02-experimental-release-channel-design
 tags:
   - desktop
   - electron
@@ -194,6 +196,12 @@ that version's section of `desktop/CHANGELOG.md`, or GitHub's generated
 notes when there is none. A push that does not bump the version releases
 nothing ([[2026-10-08-builds-for-testers-design]]).
 
+The release is published as a **prerelease**, never Latest: only Macs on the
+experimental channel (Settings → Updates → Experimental updates) take
+it. The Linux package goes to the apt suite `experimental` and the phone's
+bundle to Beam's channel `experimental` in the same run
+([[a-release-reaches-experimental-before-stable]]).
+
 The release is uploaded as a draft and published only when every file is
 there. A run that failed leaves no published release, so nothing has to be
 cleaned up: once the cause is gone (an Apple outage, a missing secret), run
@@ -243,6 +251,60 @@ same workflow uses the API key too ([[build-the-ios-app]]).
    The API key is used rather than the Apple ID with an app-specific password
    the local setup uses: it belongs to the team, not to a person, and can be
    revoked on its own.
+
+### Promote: from experimental to stable
+
+Once a release has held on your own devices, Actions → Promote → Run
+workflow (`.github/workflows/promote.yml`, on `main` only) moves the same
+versions to stable everywhere, building and signing nothing:
+
+1. It reads first: the newest published GitHub Release, both apt suites,
+   and the versions Beam's `experimental` and `production` channels serve.
+   When the `experimental` suite does not list the desktop's version, the
+   release has not finished: it stops with nothing changed. Run Release
+   again, then Promote.
+2. It adds the version's entry to the apt suite `stable` and signs and
+   uploads it, makes the GitHub Release a full release and Latest, and
+   promotes the phone's bundle to `production` on Beam. Each step is
+   skipped when it is done already, so after a failure run Promote again.
+3. The job summary lists each platform: from which version to which, or
+   already stable.
+
+A hotfix is a release followed by Promote straight away. Prereleases older
+than the promoted one stay prereleases; stable Macs skip them.
+
+**When to promote.** Nothing promotes on its own, and until Promote runs
+every stable Mac, server and phone stays on the last stable version
+without a sign of the new one. Promote a regular release once it has run a
+few days on experimental devices without a problem; after each release,
+the Actions list shows the release without a Promote run after it until
+someone promotes.
+
+It runs in the `release` concurrency group, so it waits for a running
+release or re-sign. Its secrets are the apt ones
+([[run-orbital-on-an-ubuntu-server]]) and `BEAM_UPLOAD_KEY`
+([[ship-the-phone-over-the-air]]).
+
+**When the workflow cannot run**, do the same by hand, in this order:
+
+1. **apt**, with the repository's key in `APT_GPG_PRIVATE_KEY` (and
+   `APT_GPG_PASSPHRASE`) and the bucket's credentials. `<version>` is the
+   Debian version (`-` written as `~`):
+
+   ```bash
+   aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://$S3_BUCKET/dists/experimental/main/binary-amd64/Packages" exp
+   aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://$S3_BUCKET/dists/stable/main/binary-amd64/Packages" stable
+   node scripts/apt-repo.mjs promote --version <version> --from exp --packages stable --out repo
+   ```
+
+   Upload `repo/dists/stable/main/binary-amd64/by-hash/`, then `Packages`
+   and `Packages.gz`, then `repo/dists/stable/Release`, `Release.gpg` and
+   `InRelease`, as promote.yml does, and check with
+   `node scripts/apt-repo.mjs --check <version> --suite stable`.
+2. **GitHub**: on the release `v<version>`, Edit → uncheck *Set as a
+   pre-release*, check *Set as the latest release* → Update release.
+3. **Beam**: in Beam's admin, the Orbital app → channel `production` →
+   promote the version the `experimental` channel serves.
 
 ### After a `node_modules` wipe: Electron's binary is missing
 

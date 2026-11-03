@@ -1,0 +1,33 @@
+# Points the orbital apt source at the suite the group's update channel
+# names, and refreshes its lists so apt's candidate shows the change (spec
+# 2026-11-02-experimental-release-channel-design → On the Linux server).
+# It installs nothing: the root updater in its channel mode reads the
+# channel file, accepts only the word `experimental`, and rewrites only the
+# `Suites:` line of /etc/apt/sources.list.d/orbital.sources.
+#
+# Hardening as in orbital-update.service, which runs the same script and the
+# same apt-get update; ProtectSystem is not set because it rewrites a file
+# in /etc/apt.
+[Unit]
+Description=Switch the orbital apt source to the update channel
+Documentation=https://orbital.slothworks.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/orbital/update channel
+# Long enough to wait out an update run, which holds the script's lock.
+TimeoutStartSec=40min
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0022

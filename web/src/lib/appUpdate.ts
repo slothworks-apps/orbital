@@ -108,19 +108,27 @@ function stopsNow(working: number): string {
  *
  * A download another member started (50v 01) names it in the head and the
  * line, and asks nothing: no actions, no ×.
+ *
+ * `experimental`: the group takes experimental updates, and the head names
+ * it after the version, before any state (canvas `Feature - Experimental
+ * updates` 1e). The body and the buttons stay as they are.
  */
-export function updateNoticeContent(prompt: UpdatePrompt & UpdateExtras): UpdateNoticeContent | null {
+export function updateNoticeContent(
+  prompt: UpdatePrompt & UpdateExtras,
+  { experimental = false }: { experimental?: boolean } = {},
+): UpdateNoticeContent | null {
   const remote = prompt.remote ?? null
+  const headOf = (v: string) => `UPDATE · ORBITAL ${v}${experimental ? ' · EXPERIMENTAL' : ''}`
   if (prompt.phase === 'restarting' && remote) {
     return {
-      label: `UPDATE · ORBITAL ${prompt.version} · RESTARTING`,
+      label: `${headOf(prompt.version)} · RESTARTING`,
       text: `Restarting on ${prompt.version} · started on ${remote.by}.${stopsNow(remote.working)}`,
     }
   }
   if (remote && remoteWaits(prompt)) {
     // Canvas 50v 02: the member's wait, with Cancel and no ×; while it still downloads, the progress line under it.
     return {
-      label: `UPDATE · ORBITAL ${prompt.version} · STARTED ON ${remote.by.toUpperCase()} · WAITING`,
+      label: `${headOf(prompt.version)} · STARTED ON ${remote.by.toUpperCase()} · WAITING`,
       text: `${remote.by} is updating this Mac to ${prompt.version}. Orbital restarts when ${finishHere(remote.working)}.`,
       ...(prompt.phase === 'downloading'
         ? { progress: { percent: prompt.percent, readout: downloadReadout(prompt.percent, prompt.totalMB) } }
@@ -130,7 +138,7 @@ export function updateNoticeContent(prompt: UpdatePrompt & UpdateExtras): Update
   }
   if (prompt.phase === 'none' || prompt.phase === 'waiting' || prompt.phase === 'restarting') return null
   const v = prompt.version
-  const head = `UPDATE · ORBITAL ${v}`
+  const head = headOf(v)
   const closeReady: UpdateNoticeButton = {
     label: `Close · Orbital ${v} installs when you quit Orbital`,
     action: 'close',
@@ -268,6 +276,7 @@ export function updateCheckLine({
   checkedAt,
   now,
   clock = clockTime,
+  experimental = false,
 }: {
   checking: boolean
   /** What this visit's Check now found, if it pressed it. */
@@ -276,8 +285,11 @@ export function updateCheckLine({
   checkedAt: number | null
   now: number
   clock?: (at: number) => string
+  /** The group takes experimental updates: a build found is named one (canvas `Feature - Experimental updates`). */
+  experimental?: boolean
 }): string {
   if (checking) return 'Checking…'
+  const found = (v: string) => `Orbital ${v} found${experimental ? ', an experimental release' : ''}`
   if (answer?.kind === 'error') return 'Could not check · try again later'
   if (answer?.kind === 'unsupported') return 'This build does not update itself'
   const remote = prompt.remote ?? null
@@ -298,17 +310,17 @@ export function updateCheckLine({
     const v = answer.version
     switch (answer.outcome) {
       case 'downloading':
-        return `Orbital ${v} found · downloading; the prompt appears on the map when it is ready`
+        return `${found(v)} · downloading; the prompt appears on the map when it is ready`
       case 'installs-on-quit':
         return `Orbital ${v} is downloaded · installs when you quit Orbital`
       case 'held':
       case 'skipped':
-        return `Orbital ${v} found · offered after Orbital restarts`
+        return `${found(v)} · offered after Orbital restarts`
       // The version the prompt is about: where the prompt has gone since —
       // waiting, restarting — wins; the answer can land before the prompt.
       case 'offered':
       case 'none':
-        if (prompt.phase !== 'waiting' && prompt.phase !== 'restarting') return `Orbital ${v} found · offered on the map`
+        if (prompt.phase !== 'waiting' && prompt.phase !== 'restarting') return `${found(v)} · offered on the map`
         break
       case 'waiting':
         break
@@ -316,7 +328,7 @@ export function updateCheckLine({
   }
   if (prompt.phase === 'restarting') return `Orbital ${prompt.version} · restarting`
   if (prompt.phase === 'waiting') return `Orbital ${prompt.version} restarts when ${waitingFor(prompt.workingCount)}`
-  if (prompt.phase !== 'none') return `Orbital ${prompt.version} found · offered on the map`
+  if (prompt.phase !== 'none') return `${found(prompt.version)} · offered on the map`
   if (prompt.receipt) return `Up to date · updated from ${prompt.receipt.by} at ${clock(prompt.receipt.at)}`
   if (checkedAt === null) return 'Not checked yet'
   const elapsed = Math.max(0, now - checkedAt)

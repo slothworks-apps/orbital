@@ -5,7 +5,7 @@ import { buildServer } from '../src/index.js';
 import { parseAptPolicy } from '../src/update/aptPolicy.js';
 import {
   AptUpdateBackend, chooseUpdateBackend, DesktopUpdateBackend, PACKAGE_ROOT, PACKAGE_VERSION_FILE, runningVersion,
-  UPDATE_REQUEST_FILE, type ParentPort, type UpdateBackend, type UpdateProgress,
+  UPDATE_CHANNEL_FILE, UPDATE_REQUEST_FILE, type ParentPort, type UpdateBackend, type UpdateProgress,
 } from '../src/update/backends.js';
 import {
   UPDATE_IDLE_SETTLE_MS, UPDATE_MARKER_FILE, UPDATE_WAIT_CHECK_MS, UpdateService, readMarker,
@@ -134,6 +134,36 @@ describe('AptUpdateBackend', () => {
     expect(new AptUpdateBackend({ requestDir: join(dir, 'missing') }).request()).toBe('not_set_up');
     writeFileSync(join(dir, 'file'), '');
     expect(new AptUpdateBackend({ requestDir: join(dir, 'file') }).request()).toBe('not_set_up');
+  });
+
+  it('writes the channel file only when it changes, replacing a symlink rather than writing through it', () => {
+    const dir = makeTmpDir('update-channel');
+    const path = join(dir, UPDATE_CHANNEL_FILE);
+    const apt = new AptUpdateBackend({ requestDir: dir, run: async () => NEWER });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      apt.setChannel('experimental');
+      expect(readFileSync(path, 'utf8')).toBe('experimental\n');
+      const written = lstatSync(path).ino;
+      apt.setChannel('experimental');
+      // Unchanged: not written again, so the root's path unit does not fire.
+      expect(lstatSync(path).ino).toBe(written);
+      apt.setChannel('stable');
+      expect(readFileSync(path, 'utf8')).toBe('stable\n');
+      const target = join(makeTmpDir('update-channel-target'), 'victim');
+      writeFileSync(target, 'stable\n');
+      rmSync(path);
+      symlinkSync(target, path);
+      apt.setChannel('stable');
+      expect(lstatSync(path).isSymbolicLink()).toBe(false);
+      expect(readFileSync(target, 'utf8')).toBe('stable\n');
+      expect(existsSync(`${path}.tmp`)).toBe(false);
+      // Before setup: nowhere to write, and no error.
+      new AptUpdateBackend({ requestDir: join(dir, 'missing') }).setChannel('experimental');
+    } finally {
+      apt.stop();
+      log.mockRestore();
+    }
   });
 
   it('reads apt once at a time, and keeps what it knew when a read fails', async () => {
@@ -763,6 +793,24 @@ describe('/api/server/update', () => {
       } finally {
         await app.close();
       }
+    }
+  });
+
+  it('a headless server writes the group\'s channel at start and when a PATCH changes it', async () => {
+    const dir = makeTmpDir('update-channel-routes');
+    const apt = new AptUpdateBackend({ requestDir: dir, run: async () => NEWER });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const app = await server(apt);
+    try {
+      expect(readFileSync(join(dir, UPDATE_CHANNEL_FILE), 'utf8')).toBe('stable\n');
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { update_channel: 'experimental' } });
+      expect(readFileSync(join(dir, UPDATE_CHANNEL_FILE), 'utf8')).toBe('experimental\n');
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { update_channel: 'beta' } });
+      expect(readFileSync(join(dir, UPDATE_CHANNEL_FILE), 'utf8')).toBe('stable\n');
+    } finally {
+      await app.close();
+      apt.stop();
+      log.mockRestore();
     }
   });
 

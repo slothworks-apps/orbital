@@ -1282,6 +1282,14 @@ export const api = {
   },
 
   /**
+   * When and on which device a shared setting last changed: `at` null when
+   * not known, `origin` a device id, null for this device.
+   */
+  async getSettingStamp(key: string): Promise<{ value: string | null; at: number | null; origin: string | null }> {
+    return request('GET', apiPath`/api/settings/${key}/stamp`)
+  },
+
+  /**
    * Orbital's tips for Settings › Sessions › INSTRUCTIONS. Fetched from the
    * server rather than bundled, so the preview shows what the running
    * server appends (spec 2026-09-30-session-instructions-design § 4).

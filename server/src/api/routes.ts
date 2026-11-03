@@ -1,4 +1,6 @@
 import { TAGS_TOPIC, type TagsChangedFrame } from '@orbital/shared/tags';
+import { isSharedSetting } from '@orbital/shared/sharedSettings';
+import { UPDATE_CHANNEL_KEY } from '@orbital/shared/updateChannel';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
@@ -134,6 +136,8 @@ export interface RouteContext {
    * (spec 2026-09-30-branch-pr-and-line-changes-design). Read through
    * `toApiSession`. */
   branchStatus: BranchStatusStore;
+  /** `update_channel` changed: a headless server writes it for the root updater; absent elsewhere. */
+  updateChannelChanged?: () => void;
   /** The editors open on this machine, per workspace (spec
    * 2026-09-23-ide-bridge-design). Read through `toApiSession`, and directly
    * by the open-files route. */
@@ -251,9 +255,16 @@ export interface RouteClaudeDirContext extends ClaudeDirContext {
  */
 export function settingsChangedEffects(
   keys: Iterable<string>,
-  ctx: { limits?: Pick<LimitsService, 'settingsChanged'>; branchStatus: Pick<BranchStatusStore, 'settingsChanged'> },
+  ctx: {
+    limits?: Pick<LimitsService, 'settingsChanged'>;
+    branchStatus: Pick<BranchStatusStore, 'settingsChanged'>;
+    updateChannelChanged?: () => void;
+  },
 ): void {
   const changed = new Set(keys);
+  // A headless server points its apt source at the group's channel (spec
+  // 2026-11-02-experimental-release-channel-design § On the Linux server).
+  if (changed.has(UPDATE_CHANNEL_KEY)) ctx.updateChannelChanged?.();
   if (changed.has(AUTO_CONTINUE_KEY) || changed.has(CONTINUE_TEXT_KEY)) ctx.limits?.settingsChanged();
   // Without a reload: a switch turned off drops the field from the open
   // sessions, one turned on starts reading and fills it.
@@ -2909,6 +2920,20 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // secret has no business travelling to another device.
     const member = req.headers[DEVICE_HEADER] !== undefined;
     return Object.fromEntries(rows.filter((r) => !member || !r.key.startsWith('remote_')).map((r) => [r.key, r.value]));
+  });
+  // When and on which device a shared value last changed (spec
+  // 2026-10-24-group-shared-settings-design): Settings › Updates says who
+  // turned experimental updates on, and when (canvas `Feature - Experimental
+  // updates` 1h). Shared keys only, read as the group reads them
+  // (`SharedSettingsStore.list`); `at` null for a change not stamped (a
+  // default never changed, a value from before joining); `origin` the
+  // device id, null while this device has none yet.
+  app.get('/api/settings/:key/stamp', (req, reply) => {
+    const { key } = req.params as { key: string };
+    if (!isSharedSetting(key)) return reply.code(404).send({ error: 'not_shared' });
+    const held = ctx.sharedSettings?.list()[key];
+    if (!held) return { value: ctx.settings.get(key), at: null, origin: null };
+    return { value: held.value, at: held.at > 0 ? held.at : null, origin: held.origin };
   });
   app.patch('/api/settings', (req, reply) => {
     if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {

@@ -47,9 +47,12 @@ SHA-256 instead.
 - The shell allows the update, channel and stats URLs to be changed from
   the WebView (`allowModifyUrl`, persisted by `persistModifyUrl`), for
   Settings → Send diagnostics; the plugin has no switch for the stats URL
-  alone. Every start puts the update URL back on Beam and the channel URL
-  back to nothing, and the release config sets `channelUrl: ''` and
-  `allowSetDefaultChannel: false`. A URL moved by a script in between is
+  alone. Every start puts the update URL and the channel URL back on Beam
+  (`<beam>/api/updates`, `<beam>/api/channel_self`). Since the experimental
+  channel (ADR a-release-reaches-experimental-before-stable) the release
+  config sets that `channelUrl` and `allowSetDefaultChannel: true`, so the
+  phone can pick Beam's `experimental` or `production` channel; both serve
+  only bundles signed by CI. A URL moved by a script in between is
   used until the next start; what it serves must still be signed, and newer
   than what the phone has run (below).
 

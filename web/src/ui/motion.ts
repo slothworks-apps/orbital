@@ -109,3 +109,13 @@ export const FADE_MS = 140
 
 /** The panel curve as a CSS value, for transitions written as inline styles. */
 export const EASE_CURVE = 'cubic-bezier(.2,.8,.2,1)'
+
+/**
+ * An inline confirm inside a settings row (canvas `Feature - Experimental
+ * updates` 1h, Turning on): fades in over 240 ms and out over 200 ms,
+ * opacity only — nothing moves.
+ */
+export const INLINE_CONFIRM_ENTER_MS = 240
+export const INLINE_CONFIRM_EXIT_MS = 200
+export const INLINE_CONFIRM_ENTER = 'motion-safe:transition-opacity motion-safe:duration-[240ms] motion-safe:ease-out'
+export const INLINE_CONFIRM_EXIT = 'motion-safe:transition-opacity motion-safe:duration-[200ms] motion-safe:ease-in'

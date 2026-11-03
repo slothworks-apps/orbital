@@ -48,6 +48,8 @@ export type SetupFacts = {
   stateDir: DirFacts;
   requestDir: DirFacts;
   pathUnit: { enabled: boolean; active: boolean };
+  /** `orbital-channel.path`, which points apt at the group's update channel. */
+  channelUnit: { enabled: boolean; active: boolean };
   linger: boolean;
 };
 
@@ -100,6 +102,18 @@ export function setupPlan(f: SetupFacts): { error: string } | { steps: RootStep[
   }
   if (!f.pathUnit.enabled || !f.pathUnit.active) {
     steps.push({ why: 'turn on the updater, which can only upgrade orbital', argv: ['systemctl', 'enable', '--now', 'orbital-update.path'] });
+  }
+  if (!f.channelUnit.enabled || !f.channelUnit.active) {
+    steps.push({
+      why: "let the group's update channel pick orbital's apt suite",
+      argv: ['systemctl', 'enable', '--now', 'orbital-channel.path'],
+    });
+    // A channel file the server wrote before the watcher ran does not
+    // trigger it (`PathChanged=`): apply it once now.
+    steps.push({
+      why: "point orbital's apt source at the group's update channel now",
+      argv: ['systemctl', 'start', '--no-block', 'orbital-channel.service'],
+    });
   }
   if (!f.linger) {
     steps.push({ why: 'keep your services running without a login', argv: ['loginctl', 'enable-linger', f.user] });
@@ -232,6 +246,10 @@ export class SystemSetup implements SetupSys {
       pathUnit: {
         enabled: (await word(['systemctl', 'is-enabled', 'orbital-update.path'])) === 'enabled',
         active: (await word(['systemctl', 'is-active', 'orbital-update.path'])) === 'active',
+      },
+      channelUnit: {
+        enabled: (await word(['systemctl', 'is-enabled', 'orbital-channel.path'])) === 'enabled',
+        active: (await word(['systemctl', 'is-active', 'orbital-channel.path'])) === 'active',
       },
       linger: await exists(`${LINGER_DIR}/${me.username}`),
     };

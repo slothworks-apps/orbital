@@ -33,6 +33,8 @@ export const SHARED_SETTING_KEYS: readonly string[] = [
   // Found after the first list (spec § Which settings are shared).
   'map_moon_orbits', 'stats_show_human_wait', 'narrate_model', 'narrate_commentary',
   'issue_check_enabled', 'issue_check_model', 'terminal_enabled', 'terminal_cursor', 'terminal_cursor_blink',
+  // Which releases every Mac, server and phone of the group takes (spec 2026-11-02-experimental-release-channel-design).
+  'update_channel',
 ];
 
 /**

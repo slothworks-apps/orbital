@@ -76,6 +76,7 @@ import { RemoteService } from './remote/service.js';
 import { registerFederationRoutes } from './federation/routes.js';
 import { FederationService } from './federation/service.js';
 import { SharedSettingsStore, SharedSettingsSync } from './settings/sharedSettings.js';
+import { UPDATE_CHANNEL_KEY, parseUpdateChannel } from '@orbital/shared/updateChannel';
 import { SharedTagsStore } from './tags/sharedTags.js';
 import { memberHasGrant, parseGrants } from './remote/grants.js';
 import { SETTINGS_TOPIC } from '@orbital/shared/sharedSettings';
@@ -1586,6 +1587,16 @@ export async function buildServer(overrides: {
   limits.members = federation;
   overrides.exposeFederation?.(federation);
   overrides.exposeHub?.(hub);
+  // Where an update of this server comes from; before the settings sync, whose
+  // values can change the update channel it follows.
+  const updateBackend = overrides.updateBackend ?? startUpdateBackend();
+  // A headless server's apt source follows the group's channel (spec
+  // 2026-11-02-experimental-release-channel-design § On the Linux server):
+  // written now, and again whenever the setting changes.
+  const updateChannelChanged = updateBackend instanceof AptUpdateBackend
+    ? () => updateBackend.setChannel(parseUpdateChannel(settingsStore.get(UPDATE_CHANNEL_KEY)))
+    : undefined;
+  updateChannelChanged?.();
   // The settings the group shares (spec 2026-10-24-group-shared-settings-design).
   const sharedSettings = new SharedSettingsSync({
     store: new SharedSettingsStore(db, () => remote.selfId()),
@@ -1594,7 +1605,7 @@ export async function buildServer(overrides: {
     granted: (id) => memberHasGrant(parseGrants(settingsStore.get('remote_grants')), id, 'settings'),
     // What a PATCH of the same keys sets off, and this device's windows told (a local topic).
     applied: (changed) => {
-      settingsChangedEffects(Object.keys(changed), { limits, branchStatus });
+      settingsChangedEffects(Object.keys(changed), { limits, branchStatus, updateChannelChanged });
       hub.publish(SETTINGS_TOPIC, { event: 'changed', settings: changed });
     },
     // A member's sessions show this device's tags of the same group id or name: read afresh.
@@ -1610,7 +1621,7 @@ export async function buildServer(overrides: {
   registerFederationRoutes(app, federation, () => remote.selfId(), imagesDir, images);
   // Updating this server from the group (spec 2026-10-19-headless-server-design § Updating from the group).
   const updates = new UpdateService({
-    backend: overrides.updateBackend ?? startUpdateBackend(),
+    backend: updateBackend,
     running: version ?? 'dev',
     markerPath: join(dataDir, UPDATE_MARKER_FILE),
     // What an update would cut off: a turn running or a decision waiting.
@@ -1653,6 +1664,7 @@ export async function buildServer(overrides: {
       }),
     settings: settingsStore,
     sharedSettings,
+    updateChannelChanged,
     mcpFor,
     limits,
     logins,

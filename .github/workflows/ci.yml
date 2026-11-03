@@ -82,6 +82,7 @@ jobs:
             scripts:
               - *root
               - 'scripts/**'
+              - linux/update
             docs:
               - .github/workflows/ci.yml
               - 'docs/**'
@@ -356,7 +357,8 @@ jobs:
 
   scripts:
     # The root scripts' own tests: release-plan.mjs, which decides what
-    # release.yml ships. Plain `node --test`; the scripts have no workspace.
+    # release.yml ships, and linux/update's channel handling. Plain
+    # `node --test`; the scripts have no workspace.
     name: test (scripts)
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.filters), 'scripts')

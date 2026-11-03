@@ -17,6 +17,15 @@ if [ "$1" = configure ]; then
   user="$(service_user)"
   if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
+    # A server set up before the update channel existed gets its watcher with
+    # the upgrade: it is often updated from the group, where no one sees the
+    # line asking for orbital setup. Only where setup turned the updater on.
+    # Before the server restarts, so the channel it writes at its start is
+    # seen.
+    if systemctl is-enabled --quiet orbital-update.path 2>/dev/null \
+      && ! systemctl is-enabled --quiet orbital-channel.path 2>/dev/null; then
+      systemctl enable --now orbital-channel.path || true
+    fi
     if [ -n "$user" ]; then
       # Reload first, so a changed orbital.service is what restarts. Only an
       # enabled unit: one its user turned off stays off. A user manager that
@@ -26,6 +35,13 @@ if [ "$1" = configure ]; then
         systemctl --user -M "$user@" restart orbital.service || true
       fi
     fi
+    # PathChanged= does not fire for a channel file written before the
+    # watcher was on, so the channel is applied once now. --no-block: this
+    # may run inside orbital-update.service, whose lock the channel run
+    # waits for. The updater itself does nothing before orbital setup.
+    if [ -n "$user" ] && systemctl is-enabled --quiet orbital-channel.path 2>/dev/null; then
+      systemctl start --no-block orbital-channel.service || true
+    fi
   fi
   # Setup is due on a first install, and again after a remove and an
   # install: prerm turned the updater and the user's unit off.
@@ -33,6 +49,9 @@ if [ "$1" = configure ]; then
   if [ -z "$user" ]; then
     set_up=no
   elif ! systemctl is-enabled --quiet orbital-update.path 2>/dev/null; then
+    set_up=no
+  elif ! systemctl is-enabled --quiet orbital-channel.path 2>/dev/null; then
+    # A server set up before the channel: setup turns its watcher on.
     set_up=no
   elif ! systemctl --user -M "$user@" is-enabled --quiet orbital.service 2>/dev/null; then
     set_up=no

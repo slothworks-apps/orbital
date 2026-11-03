@@ -8,6 +8,7 @@ related:
   - 2026-10-08-builds-for-testers-design
   - the-desktop-app-updates-itself
   - a-shipped-version-never-goes-back
+  - a-release-reaches-experimental-before-stable
 tags:
   - release
   - ci
@@ -44,6 +45,12 @@ to code that no version described.
 - A merge without a version bump publishes nothing: no build, no image, no
   moved tag.
 - Only the desktop app makes GitHub Releases.
+- Since [[a-release-reaches-experimental-before-stable]], the desktop app,
+  its Linux package and the phone's bundle ship to their experimental
+  channel, and "shipped" means there: a published GitHub Release
+  `v<version>`, prerelease or not, the apt suite `experimental`, Beam with
+  the bundle in any channel. The Promote workflow, started by hand, moves
+  the same versions to stable; this workflow never does.
 
 ## Why
 

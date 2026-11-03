@@ -80,6 +80,15 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
    */
   questions_review_before_send: 'true',
   /**
+   * Which releases the group takes (spec
+   * 2026-11-02-experimental-release-channel-design): `experimental` or
+   * `stable`. Seeded so that every server that knows the setting answers
+   * it: a phone takes a read without it as a member too old to know, and
+   * keeps its channel. The seeded row's stamp is the column default, below
+   * any change made anywhere, so it never wins over a synced `experimental`.
+   */
+  update_channel: 'stable',
+  /**
    * Appearance → default planet size (canvas 5a, `Feature - Planet
    * size.dc.html`). Stored as the normalized multiplier ('0.7'–'1.6', slider
    * step 0.05), not the slider's percent value. Applied client-side in

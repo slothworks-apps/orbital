@@ -140,7 +140,11 @@ export function installedLine(
   return sameDay(new Date(installedAt), new Date(now)) ? 'installed today' : `installed ${day(installedAt)}`
 }
 
-/** The toast's head (1a): `WHAT’S NEW · ORBITAL 0.36.0`. */
-export function whatsNewHead(version: string): string {
-  return `WHAT’S NEW · ORBITAL ${version}`
+/**
+ * The toast's head (1a): `WHAT’S NEW · ORBITAL 0.36.0`, with `· EXPERIMENTAL`
+ * after the version while the group takes experimental updates (canvas
+ * `Feature - Experimental updates` 1e).
+ */
+export function whatsNewHead(version: string, experimental = false): string {
+  return `WHAT’S NEW · ORBITAL ${version}${experimental ? ' · EXPERIMENTAL' : ''}`
 }

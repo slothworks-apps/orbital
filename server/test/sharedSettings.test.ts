@@ -233,6 +233,18 @@ describe('applying a member\'s values', () => {
     expect(stampOf(d.db, 'default_model')).toEqual({ at: 0, origin: PRIMARY });
     expect(d.applied).toEqual([{ map_theme: 'desk' }]);
   });
+
+  it('a seeded update channel loses to any change made on a member, and does not override it in turn', () => {
+    const fresh = device(LAPTOP);
+    expect(fresh.value('update_channel')).toBe('stable');
+    fresh.sync.receive({ settings: { update_channel: { value: 'experimental', at: 1, origin: PRIMARY } } });
+    expect(fresh.value('update_channel')).toBe('experimental');
+
+    const turnedOn = device(PRIMARY);
+    turnedOn.set('update_channel', 'experimental', 1);
+    turnedOn.sync.receive({ settings: { update_channel: { value: 'stable', at: 0, origin: LAPTOP } } });
+    expect(turnedOn.value('update_channel')).toBe('experimental');
+  });
 });
 
 describe('a local change', () => {

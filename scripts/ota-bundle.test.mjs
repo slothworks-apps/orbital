@@ -14,7 +14,14 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { unzipSync } from 'fflate'
 import { bundleFiles, encryptBundle, verifyBundle, zipBundle } from './ota-bundle.mjs'
-import { bundleExists, bundleUrl, readBeam, uploadBundle } from './beam.mjs'
+import {
+  bundleExists,
+  bundleUrl,
+  channelVersion,
+  promoteBundle,
+  readBeam,
+  uploadBundle,
+} from './beam.mjs'
 
 // The plugin parses only a PKCS#1 public key ("BEGIN RSA PUBLIC KEY"), the
 // format the runbook's openssl command writes.
@@ -167,7 +174,7 @@ const beam = readBeam('{"url":"https://beam.example/","appId":"io.example.app"}'
 test('looks a version up behind the upload key: 200 is there, 404 is not', async () => {
   const seen = []
   const fetch = (status) => async (url, init) => {
-    seen.push([url, init.headers['X-Upload-Key']])
+    seen.push([url, init.headers['X-Deploy-Key']])
     return new Response('', { status })
   }
   assert.equal(
@@ -223,7 +230,87 @@ test('uploads the encrypted zip with its session key and signed checksum', async
   assert.equal(form.get('releaseNotes'), '- Notes.')
   assert.equal(form.get('sessionKey'), 'iv:key')
   assert.equal(form.get('checksum'), 'ab')
+  assert.equal(form.get('channel'), null)
   assert.equal(Buffer.from(await form.get('bundle').arrayBuffer()).toString(), 'zip')
+})
+
+const upload = (fetch, channel) =>
+  uploadBundle({
+    beam,
+    uploadKey: 'k',
+    fetch,
+    zip: Buffer.from('zip'),
+    version: '0.8.0',
+    minNativeVersion: '0.8.0',
+    sessionKey: 'a:b',
+    checksum: 'c',
+    channel,
+  })
+
+test('uploads into a channel when one is named', async () => {
+  let form
+  await upload(async (_url, init) => {
+    form = init.body
+    return new Response('{}', { status: 201 })
+  }, 'experimental')
+  assert.equal(form.get('channel'), 'experimental')
+})
+
+test('a channel Beam does not have says so; any other 404 is a refusal', async () => {
+  const missing = async () => Response.json({ error: 'channel_not_found' }, { status: 404 })
+  await assert.rejects(
+    upload(missing, 'experimental'),
+    /no channel "experimental" for io\.example\.app/,
+  )
+  const other = async () => new Response('Not Found', { status: 404 })
+  await assert.rejects(upload(other, 'experimental'), /refused bundle 0\.8\.0 \(404\)/)
+})
+
+test("reads a channel's live version: a version or null", async () => {
+  const seen = []
+  const answer = (status, body) => async (url, init) => {
+    seen.push([url, init.headers['X-Deploy-Key']])
+    return new Response(body, { status })
+  }
+  const read = (fetch) => channelVersion({ beam, uploadKey: 'k', name: 'experimental', fetch })
+  assert.equal(await read(answer(200, '{"name":"experimental","version":"0.9.0"}')), '0.9.0')
+  assert.equal(await read(answer(200, '{"name":"experimental","version":null}')), null)
+  assert.deepEqual(seen[0], [
+    'https://beam.example/api/apps/io.example.app/channels/experimental',
+    'k',
+  ])
+  await assert.rejects(
+    read(answer(404, '{"error":"channel_not_found"}')),
+    /no channel "experimental"/,
+  )
+  await assert.rejects(read(answer(502, 'down')), /502/)
+  await assert.rejects(read(answer(200, '{"name":"experimental"}')), /carries no version/)
+  await assert.rejects(read(answer(200, '<html>')), /not JSON/)
+  await assert.rejects(
+    channelVersion({ beam, uploadKey: '', name: 'experimental', fetch: answer(200, '{}') }),
+    /BEAM_UPLOAD_KEY/,
+  )
+})
+
+test('promotes a version to a channel: promoted, or unchanged on a re-run', async () => {
+  let call
+  const answer = (status, body) => async (url, init) => {
+    call = { url, init }
+    return new Response(body, { status })
+  }
+  const promote = (fetch) =>
+    promoteBundle({ beam, uploadKey: 'k', name: 'production', version: '0.9.0', fetch })
+  assert.equal(await promote(answer(200, '{"status":"promoted","version":"0.9.0"}')), 'promoted')
+  assert.equal(call.url, 'https://beam.example/api/apps/io.example.app/channels/production/promote')
+  assert.equal(call.init.method, 'POST')
+  assert.equal(call.init.headers['X-Deploy-Key'], 'k')
+  assert.deepEqual(JSON.parse(call.init.body), { version: '0.9.0' })
+  assert.equal(await promote(answer(200, '{"status":"unchanged","version":"0.9.0"}')), 'unchanged')
+  await assert.rejects(
+    promote(answer(404, '{"error":"version_not_found"}')),
+    /refused to promote 0\.9\.0 to production \(404\)/,
+  )
+  await assert.rejects(promote(answer(200, '{}')), /not a status/)
 })
 
 test('a version Beam already has is a failed upload', async () => {

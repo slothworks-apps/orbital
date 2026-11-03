@@ -17,7 +17,9 @@ export type Command =
   | { kind: 'remove'; target: string; yes: boolean }
   | { kind: 'leave'; yes: boolean }
   | { kind: 'update'; target: string | null; yes: boolean; when: 'now' | 'idle' }
-  | { kind: 'updateCancel'; target: string | null };
+  | { kind: 'updateCancel'; target: string | null }
+  | { kind: 'experimental' }
+  | { kind: 'experimentalSet'; on: boolean; yes: boolean };
 
 /**
  * Where a relay secret comes from: typed at a prompt that does not echo it,
@@ -45,10 +47,12 @@ Usage:
   orbital devices leave               leave the group (on the primary: dissolve it)
   orbital update [name]               update this server, or the member named, when a newer version is out
   orbital update --cancel [name]      cancel an update waiting for sessions to finish
+  orbital experimental                whether the group takes experimental updates
+  orbital experimental on|off         turn experimental updates on or off, for every device in the group
   orbital help                        this text
 
 Options:
-  -y, --yes        skip the confirmation (relay, remove, leave, update): update now
+  -y, --yes        skip the confirmation (relay, remove, leave, update, experimental on): update now
   --when-idle      update once no session there is working or waiting for you (update)
   --cancel         cancel an update waiting for sessions to finish (update)
   --secret         ask for the relay secret, not echoed (relay set)
@@ -60,7 +64,7 @@ It talks to the server on 127.0.0.1 with the token in its data dir: on the port 
 $ORBITAL_PORT, else the one the orbital user unit sets, else the default.`;
 
 /** Commands that ask before they act, and so take `--yes`. */
-const CONFIRMS: ReadonlySet<Command['kind']> = new Set(['relaySet', 'relaySecret', 'remove', 'leave', 'update']);
+const CONFIRMS: ReadonlySet<Command['kind']> = new Set(['relaySet', 'relaySecret', 'remove', 'leave', 'update', 'experimentalSet']);
 
 type Flags = { yes: boolean; secret: boolean; secretStdin: boolean; clear: boolean; whenIdle: boolean; cancel: boolean };
 
@@ -132,6 +136,13 @@ function command(words: string[], flags: Flags): Command | Usage {
       };
     case 'join':
       return join(args);
+    case 'experimental':
+      // Turning it off asks nothing, as in Settings › Updates.
+      if (args.length === 0) return { kind: 'experimental' };
+      if (args.length > 1) return extra(args.slice(1));
+      if (args[0] === 'on') return { kind: 'experimentalSet', on: true, yes };
+      if (args[0] === 'off') return yes ? { kind: 'usage', message: '--yes is for orbital experimental on.' } : { kind: 'experimentalSet', on: false, yes: false };
+      return { kind: 'usage', message: 'Usage: orbital experimental [on|off]' };
     case 'devices':
       return devices(args, yes);
     default:
