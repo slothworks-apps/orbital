@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.47.0] — 2026-11-03
 ### Added
 - Click a cluster's name on the map to fit that tag's planets in the view, the way ⌘F fits the whole map.
 - Settings → Updates → Experimental updates puts every Mac, Ubuntu server and the phone of your group on each new release a few days before everyone else. Turning it on asks once; turning it off keeps your version until the regular release catches up. On a server: `orbital experimental on|off`.
