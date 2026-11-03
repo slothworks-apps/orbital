@@ -52,6 +52,10 @@ always, and fails only when one of them failed or was cancelled. The
 ruleset on `main` requires `ci passed` and `attribution`, not the
 individual jobs.
 
+CI runs for pull requests only. `main` changes through them alone, so the
+merge commit carries what CI has just checked; a push to `main` runs
+`release.yml` and nothing else.
+
 ## Alternatives
 
 - **`paths` on the workflow's trigger.** The whole workflow is skipped, so
