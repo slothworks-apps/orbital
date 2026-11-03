@@ -7,6 +7,7 @@ import {
   firstMessageSubject,
   isFirstMessage,
   parseTitleReply,
+  TITLE_SYSTEM_PROMPT,
 } from '../src/titler/titler.js';
 import type { ChatMessage } from '../src/types.js';
 
@@ -157,6 +158,26 @@ describe('SessionTitler.retitleNow', () => {
     await titler.retitleNow('s1', MESSAGES);
 
     expect(queryFn.mock.calls[0][0].options.persistSession).toBe(false);
+  });
+
+  it("adds the user's own rules to the prompt, read at every call, and nothing when they are blank", async () => {
+    let rules = '  start with the ClickUp ID  ';
+    const queryFn = fakeQueryFn('CU-1 Map zoom');
+    const titler = new SessionTitler({
+      queryFn: queryFn as never,
+      readSession: () => ({ title: 'Tag rules ordering', titleSource: 'derived' as const }),
+      applyTitle: vi.fn(),
+      userRules: () => rules,
+    });
+    const systemPrompt = (call: number) => queryFn.mock.calls[call][0].options.systemPrompt as string;
+
+    await titler.retitleNow('s1', MESSAGES);
+    expect(systemPrompt(0).startsWith(TITLE_SYSTEM_PROMPT)).toBe(true);
+    expect(systemPrompt(0).endsWith('\nstart with the ClickUp ID')).toBe(true);
+
+    rules = '   ';
+    await titler.retitleNow('s1', MESSAGES);
+    expect(systemPrompt(1)).toBe(TITLE_SYSTEM_PROMPT);
   });
 
   it('throws a failed query at its caller — someone is waiting on this one', async () => {

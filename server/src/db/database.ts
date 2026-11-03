@@ -36,6 +36,11 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
    */
   name_sessions_automatically: 'true',
   /**
+   * The user's own rules for the names Orbital writes, added to every
+   * naming prompt (adr session-names-lead-with-the-task-id). Empty: none.
+   */
+  session_name_rules: '',
+  /**
    * Work in a worktree (spec 2026-11-02-work-in-a-worktree-design § Scope):
    * New Session turns the switch on when another live session works in the
    * chosen checkout. Default-on convention: read as `!== 'false'`.

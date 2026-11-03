@@ -6,7 +6,7 @@
  * Everything here is pure except `nameBranch`, whose model call is injected.
  */
 
-import { MAX_TITLE_CHARS, parseTitleReply, type TitleQueryFn } from '../titler/titler.js';
+import { MAX_TITLE_CHARS, parseTitleReply, withUserRules, type TitleQueryFn } from '../titler/titler.js';
 import { askOnce } from '../harness/ask.js';
 
 /** The longest branch name Orbital makes or accepts. */
@@ -151,6 +151,8 @@ export interface BranchNamerDeps {
   model?: string;
   claudeExecutablePath?: string | null;
   timeoutMs?: number;
+  /** The user's own rules for names, as the titler takes them. */
+  userRules?: () => string;
   /** The prompt's ceiling; the titler's `MAX_PROMPT_CHARS` by default. */
   maxPromptChars: number;
   /**
@@ -184,7 +186,7 @@ export async function nameBranch(
   const timer = setTimeout(() => abortController.abort(), timeoutMs);
   try {
     const call = askOnce(deps.queryFn, buildBranchPrompt(input.prompt, input.recentNames, deps.maxPromptChars), {
-      systemPrompt: BRANCH_SYSTEM_PROMPT,
+      systemPrompt: withUserRules(BRANCH_SYSTEM_PROMPT, deps.userRules?.()),
       model: deps.model ?? 'haiku',
       claudeExecutablePath: deps.claudeExecutablePath,
       env: input.env,

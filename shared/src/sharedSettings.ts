@@ -17,7 +17,7 @@ export const SETTINGS_SYNC_CAPABILITY = 'settings-sync';
 /** Shared across the group: the person's habits. */
 export const SHARED_SETTING_KEYS: readonly string[] = [
   'default_permission_mode', 'default_model', 'remember_model_per_project',
-  'confirm_before_clear', 'end_closes_panel', 'name_sessions_automatically',
+  'confirm_before_clear', 'end_closes_panel', 'name_sessions_automatically', 'session_name_rules',
   'transcript_edit_diffs', 'transcript_expand_diff_on_permission',
   'permission_guard_gesture', 'questions_review_before_send',
   'context_threshold_warn', 'context_threshold_critical',

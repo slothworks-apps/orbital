@@ -52,7 +52,7 @@ import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
 import { TerminalStore, type TerminalStoreOptions } from './terminal/store.js';
 import { RecentToolsStore } from './transcript/recentTools.js';
 import { OutputFollower } from './files/taskOutput.js';
-import { MAX_PROMPT_CHARS, SessionTitler, type TitleQueryFn } from './titler/titler.js';
+import { MAX_PROMPT_CHARS, NAME_RULES_KEY, SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { nameBranch } from './worktree/naming.js';
 import { worktreeContextOf } from './worktree/service.js';
 import { HarnessService } from './harness/service.js';
@@ -583,6 +583,7 @@ export async function buildServer(overrides: {
     queryFn: overrides.titleQueryFn ?? query,
     claudeExecutablePath: claudeCli.path,
     envFor: envForSession,
+    userRules: () => settingsStore.get(NAME_RULES_KEY),
     readSession: (sessionId) =>
       db
         .select({ title: sessions.title, titleSource: sessions.titleSource })
@@ -1692,6 +1693,7 @@ export async function buildServer(overrides: {
       nameBranch(
         {
           queryFn: overrides.titleQueryFn ?? query, claudeExecutablePath: claudeCli.path, maxPromptChars: MAX_PROMPT_CHARS,
+          userRules: () => settingsStore.get(NAME_RULES_KEY),
           onFailure: (failure) => errors.record({
             source: 'server', kind: 'branch_naming_failed', sessionId,
             message: failure.message, detail: failure.detail, context: { reason: failure.reason },

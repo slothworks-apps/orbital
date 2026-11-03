@@ -408,6 +408,7 @@ const SECTION_KEYS = {
     'default_permission_mode',
     'default_project_dir',
     'name_sessions_automatically',
+    'session_name_rules',
   ],
   worktrees: ['worktree_auto_on_when_occupied', 'worktree_copy_patterns'],
   clear: ['confirm_before_clear'],
@@ -573,6 +574,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     settings.session_instructions_custom_text ?? '',
     open,
   )
+  const [nameRulesDraft, setNameRulesDraft] = useSyncedDraft(settings.session_name_rules ?? '', open)
   const [continueDraft, setContinueDraft] = useSyncedDraft(limitSettings(settings).text, open)
   /**
    * Orbital's tips, from the server. Null until the fetch lands and after a
@@ -828,6 +830,14 @@ export function Settings({ open, onClose }: SettingsProps) {
     return scheduleSave(() => void patchAndSet({ session_instructions_custom_text: instructionsDraft }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instructionsDraft, open])
+
+  // The user's rules for session names, stored as typed like the instructions.
+  useEffect(() => {
+    if (!open) return
+    if (nameRulesDraft === (settings.session_name_rules ?? '')) return
+    return scheduleSave(() => void patchAndSet({ session_name_rules: nameRulesDraft }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameRulesDraft, open])
 
   // And the fourth: the text a limit wait sends at the reset (31c). An emptied
   // field is not saved — the server would fall back to the default anyway,
@@ -2280,6 +2290,21 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(checked) =>
                             void patchAndSet({ name_sessions_automatically: checked ? 'true' : 'false' })
                           }
+                        />
+                      </Row>
+                      <Row
+                        title="Rules for session names"
+                        setting="session_name_rules"
+                        desc="Your own rules for the names Orbital writes, at the first message and with ⟳, added to its own. Where they differ, yours win."
+                      >
+                        <TextArea
+                          aria-label="Rules for session names"
+                          size="sm"
+                          rows={3}
+                          value={nameRulesDraft}
+                          onChange={(e) => setNameRulesDraft(e.target.value)}
+                          placeholder="For example: in English, start with the ClickUp ID…"
+                          className="w-full resize-y"
                         />
                       </Row>
                       </ScopeSection>
