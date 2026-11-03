@@ -63,9 +63,11 @@ Skipped as well:
 
 - the setting is off;
 - a message to a session following a harness. A session the harness
-  started is named from its kickoff instead, when the harness is attached
-  (`SessionTitler.nameFromKickoff`); until then the harness's name stands
-  in (`HarnessService.recordMessage`);
+  started (nobody had written in it before the kickoff) is named instead
+  when the harness is attached or carried into it by Clear, from the
+  harness's name, its inputs and the step it begins with
+  (`SessionTitler.nameFromHarness`, `namingSubject`); until then the
+  harness's name stands in (`HarnessService.recordMessage`);
 - terminal sessions. Orbital pays a model only for what it launched
   ([[subagents-only-for-orbital-sessions]]); ⟳ names a terminal session on
   request, as today. The send route reads `source` before delivering, since

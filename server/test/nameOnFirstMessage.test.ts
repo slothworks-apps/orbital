@@ -63,6 +63,16 @@ function writeTerminalTranscript(claudeDir: string) {
   }));
 }
 
+/** The CLI's transcript of a session the user has written `text` in; the fake SDK writes none. */
+function writeUserTranscript(claudeDir: string, id: string, text: string) {
+  const pdir = join(claudeDir, 'projects', '-w-x');
+  mkdirSync(pdir, { recursive: true });
+  writeFileSync(join(pdir, `${id}.jsonl`), JSON.stringify({
+    type: 'user', uuid: 'u1', timestamp: '2026-09-01T10:00:00.000Z', cwd: '/w/x',
+    message: { role: 'user', content: text },
+  }));
+}
+
 async function serverWith(
   titleQueryFn: ReturnType<typeof fakeTitleQueryFn> | ReturnType<typeof failingTitleQueryFn>,
   opts: { terminal?: boolean } = {},
@@ -71,11 +81,12 @@ async function serverWith(
   mkdirSync(join(claudeDir, 'projects'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
   if (opts.terminal) writeTerminalTranscript(claudeDir);
-  return buildServer({
+  const app = await buildServer({
     claudeDir, dbPath: join(claudeDir, 'index.db'),
     queryFn: fakeSessionQueryFn() as any,
     titleQueryFn: titleQueryFn as any,
   });
+  return Object.assign(app, { claudeDir });
 }
 
 const sessionOf = async (app: any, id: string) =>
@@ -161,30 +172,76 @@ describe('naming a session from its first message', () => {
     }
   });
 
-  it('names a session a harness started from its kickoff, and not again when the user answers', async () => {
+  /** A harness template of one step, and the naming calls the titler got so far. */
+  async function withHarness(app: any, titleQueryFn: ReturnType<typeof fakeTitleQueryFn>) {
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { harness_enabled: 'true' } });
+    const template = (await app.inject({
+      method: 'POST', url: '/api/harness/templates',
+      payload: {
+        name: 'Release', tags: [], inputs: [{ key: 'what', label: 'What' }],
+        steps: [{ id: 'go', title: 'Go', instructions: 'Ship it.', mode: 'gate', doneWhen: 'shipped' }],
+      },
+    })).json();
+    const attach = (id: string) => app.inject({
+      method: 'POST', url: `/api/sessions/${id}/harness`, payload: { templateId: template.id, inputs: { what: 'desktop 0.47' } },
+    });
+    // The harness's own helpers share the query function; only the naming calls count.
+    const naming = () => titleQueryFn.mock.calls.filter(([args]) => args.options.systemPrompt === FIRST_TITLE_SYSTEM_PROMPT);
+    return { attach, naming };
+  }
+
+  it('names a session a harness started from what the harness was given, and not again when the user answers', async () => {
     const titleQueryFn = fakeTitleQueryFn('Release the desktop');
     const app = await serverWith(titleQueryFn);
     try {
-      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { harness_enabled: 'true' } });
-      const template = (await app.inject({
-        method: 'POST', url: '/api/harness/templates',
-        payload: {
-          name: 'Release', tags: [], inputs: [],
-          steps: [{ id: 'go', title: 'Go', instructions: 'Ship it.', mode: 'gate', doneWhen: 'shipped' }],
-        },
-      })).json();
+      const { attach, naming } = await withHarness(app, titleQueryFn);
       const id = await launch(app, '');
-      const attached = await app.inject({ method: 'POST', url: `/api/sessions/${id}/harness`, payload: { templateId: template.id, inputs: {} } });
-      expect(attached.statusCode).toBe(201);
+      expect((await attach(id)).statusCode).toBe(201);
       await vi.waitFor(async () => expect((await sessionOf(app, id)).title).toBe('Release the desktop'));
-      expect(titleQueryFn.mock.calls[0][0].prompt).toContain('This session follows the Orbital harness "Release"');
+      expect(naming()[0][0].prompt).toBe('Harness: Release; What: desktop 0.47; Current step: Go');
 
       await app.inject({ method: 'POST', url: `/api/sessions/${id}/messages`, payload: { text: 'yes' } });
       await new Promise((r) => setTimeout(r, 20));
-      // The harness's own helpers share the query function; only the naming calls count.
-      const naming = titleQueryFn.mock.calls.filter(([args]) => args.options.systemPrompt === FIRST_TITLE_SYSTEM_PROMPT);
-      expect(naming).toHaveLength(1);
+      expect(naming()).toHaveLength(1);
       expect((await sessionOf(app, id)).title).toBe('Release the desktop');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('names the session a harness is carried into by Clear', async () => {
+    const titleQueryFn = fakeTitleQueryFn('Release the desktop');
+    const app = await serverWith(titleQueryFn);
+    try {
+      const { attach, naming } = await withHarness(app, titleQueryFn);
+      const id = await launch(app, '');
+      await attach(id);
+      await vi.waitFor(() => expect(naming()).toHaveLength(1));
+      const cleared = await app.inject({ method: 'POST', url: `/api/sessions/${id}/clear`, payload: { startNew: true, carryHarness: true } });
+      const { sessionId, harnessCarried } = cleared.json();
+      expect(harnessCarried).toBe(true);
+      await vi.waitFor(async () => expect((await sessionOf(app, sessionId)).title).toBe('Release the desktop'));
+      expect(naming()).toHaveLength(2);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('keeps the name of a session the user had written in before the harness came', async () => {
+    const titleQueryFn = fakeTitleQueryFn('Release the desktop');
+    const app = await serverWith(titleQueryFn);
+    try {
+      const { attach, naming } = await withHarness(app, titleQueryFn);
+      // Naming off at launch, so the title is the one derived from the message.
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { name_sessions_automatically: 'false' } });
+      const id = await launch(app, 'fix the zoom');
+      writeUserTranscript(app.claudeDir, id, 'fix the zoom');
+      await vi.waitFor(async () => expect((await sessionOf(app, id)).title).toBe('fix the zoom'));
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { name_sessions_automatically: 'true' } });
+      expect((await attach(id)).statusCode).toBe(201);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(naming()).toHaveLength(0);
+      expect((await sessionOf(app, id)).title).toBe('fix the zoom');
     } finally {
       await app.close();
     }

@@ -276,14 +276,13 @@ export class SessionTitler {
   }
 
   /**
-   * Names a session from a harness's kickoff, if the kickoff was its first
-   * message: its title is still blank, the kickoff itself, or the harness's
-   * name standing in for it. A session someone had written in before the
-   * harness came keeps the name it has.
+   * Names a session a harness started, from what the harness was given
+   * (`namingSubject`). The caller knows the session had no message of the
+   * user's before the kickoff; this only keeps a name someone chose
+   * meanwhile.
    */
-  async nameFromKickoff(sessionId: string, kickoff: string, harnessName: string): Promise<boolean> {
-    return this.nameOnce(sessionId, kickoff, (session) => session.titleSource === 'derived'
-      && (session.title === harnessName || isFirstMessage(session, kickoff)));
+  async nameFromHarness(sessionId: string, subject: string): Promise<boolean> {
+    return this.nameOnce(sessionId, subject, (session) => session.titleSource === 'derived');
   }
 
   private async nameOnce(

@@ -265,6 +265,20 @@ function howToTick(options: HarnessOptions): string {
   return `When a step is done, call the \`harness_complete_step\` tool with its id, a summary of what you did, the decisions you made (what, why, what else you considered) and anything the user should still look at. That record is what the user reads later, so make the reasons real.${commit} Tick only the active step. Do not stop to ask whether to continue with the next step: Orbital sends you on. Stop and ask only when you need a real decision or information only the user has, or before anything outward (push, merge, PR, deleting data).`;
 }
 
+/**
+ * What a session the harness started is named from: the harness, what was
+ * filled into it and the step it begins with. The kickoff around them is
+ * the template's own text, the same in every session that follows it, so
+ * it would name them all alike.
+ */
+export function namingSubject(h: SessionHarness, inputs: HarnessInput[]): string {
+  const given = inputs
+    .filter((input) => h.inputs[input.key]?.trim())
+    .map((input) => `${input.label}: ${h.inputs[input.key]}`);
+  const step = h.steps[Math.max(activeIndex(h.state), 0)];
+  return [`Harness: ${h.name}`, ...given, step ? `Current step: ${step.title}` : ''].filter(Boolean).join('; ');
+}
+
 export function kickoffMessage(h: SessionHarness, inputs: HarnessInput[]): string {
   const given = inputs
     .filter((input) => h.inputs[input.key]?.trim())

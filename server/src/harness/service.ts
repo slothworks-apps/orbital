@@ -22,7 +22,7 @@ import { ORBITAL_MCP_SERVER as HARNESS_MCP_SERVER } from '../runner/spawnTool.js
 import { derivedTitle } from '../transcript/parser.js';
 import type { ChatMessage } from '../types.js';
 import {
-  activeIndex, advanceMessage, approve, checklistLines, decideTurnEnd, goBack, initialState, kickoffMessage,
+  activeIndex, advanceMessage, approve, checklistLines, decideTurnEnd, goBack, initialState, kickoffMessage, namingSubject,
   normalizeOptions, nudgeMessage, patchStep, reviewerReopen, reviewerReopenMessage, reviewerTakes, snapshotSteps,
   statusText, tick, userReopen, validateTemplate, withReview, type TickRecord,
 } from './logic.js';
@@ -558,8 +558,9 @@ export class HarnessService {
    * Puts a template into a session. Returns the kickoff message; the caller
    * delivers it, because only the routes can revive a sleeping session. A
    * removed harness the session had is replaced; its events stay in the log.
+   * `subject` is what the session is named from, if the harness started it.
    */
-  attach(sessionId: string, templateId: number, inputs: Record<string, string>): Result<{ harness: SessionHarness; kickoff: string }> {
+  attach(sessionId: string, templateId: number, inputs: Record<string, string>): Result<{ harness: SessionHarness; kickoff: string; subject: string }> {
     if (this.get(sessionId)) return { ok: false, status: 409, error: 'this session already has a harness' };
     const template = this.getTemplate(templateId);
     if (!template) return { ok: false, status: 404, error: 'template not found' };
@@ -580,7 +581,7 @@ export class HarnessService {
     this.log(sessionId, 'attached', { templateId, name: template.name, inputs: values, scope: template.scope });
     this.deps.publish(sessionId, harness);
     const kickoff = kickoffMessage(harness, template.inputs);
-    return { ok: true, value: { harness, kickoff } };
+    return { ok: true, value: { harness, kickoff, subject: namingSubject(harness, template.inputs) } };
   }
 
   /** Undoes an attach that never reached the session: no record is kept of a harness that never ran. */
@@ -818,9 +819,9 @@ export class HarnessService {
    * (spec § 8). The old session keeps it as removed, so its records stay
    * readable there too; the new one gets the harness, its records and its log,
    * running again from the current step. Returns the kickoff for the caller to
-   * deliver, and the step it begins.
+   * deliver, the step it begins, and what the new session is named from.
    */
-  carry(fromId: string, toId: string): Result<{ harness: SessionHarness; kickoff: string; index: number }> {
+  carry(fromId: string, toId: string): Result<{ harness: SessionHarness; kickoff: string; index: number; subject: string }> {
     const h = this.get(fromId);
     if (!h) return { ok: false, status: 404, error: 'no harness to carry' };
     if (this.get(toId)) return { ok: false, status: 409, error: 'the new session already has a harness' };
@@ -862,7 +863,7 @@ export class HarnessService {
     this.tickedThisTurn.delete(fromId);
     this.deps.publish(fromId, null);
     this.deps.publish(toId, harness);
-    return { ok: true, value: { harness, kickoff: kickoffMessage(harness, inputs), index } };
+    return { ok: true, value: { harness, kickoff: kickoffMessage(harness, inputs), index, subject: namingSubject(harness, inputs) } };
   }
 
   /** The step's changes, `startHead..endHead`, for the panel. */
