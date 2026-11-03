@@ -272,11 +272,30 @@ export class SessionTitler {
    * this, so a failed call is logged and the derived title stays.
    */
   async nameFromFirstMessage(sessionId: string, text: string): Promise<boolean> {
+    return this.nameOnce(sessionId, text, (session) => isFirstMessage(session, text));
+  }
+
+  /**
+   * Names a session from a harness's kickoff, if the kickoff was its first
+   * message: its title is still blank, the kickoff itself, or the harness's
+   * name standing in for it. A session someone had written in before the
+   * harness came keeps the name it has.
+   */
+  async nameFromKickoff(sessionId: string, kickoff: string, harnessName: string): Promise<boolean> {
+    return this.nameOnce(sessionId, kickoff, (session) => session.titleSource === 'derived'
+      && (session.title === harnessName || isFirstMessage(session, kickoff)));
+  }
+
+  private async nameOnce(
+    sessionId: string,
+    text: string,
+    isFirst: (session: { title: string; titleSource: TitleSource }) => boolean,
+  ): Promise<boolean> {
     if (this.naming.has(sessionId) || this.closing.signal.aborted) return false;
     this.naming.add(sessionId);
     try {
       const session = this.deps.readSession(sessionId);
-      if (!session || !isFirstMessage(session, text)) return false;
+      if (!session || !isFirst(session)) return false;
       const subject = firstMessageSubject(text);
       if (!subject) return false;
       const reply = await this.ask(subject, FIRST_TITLE_SYSTEM_PROMPT, this.deps.envFor?.(sessionId));

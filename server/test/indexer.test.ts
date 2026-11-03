@@ -633,20 +633,11 @@ describe('indexProjects and harness sessions', () => {
     expect(title()).toBe('Add a badge to harness sessions');
   });
 
-  it('holds the harness name until the user writes, then takes theirs', () => {
+  it('takes the harness name when the kickoff came first, and keeps it when the user writes', () => {
     const { db, projects, title } = harnessed([kickoff('k1')]);
     indexProjects(db, projects);
     expect(title()).toBe('Feature');
-    writeTranscriptFile(projects, '-p', 's1', [kickoff('k1'), user('u1', 'Fix the gate pill')]);
-    indexProjects(db, projects);
-    expect(title()).toBe('Fix the gate pill');
-  });
-
-  it('keeps a typed title that happens to equal the harness name', () => {
-    const { db, projects, title } = harnessed([kickoff('k1')]);
-    indexProjects(db, projects);
-    db.update(sessions).set({ titleSource: 'manual' }).where(eq(sessions.id, 's1')).run();
-    writeTranscriptFile(projects, '-p', 's1', [kickoff('k1'), user('u1', 'Fix the gate pill')]);
+    writeTranscriptFile(projects, '-p', 's1', [kickoff('k1'), user('u1', 'yes')]);
     indexProjects(db, projects);
     expect(title()).toBe('Feature');
   });

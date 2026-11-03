@@ -15,6 +15,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - New session is wider and has two columns, so the first prompt stays in view without scrolling.
 ### Fixed
 - Clicking a page in a PDF's page list in the maximised viewer turns to that page instead of closing the viewer.
+- A session started with a harness keeps its name when you first reply in it, instead of being renamed after your reply ("yes", say). It is named once, from the harness it follows.
 
 ## [0.46.0] — 2026-11-01
 ### Added

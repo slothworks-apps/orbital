@@ -900,12 +900,11 @@ export class HarnessService {
     this.deps.db.insert(harnessMessages).values({ uuid, sessionId, kind, stepIndex: step, at }).onConflictDoNothing().run();
     this.deps.publishMessage?.(sessionId, { uuid, kind, step, text, at });
     // The indexer may have named the session after this message before it
-    // was known as the harness's: the harness's name stands in instead, and
-    // the next index pass looks for the user's first message.
+    // was known as the harness's: the harness's name stands in instead.
     const name = this.get(sessionId)?.name;
     if (name) {
       this.deps.db.update(sessions)
-        .set({ title: name, indexedMtime: 0 })
+        .set({ title: name })
         .where(and(eq(sessions.id, sessionId), eq(sessions.titleSource, 'derived'), eq(sessions.title, derivedTitle(text))))
         .run();
     }

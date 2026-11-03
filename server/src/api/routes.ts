@@ -1730,8 +1730,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * background (spec 2026-10-21-name-on-first-message-design). Called with
    * every message the user sends to a session Orbital started, outside a
    * harness draft; the titler decides from the row whether it is the first.
-   * A harness's messages never come through here, and a session following
-   * one carries the harness's name.
+   * A harness's messages never come through here; a session a harness
+   * started is named from its kickoff (`registerHarnessRoutes`).
    */
   function nameFromFirstMessage(id: string, text: string): void {
     if (typeof text !== 'string' || !text || ctx.settings.get(NAME_SESSIONS_KEY) === 'false' || ctx.harness.get(id)) return;

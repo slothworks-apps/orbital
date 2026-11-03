@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
 import { makeTmpDir } from './tmp.js';
+import { FIRST_TITLE_SYSTEM_PROMPT } from '../src/titler/titler.js';
 
 /**
  * A session Orbital starts is named once, from its first message (spec
@@ -155,6 +156,35 @@ describe('naming a session from its first message', () => {
       await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/messages`, payload: { text: 'a review step' } });
       await new Promise((r) => setTimeout(r, 20));
       expect(titleQueryFn).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('names a session a harness started from its kickoff, and not again when the user answers', async () => {
+    const titleQueryFn = fakeTitleQueryFn('Release the desktop');
+    const app = await serverWith(titleQueryFn);
+    try {
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { harness_enabled: 'true' } });
+      const template = (await app.inject({
+        method: 'POST', url: '/api/harness/templates',
+        payload: {
+          name: 'Release', tags: [], inputs: [],
+          steps: [{ id: 'go', title: 'Go', instructions: 'Ship it.', mode: 'gate', doneWhen: 'shipped' }],
+        },
+      })).json();
+      const id = await launch(app, '');
+      const attached = await app.inject({ method: 'POST', url: `/api/sessions/${id}/harness`, payload: { templateId: template.id, inputs: {} } });
+      expect(attached.statusCode).toBe(201);
+      await vi.waitFor(async () => expect((await sessionOf(app, id)).title).toBe('Release the desktop'));
+      expect(titleQueryFn.mock.calls[0][0].prompt).toContain('This session follows the Orbital harness "Release"');
+
+      await app.inject({ method: 'POST', url: `/api/sessions/${id}/messages`, payload: { text: 'yes' } });
+      await new Promise((r) => setTimeout(r, 20));
+      // The harness's own helpers share the query function; only the naming calls count.
+      const naming = titleQueryFn.mock.calls.filter(([args]) => args.options.systemPrompt === FIRST_TITLE_SYSTEM_PROMPT);
+      expect(naming).toHaveLength(1);
+      expect((await sessionOf(app, id)).title).toBe('Release the desktop');
     } finally {
       await app.close();
     }

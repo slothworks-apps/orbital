@@ -12,6 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { DEFAULT_DRAFT_MODEL, DRAFT_MODELS, INTERVIEW_PROMPT, MAX_EVENTS_PAGE, type Deliver, type TemplateBody } from '../harness/service.js';
 import { projectRootOf } from '../harness/project.js';
 import { isScope } from '../harness/logic.js';
+import { NAME_SESSIONS_KEY } from '../titler/titler.js';
 import type { ChatMessage, PermissionMode, SessionPurpose } from '../types.js';
 import type { RouteContext } from './routes.js';
 
@@ -216,6 +217,11 @@ export function registerHarnessRoutes(
       return reply.code(409).send({ error: delivery.outcome === 'terminal' ? 'session_is_terminal' : 'not found' });
     }
     await harness.stepStarted(id, 0, delivery.uuid);
+    // The kickoff is the session's first message when the harness started
+    // it, and it is named from it as any other session is from its first.
+    if (ctx.settings.get(NAME_SESSIONS_KEY) !== 'false') {
+      void ctx.titler.nameFromKickoff(id, result.value.kickoff, result.value.harness.name);
+    }
     return reply.code(201).send({ harness: harness.get(id) });
   });
 
