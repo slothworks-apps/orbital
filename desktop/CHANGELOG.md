@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Click a cluster's name on the map to fit that tag's planets in the view, the way ⌘F fits the whole map.
 ### Changed
 - The maximised viewer fills the window: an image or a PDF page grows to fit the space (never past its own size) and sits centred in it, with its caption always just above the strip of the conversation's images.
 ### Fixed

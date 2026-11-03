@@ -261,6 +261,8 @@ export interface SceneLabel {
   /** The cluster's tag id — the label's true identity, and the stable key `<SpaceMap>` renders it with (not `text`, which is derived/formatted and best treated as opaque display content, not an identity). */
   tagId: number
   text: string
+  /** The tag's own name, as the user wrote it — for what names the cluster rather than shows it. */
+  name: string
   x: number
   y: number
   hue: number
@@ -538,6 +540,7 @@ export function buildSceneModel(
     labels.push({
       tagId: cluster.tagId,
       text: `${cluster.label.toUpperCase()} · ${on.length}`,
+      name: cluster.label,
       x: pos.x,
       y: pos.y,
       hue: cluster.hue,
