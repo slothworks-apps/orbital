@@ -45,6 +45,29 @@ export interface SelectOption<T> {
    * colour literal belongs in the chrome: it shows another palette, not this one.
    */
   swatch?: readonly string[]
+  /**
+   * A leading part of `label` drawn in muted ink on the `branch` rows and
+   * trigger (canvas 63c: a remote branch's `origin/`). `label` still holds
+   * the whole name, which is what search and type-ahead match.
+   */
+  labelLead?: string
+}
+
+/**
+ * A search over the options of one group (canvas 63c, New session's BASE):
+ * every other group's options stay above a search field under their
+ * headings; `group`'s sit in a list under it, without a heading, narrowed
+ * by `match` as the user types and scrolling past `maxHeight`. The field
+ * holds focus while the popup is open: the arrows walk the rows shown, ⏎
+ * picks, Tab leaves.
+ */
+export interface SelectSearch<T> {
+  group: string
+  placeholder: string
+  match: (option: SelectOption<T>, query: string) => boolean
+  /** The list's line when nothing matches. */
+  empty: (query: string) => string
+  maxHeight: number
 }
 
 export interface SelectProps<T> {
@@ -74,9 +97,17 @@ export interface SelectProps<T> {
    * `swatch` is artboard 1f's colour theme picker (`Feature - Colour themes`) —
    * a roomier field carrying the option's swatch, its name and its
    * `triggerTrail`, over a menu with the ✓ leading each row and capped at
-   * `SWATCH_LIST_MAX_HEIGHT`.
+   * `SWATCH_LIST_MAX_HEIGHT`;
+   * `branch` is 63c's BASE field (`Feature - Work in a worktree`, Worktree
+   * Group) — a mono field the width of its column carrying the name and its
+   * `triggerTrail` note, over a menu as wide as the field whose rows put an
+   * option's `sub` under its name and its `trail` on its right, ✓ trailing.
    */
-  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device' | 'chip' | 'swatch'
+  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device' | 'chip' | 'swatch' | 'branch'
+  /** `branch` only: an error stands on the field — its edge takes the soft error ink. */
+  invalid?: boolean
+  /** A search field over one group of the options (`SelectSearch`). */
+  search?: SelectSearch<T>
   /**
    * `ghost` only: keep the lit chrome while the control is closed, because
    * its value is doing something visible (a filter that is narrowing a list).
@@ -113,6 +144,8 @@ const GHOST_POPUP_MIN_WIDTH = 186
 const CHIP_POPUP_MIN_WIDTH = 220
 /** The `swatch` menu scrolls past this height (artboard 1f). */
 const SWATCH_LIST_MAX_HEIGHT = 330
+/** The `branch` menu hangs this far under its field (canvas 63c, Worktree Group). */
+const BRANCH_POPUP_GAP = 6
 /** Type-ahead buffer lifetime, the same window the platform controls use. */
 const TYPEAHEAD_MS = 500
 
@@ -159,6 +192,8 @@ export function Select<T extends string | number>({
   className,
   ref,
   title,
+  invalid = false,
+  search,
   ...aria
 }: SelectProps<T>) {
   const baseId = useId()
@@ -170,10 +205,17 @@ export function Select<T extends string | number>({
 
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const popupRef = useRef<HTMLDivElement | null>(null)
-  const search = useRef({ query: '', at: 0 })
+  const typed = useRef({ query: '', at: 0 })
 
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const selectedIndex = options.findIndex((o) => o.value === value)
+  /** With a search, the options the popup shows: every other group's, and the searched group's that match. */
+  const shown = (index: number) => {
+    if (!search) return true
+    const option = options[index]
+    return option.group !== search.group || search.match(option, query)
+  }
   const [activeIndex, setActiveIndex] = useState(selectedIndex < 0 ? 0 : selectedIndex)
 
   const selected = selectedIndex < 0 ? undefined : options[selectedIndex]
@@ -204,7 +246,8 @@ export function Select<T extends string | number>({
 
   const closePopup = useCallback((restoreFocus: boolean) => {
     setOpen(false)
-    search.current = { query: '', at: 0 }
+    setQuery('')
+    typed.current = { query: '', at: 0 }
     if (restoreFocus) triggerRef.current?.focus()
   }, [])
 
@@ -233,7 +276,8 @@ export function Select<T extends string | number>({
   // menu off the trigger's RIGHT edge, because the trigger sits at the right
   // end of a 300px panel and a left-aligned menu would spill onto the map.
   usePopupPosition(open, triggerRef, popupRef, {
-    gap: POPUP_GAP,
+    gap: variant === 'branch' ? BRANCH_POPUP_GAP : POPUP_GAP,
+    matchAnchorWidth: variant === 'branch',
     align: variant === 'ghost' || variant === 'chip' ? 'right' : 'left',
     minWidth:
       variant === 'tag'
@@ -262,6 +306,7 @@ export function Select<T extends string | number>({
       if (!(target instanceof Node)) return
       if (triggerRef.current?.contains(target) || popupRef.current?.contains(target)) return
       setOpen(false)
+      setQuery('')
     }
     document.addEventListener('pointerdown', onPointerDown, true)
     return () => document.removeEventListener('pointerdown', onPointerDown, true)
@@ -269,8 +314,8 @@ export function Select<T extends string | number>({
 
   function typeahead(char: string) {
     const now = Date.now()
-    const query = (now - search.current.at > TYPEAHEAD_MS ? '' : search.current.query) + char.toLowerCase()
-    search.current = { query, at: now }
+    const query = (now - typed.current.at > TYPEAHEAD_MS ? '' : typed.current.query) + char.toLowerCase()
+    typed.current = { query, at: now }
     // A repeated single character cycles through the options starting with
     // it; a longer buffer re-matches from the current row.
     const from = query.length === 1 ? activeIndex + 1 : activeIndex
@@ -298,6 +343,12 @@ export function Select<T extends string | number>({
       }
       if (isTypeaheadKey(e)) {
         e.preventDefault()
+        // With a search, the key starts the search rather than a type-ahead.
+        if (search) {
+          openPopup()
+          changeQuery(e.key)
+          return
+        }
         const match = typeahead(e.key)
         openPopup(match < 0 ? undefined : match)
       }
@@ -322,7 +373,7 @@ export function Select<T extends string | number>({
         return
       case ' ':
         // Space only commits when it isn't part of a type-ahead buffer.
-        if (search.current.query && Date.now() - search.current.at <= TYPEAHEAD_MS) break
+        if (typed.current.query && Date.now() - typed.current.at <= TYPEAHEAD_MS) break
         e.preventDefault()
         e.stopPropagation()
         commit(activeIndex)
@@ -356,12 +407,48 @@ export function Select<T extends string | number>({
     }
   }
 
+  /**
+   * The search field's keys: the arrows walk the rows shown, ⏎ picks, Tab
+   * leaves; Escape is the popup's escape layer's. Typing is the field's own.
+   */
+  function handleSearchKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    const visible = options.map((_, i) => i).filter(shown)
+    const at = visible.indexOf(activeIndex)
+    switch (e.key) {
+      case 'ArrowDown':
+      case 'ArrowUp': {
+        e.preventDefault()
+        if (visible.length === 0) return
+        const next = e.key === 'ArrowDown' ? Math.min(visible.length - 1, at + 1) : Math.max(0, at - 1)
+        setActiveIndex(visible[next])
+        return
+      }
+      case 'Enter':
+        e.preventDefault()
+        e.stopPropagation()
+        if (at >= 0) commit(activeIndex)
+        return
+      case 'Tab':
+        closePopup(false)
+        return
+    }
+  }
+
+  /** A new query lands on the first match in the searched group; an emptied one keeps the row. */
+  function changeQuery(next: string) {
+    setQuery(next)
+    if (!search || !next.trim()) return
+    const first = options.findIndex((o) => o.group === search.group && search.match(o, next))
+    if (first >= 0) setActiveIndex(first)
+  }
+
   const isPill = variant === 'pill'
   const isTag = variant === 'tag'
   const isGhost = variant === 'ghost'
   const isDevice = variant === 'device'
   const isChip = variant === 'chip'
   const isSwatch = variant === 'swatch'
+  const isBranch = variant === 'branch'
   // 3a paints the ghost trigger in two states only: bare, or lit. Open and
   // "narrowing something" are the same state — both mean it has the floor.
   const lit = isGhost && (open || active)
@@ -378,6 +465,151 @@ export function Select<T extends string | number>({
       : isPill
         ? { borderColor: tint(hue, 40) }
         : undefined
+
+  /** One option's row, in the variant's own drawing. */
+  const renderRow = (index: number) => {
+    const option = options[index]
+    const isSelected = option.value === value
+    const isActive = index === activeIndex
+    if (isChip) {
+      return (
+        <ChipRow
+          key={String(option.value)}
+          id={optionId(index)}
+          option={option}
+          selected={isSelected}
+          active={isActive}
+          onHover={() => setActiveIndex(index)}
+          onPick={() => commit(index)}
+        />
+      )
+    }
+    if (isSwatch) {
+      return (
+        <SwatchRow
+          key={String(option.value)}
+          id={optionId(index)}
+          option={option}
+          selected={isSelected}
+          active={isActive}
+          onHover={() => setActiveIndex(index)}
+          onPick={() => commit(index)}
+        />
+      )
+    }
+    if (isBranch) {
+      return (
+        <BranchRow
+          key={String(option.value)}
+          id={optionId(index)}
+          option={option}
+          selected={isSelected}
+          active={isActive}
+          onHover={() => setActiveIndex(index)}
+          onPick={() => commit(index)}
+        />
+      )
+    }
+    if (isDevice) {
+      return (
+        <DeviceRow
+          key={String(option.value)}
+          id={optionId(index)}
+          option={option}
+          selected={isSelected}
+          active={isActive}
+          onHover={() => setActiveIndex(index)}
+          onPick={() => commit(index)}
+        />
+      )
+    }
+    return (
+      <div
+        key={String(option.value)}
+        id={optionId(index)}
+        role="option"
+        aria-selected={isSelected}
+        data-label={option.label}
+        data-active={isActive || undefined}
+        onMouseMove={() => setActiveIndex(index)}
+        onClick={() => commit(index)}
+        // 1b rows: 7px/9px inside a 7px radius, 8px gap. The
+        // canvas paints hover and selection the SAME tint, which
+        // would leave an arrowing keyboard user unable to tell
+        // the two apart — so the active row keeps the accent
+        // tint and only selection uses the canvas's.
+        aria-disabled={option.inert || undefined}
+        className={[
+          'flex shrink-0 items-center gap-2 rounded-[7px] px-[9px] py-[7px]',
+          option.inert ? 'cursor-default opacity-[.38]' : 'cursor-pointer',
+          isActive && !option.inert
+            ? 'bg-accent/10'
+            : isSelected
+              ? 'bg-line/9'
+              : '',
+          isSelected ? 'text-accent' : 'text-ink-100',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {option.dotColor && (
+          <span
+            aria-hidden
+            className="block h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: option.dotColor }}
+          />
+        )}
+        <span className="min-w-0 flex-1 truncate">{option.label}</span>
+        {option.count !== undefined && (
+          <span aria-hidden className="shrink-0 text-ink-900/60">
+            {option.count}
+          </span>
+        )}
+        {option.trail && (
+          <span className="shrink-0 font-mono fs-10 tracking-[0.04em] text-ink-900/60">
+            {option.trail}
+          </span>
+        )}
+        {(isSelected || reserveCheck) && (
+          <span
+            aria-hidden
+            className={`shrink-0 fs-10 text-accent ${isSelected ? '' : 'opacity-0'}`}
+          >
+            ✓
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  /** Rows in runs that share a `group`, each run under its heading. */
+  const renderRuns = (indices: readonly number[]) =>
+    groupRuns(options, indices).map((run) => {
+      const rows = run.indices.map(renderRow)
+      if (run.group === undefined) return <Fragment key={`run-${run.indices[0]}`}>{rows}</Fragment>
+      const headingId = `${listboxId}-group-${run.indices[0]}`
+      return (
+        <div key={headingId} role="group" aria-labelledby={headingId} className="flex shrink-0 flex-col gap-0.5">
+          <div
+            id={headingId}
+            role="presentation"
+            className={
+              isBranch
+                ? // 63c: 6px/9px/3px, mono 9.5 at .12em.
+                  'px-[9px] pb-[3px] pt-1.5 font-mono fs-9.5 tracking-[0.12em] text-ink-900/50'
+                : // 1f: 8px/10px/4px, mono 9.5 at .18em in muted ink.
+                  'px-2.5 pb-1 pt-2 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60'
+            }
+          >
+            {run.group}
+          </div>
+          {rows}
+        </div>
+      )
+    })
+
+  const allIndices = options.map((_, i) => i)
+  const searched = search ? allIndices.filter((i) => options[i].group === search.group && shown(i)) : []
 
   return (
     <>
@@ -400,12 +632,13 @@ export function Select<T extends string | number>({
         onClick={() => (open ? closePopup(true) : openPopup())}
         onKeyDown={handleKeyDown}
         style={triggerStyle}
+        aria-invalid={(isBranch && invalid) || undefined}
         className={[
           // No width here on purpose: `className` is the only source of one,
           // so a caller's `w-[200px]` never has to out-order a built-in
           // `w-full` in the stylesheet (see the v4 footguns in web/CLAUDE.md).
           'relative inline-flex min-w-0 cursor-pointer items-center text-left disabled:cursor-not-allowed disabled:opacity-50',
-          isGhost || isChip ? 'gap-[5px]' : isDevice || isSwatch ? 'gap-2.5' : 'gap-1.5',
+          isGhost || isChip ? 'gap-[5px]' : isDevice || isSwatch ? 'gap-2.5' : isBranch ? 'gap-2' : 'gap-1.5',
           // The ghost branch owns its own ink in both states, so it must not
           // also inherit `text-ink-100` — two colour utilities on one
           // element are settled by stylesheet order, not by this array's.
@@ -429,6 +662,15 @@ export function Select<T extends string | number>({
                 lit
                   ? 'border-line/22 bg-line/12 text-sky-soft'
                   : 'border-transparent bg-transparent text-inherit hover:bg-line/10',
+              ].join(' ')
+            : isBranch
+            ? // 63c's BASE field: 9px/12px inside a 9px radius over the well,
+              // mono 12px, so it lines up with BRANCH above it; the edge is the
+              // soft error ink while an error stands, the accent while open.
+              [
+                'overflow-hidden rounded-[9px] border bg-space/60 px-3 py-[9px] font-mono fs-12',
+                'transition-[border-color] duration-[180ms] ease-[ease]',
+                invalid ? 'border-danger-pale/50' : open ? 'border-accent/50' : 'border-line/18',
               ].join(' ')
             : isSwatch
             ? // 1f's colour field: 9px/12px inside a 10px radius, a .3 border
@@ -481,7 +723,16 @@ export function Select<T extends string | number>({
             style={{ background: selected.dotColor }}
           />
         )}
-        {isSwatch ? (
+        {isBranch ? (
+          // 63c: the name, its note muted after it, then the caret pushed right.
+          <>
+            <span className="min-w-0 shrink truncate">{label}</span>
+            {selected?.triggerTrail && (
+              <span className="min-w-0 shrink-[100] truncate fs-10.5 text-ink-900/55">{selected.triggerTrail}</span>
+            )}
+            <span aria-hidden className="flex-1" />
+          </>
+        ) : isSwatch ? (
           // 1f: the swatch at 12×14 a block, the name at 600, the kind in mono 10.5.
           <>
             {selected?.swatch && <SwatchStrip colours={selected.swatch} size="trigger" />}
@@ -523,8 +774,8 @@ export function Select<T extends string | number>({
               : isSwatch
               ? // 1f: 9px, inline at the right end.
                 'block shrink-0 fs-9 text-ink-900/60'
-              : isDevice
-              ? // 50g: 8px, inline, flips while open (`transform .2s ease`).
+              : isDevice || isBranch
+              ? // 50g and 63c: 8px, inline, flips while open (`transform .2s ease`).
                 `block shrink-0 fs-8 text-ink-900/60 transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
               : isTag || isGhost
               ? // Inline, and it flips while the popup is open (1b, 3a).
@@ -545,9 +796,12 @@ export function Select<T extends string | number>({
         createPortal(
           <div
             ref={popupRef}
-            // Keeps DOM focus on the trigger through a click, so the control
-            // never fires a focusout that an ancestor reads as "left the row".
-            onMouseDown={(e) => e.preventDefault()}
+            // Keeps DOM focus on the trigger (or the search field) through a
+            // click, so the control never fires a focusout that an ancestor
+            // reads as "left the row". A press in the search field is its own.
+            onMouseDown={(e) => {
+              if (!(e.target instanceof HTMLInputElement)) e.preventDefault()
+            }}
             className={[
               'orbital-no-drag orbital-popover-in fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-[5px]',
               // Canvas 1b's shell, shared with `MenuButton` (see `POPUP_SHELL`).
@@ -560,128 +814,42 @@ export function Select<T extends string | number>({
               id={listboxId}
               aria-label={aria['aria-label']}
               aria-labelledby={aria['aria-labelledby']}
-              aria-activedescendant={options.length > 0 ? optionId(activeIndex) : undefined}
+              aria-activedescendant={options.length > 0 && shown(activeIndex) ? optionId(activeIndex) : undefined}
               className="flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain"
               style={isSwatch ? { maxHeight: SWATCH_LIST_MAX_HEIGHT } : undefined}
             >
-              {groupRuns(options).map((run) => {
-                const rows = run.indices.map((index) => {
-                  const option = options[index]
-                  const isSelected = option.value === value
-                  const isActive = index === activeIndex
-                  if (isChip) {
-                    return (
-                      <ChipRow
-                        key={String(option.value)}
-                        id={optionId(index)}
-                        option={option}
-                        selected={isSelected}
-                        active={isActive}
-                        onHover={() => setActiveIndex(index)}
-                        onPick={() => commit(index)}
-                      />
-                    )
-                  }
-                  if (isSwatch) {
-                    return (
-                      <SwatchRow
-                        key={String(option.value)}
-                        id={optionId(index)}
-                        option={option}
-                        selected={isSelected}
-                        active={isActive}
-                        onHover={() => setActiveIndex(index)}
-                        onPick={() => commit(index)}
-                      />
-                    )
-                  }
-                  if (isDevice) {
-                    return (
-                      <DeviceRow
-                        key={String(option.value)}
-                        id={optionId(index)}
-                        option={option}
-                        selected={isSelected}
-                        active={isActive}
-                        onHover={() => setActiveIndex(index)}
-                        onPick={() => commit(index)}
-                      />
-                    )
-                  }
-                  return (
-                    <div
-                      key={String(option.value)}
-                      id={optionId(index)}
-                      role="option"
-                      aria-selected={isSelected}
-                      data-label={option.label}
-                      data-active={isActive || undefined}
-                      onMouseMove={() => setActiveIndex(index)}
-                      onClick={() => commit(index)}
-                      // 1b rows: 7px/9px inside a 7px radius, 8px gap. The
-                      // canvas paints hover and selection the SAME tint, which
-                      // would leave an arrowing keyboard user unable to tell
-                      // the two apart — so the active row keeps the accent
-                      // tint and only selection uses the canvas's.
-                      aria-disabled={option.inert || undefined}
-                      className={[
-                        'flex shrink-0 items-center gap-2 rounded-[7px] px-[9px] py-[7px]',
-                        option.inert ? 'cursor-default opacity-[.38]' : 'cursor-pointer',
-                        isActive && !option.inert
-                          ? 'bg-accent/10'
-                          : isSelected
-                            ? 'bg-line/9'
-                            : '',
-                        isSelected ? 'text-accent' : 'text-ink-100',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      {option.dotColor && (
-                        <span
-                          aria-hidden
-                          className="block h-1.5 w-1.5 shrink-0 rounded-full"
-                          style={{ background: option.dotColor }}
-                        />
-                      )}
-                      <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                      {option.count !== undefined && (
-                        <span aria-hidden className="shrink-0 text-ink-900/60">
-                          {option.count}
-                        </span>
-                      )}
-                      {option.trail && (
-                        <span className="shrink-0 font-mono fs-10 tracking-[0.04em] text-ink-900/60">
-                          {option.trail}
-                        </span>
-                      )}
-                      {(isSelected || reserveCheck) && (
-                        <span
-                          aria-hidden
-                          className={`shrink-0 fs-10 text-accent ${isSelected ? '' : 'opacity-0'}`}
-                        >
-                          ✓
-                        </span>
-                      )}
-                    </div>
-                  )
-                })
-                if (run.group === undefined) return <Fragment key={`run-${run.indices[0]}`}>{rows}</Fragment>
-                const headingId = `${listboxId}-group-${run.indices[0]}`
-                return (
-                  <div key={headingId} role="group" aria-labelledby={headingId} className="flex shrink-0 flex-col gap-0.5">
-                    {/* 1f: 8px/10px/4px, mono 9.5 at .18em in muted ink. */}
-                    <div
-                      id={headingId}
-                      role="presentation"
-                      className="px-2.5 pb-1 pt-2 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60"
-                    >
-                      {run.group}
-                    </div>
-                    {rows}
+              {!search ? (
+                renderRuns(allIndices)
+              ) : (
+                <>
+                  {renderRuns(allIndices.filter((i) => options[i].group !== search.group))}
+                  {/* 63c: a hairline, the search, then the searched group's list. */}
+                  <div aria-hidden className="mx-[5px] my-[3px] h-px shrink-0 bg-line/10" />
+                  <input
+                    type="text"
+                    autoFocus
+                    spellCheck={false}
+                    autoComplete="off"
+                    aria-label={search.placeholder}
+                    aria-controls={listboxId}
+                    aria-activedescendant={shown(activeIndex) ? optionId(activeIndex) : undefined}
+                    placeholder={search.placeholder}
+                    value={query}
+                    onChange={(e) => changeQuery(e.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    className="mx-1 mb-1 mt-0.5 shrink-0 rounded-[7px] border border-line/14 bg-space/60 px-[9px] py-[7px] font-mono fs-11.5 text-ink-100 outline-none placeholder:text-ink-900/45"
+                  />
+                  <div
+                    className="flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden overscroll-contain"
+                    style={{ maxHeight: search.maxHeight }}
+                  >
+                    {searched.map(renderRow)}
+                    {searched.length === 0 && (
+                      <div className="px-[9px] py-2 font-mono fs-10.5 text-ink-900/55">{search.empty(query.trim())}</div>
+                    )}
                   </div>
-                )
-              })}
+                </>
+              )}
             </div>
             {footer && isChip ? (
               // 61h: 6px/9px/4px under a .08 rule, mono 10px at .5.
@@ -764,16 +932,20 @@ function DeviceRow<T>({
 }
 
 /**
- * The options in runs that share a `group`, in their order: one run per
- * heading, and a run with no group for options that carry none.
+ * The options at `indices` in runs that share a `group`, in their order: one
+ * run per heading, and a run with no group for options that carry none.
  */
-function groupRuns<T>(options: ReadonlyArray<SelectOption<T>>): Array<{ group?: string; indices: number[] }> {
+function groupRuns<T>(
+  options: ReadonlyArray<SelectOption<T>>,
+  indices: readonly number[],
+): Array<{ group?: string; indices: number[] }> {
   const runs: Array<{ group?: string; indices: number[] }> = []
-  options.forEach((option, index) => {
+  for (const index of indices) {
+    const option = options[index]
     const last = runs[runs.length - 1]
     if (last && last.group === option.group) last.indices.push(index)
     else runs.push({ group: option.group, indices: [index] })
-  })
+  }
   return runs
 }
 
@@ -840,6 +1012,70 @@ function SwatchRow<T>({
       <span className={`min-w-0 truncate ${selected ? 'font-semibold' : 'font-medium'}`}>{option.label}</span>
       <span aria-hidden className="flex-1" />
       {option.trail && <span className="shrink-0 font-mono fs-10 text-ink-900/60">{option.trail}</span>}
+    </div>
+  )
+}
+
+/** A label with its `labelLead` stepped back into muted ink (canvas 63c: `origin/`). */
+function LeadLabel<T>({ option }: { option: SelectOption<T> }) {
+  const lead = option.labelLead
+  if (!lead || !option.label.startsWith(lead)) return <>{option.label}</>
+  return (
+    <>
+      <span className="text-ink-900/60">{lead}</span>
+      {option.label.slice(lead.length)}
+    </>
+  )
+}
+
+/**
+ * One row of the `branch` menu (canvas 63c, Worktree Group): 7px/9px inside a
+ * 7px radius, the name in mono 11.5px with its `sub` under it in sans 11px,
+ * or 6px/9px with its `trail` on the right in mono 10px; the ✓ trails. The
+ * selected row rests at .07, the active one (hover or arrows) at .09.
+ */
+function BranchRow<T>({
+  id,
+  option,
+  selected,
+  active,
+  onHover,
+  onPick,
+}: {
+  id: string
+  option: SelectOption<T>
+  selected: boolean
+  active: boolean
+  onHover: () => void
+  onPick: () => void
+}) {
+  return (
+    <div
+      id={id}
+      role="option"
+      aria-selected={selected}
+      data-label={option.label}
+      data-active={active || undefined}
+      onMouseMove={onHover}
+      onClick={onPick}
+      className={[
+        'flex shrink-0 cursor-pointer items-center gap-2 rounded-[7px] px-[9px]',
+        option.sub ? 'py-[7px]' : 'py-1.5',
+        active ? 'bg-line/9' : selected ? 'bg-line/7' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <span className="flex min-w-0 flex-1 flex-col gap-px">
+        <span className="truncate whitespace-nowrap font-mono fs-11.5 text-ink-100">
+          <LeadLabel option={option} />
+        </span>
+        {option.sub && <span className="truncate font-sans fs-11 text-ink-900/65">{option.sub}</span>}
+      </span>
+      {option.trail && <span className="flex-none font-mono fs-10 text-ink-900/50">{option.trail}</span>}
+      <span aria-hidden className={`flex-none font-mono fs-10 text-accent ${selected ? '' : 'opacity-0'}`}>
+        ✓
+      </span>
     </div>
   )
 }

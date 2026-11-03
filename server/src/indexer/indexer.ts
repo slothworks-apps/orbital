@@ -268,9 +268,9 @@ function writePass(
         // The title, the count and the timestamps come off the live branch
         // (spec 2026-09-29-rewind-design); stats take every entry and split
         // it themselves, since a dead branch was still billed.
-        // What Orbital said on a harness's account never names the session:
-        // the user's first message does, and until there is one, the
-        // harness's own name stands in for it.
+        // What Orbital said on a harness's account never names the session;
+        // with nothing else to take a title from, the harness's own name
+        // stands in.
         const harnessSaid = new Set(
           db.select({ uuid: harnessMessages.uuid }).from(harnessMessages)
             .where(eq(harnessMessages.sessionId, id)).all().map((r) => r.uuid),
@@ -281,10 +281,9 @@ function writePass(
           : '';
         const meta = extractMeta(liveBranch(entries), harnessSaid);
         if (!meta.title) meta.title = harnessName;
-        // A stand-in gives way to the user's first message once it arrives.
-        const replacesTitle = existing?.title === ''
-          || (harnessName !== '' && existing?.titleSource === 'derived'
-            && existing.title === harnessName && meta.title !== harnessName);
+        // A title, once there is one, is never derived again: the user's
+        // next message in a harness session is often a bare "yes".
+        const replacesTitle = existing?.title === '';
         // Sidechains live in their own files beside this one, so stats read
         // both; `extractMeta` above stays on the session's own entries. A
         // permission wait needs no trigger of its own: it is recorded before
@@ -320,7 +319,6 @@ function writePass(
               // a bare "/clear" included, when a transcript holds nothing else
               // — is kept as is on every later pass; the one-off cleanup of
               // stale titles is migration 0013, not something this loop redoes.
-              // A harness's stand-in name is the one exception (above).
               title: replacesTitle ? meta.title : sql`${sessions.title}`,
               firstAt: meta.firstAt,
               lastAt: meta.lastAt,

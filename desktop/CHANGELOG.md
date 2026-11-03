@@ -4,6 +4,21 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.47.0] — 2026-11-03
+### Added
+- Click a cluster's name on the map to fit that tag's planets in the view, the way ⌘F fits the whole map.
+- Settings → Sessions → Rules for session names: your own rules for the names Orbital writes (a language, your tracker's ID first), added to its own.
+- Settings → Updates → Experimental updates puts every Mac, Ubuntu server and the phone of your group on each new release a few days before everyone else. Turning it on asks once; turning it off keeps your version until the regular release catches up. On a server: `orbital experimental on|off`.
+- Releases now reach everyone a little later: each one goes to experimental updates first.
+- New session can start a session in its own git worktree, so two sessions in one repository stop switching each other's branch and mixing their files. The switch turns on by itself when another live session already works in that checkout. Orbital names the branch from your first prompt unless you type one, lets you pick the base (the main checkout's branch, for stacked work), and copies your local `CLAUDE.local.md` and settings into the new worktree. Ending a session in a worktree offers to remove the worktree; the branch always stays.
+### Changed
+- The maximised viewer fills the window: an image or a PDF page grows to fit the space (never past its own size) and sits centred in it, with its caption always just above the strip of the conversation's images.
+- New session is wider and has two columns, so the first prompt stays in view without scrolling.
+- Session names Orbital writes are longer and say more about the work, and start with the task's ID (CU-…, ABC-123, #183) when your message names one.
+### Fixed
+- Clicking a page in a PDF's page list in the maximised viewer turns to that page instead of closing the viewer.
+- A session started with a harness keeps its name when you first reply in it, instead of being renamed after your reply ("yes", say). It is named once, from the harness it follows.
+
 ## [0.46.0] — 2026-11-01
 ### Added
 - A right-click on selected text in a transcript or a viewer offers Copy, and a right-click in the composer or any text field offers Cut, Copy, Paste and Select All.

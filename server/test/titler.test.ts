@@ -1,13 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   MAX_PROMPT_CHARS,
+  MAX_TITLE_CHARS,
   SessionTitler,
   buildTitlePrompt,
   firstMessageSubject,
   isFirstMessage,
   parseTitleReply,
+  TITLE_SYSTEM_PROMPT,
 } from '../src/titler/titler.js';
 import type { ChatMessage } from '../src/types.js';
+import { TITLE_MAX_CHARS } from '../src/transcript/parser.js';
 
 const userMsg = (text: string): ChatMessage => ({ id: text, role: 'user', text });
 
@@ -68,8 +71,13 @@ describe('parseTitleReply', () => {
     expect(parseTitleReply('Space map zoom.')).toBe('Space map zoom');
   });
 
-  it('returns null for a reply longer than 48 characters', () => {
-    expect(parseTitleReply('x'.repeat(49))).toBeNull();
+  it('keeps a reply past the asked length, and cuts one past the stored title at a word', () => {
+    const asked = 'word '.repeat(Math.ceil(MAX_TITLE_CHARS / 5) + 2).trim();
+    expect(parseTitleReply(asked)).toBe(asked);
+    const stored = 'word '.repeat(Math.ceil(TITLE_MAX_CHARS / 5) + 2).trim();
+    const cut = parseTitleReply(stored)!;
+    expect(cut.length).toBeLessThanOrEqual(TITLE_MAX_CHARS);
+    expect(cut.endsWith('word…')).toBe(true);
   });
 
   it('returns null for an empty or whitespace reply', () => {
@@ -155,6 +163,26 @@ describe('SessionTitler.retitleNow', () => {
     await titler.retitleNow('s1', MESSAGES);
 
     expect(queryFn.mock.calls[0][0].options.persistSession).toBe(false);
+  });
+
+  it("adds the user's own rules to the prompt, read at every call, and nothing when they are blank", async () => {
+    let rules = '  start with the ClickUp ID  ';
+    const queryFn = fakeQueryFn('CU-1 Map zoom');
+    const titler = new SessionTitler({
+      queryFn: queryFn as never,
+      readSession: () => ({ title: 'Tag rules ordering', titleSource: 'derived' as const }),
+      applyTitle: vi.fn(),
+      userRules: () => rules,
+    });
+    const systemPrompt = (call: number) => queryFn.mock.calls[call][0].options.systemPrompt as string;
+
+    await titler.retitleNow('s1', MESSAGES);
+    expect(systemPrompt(0).startsWith(TITLE_SYSTEM_PROMPT)).toBe(true);
+    expect(systemPrompt(0).endsWith('\nstart with the ClickUp ID')).toBe(true);
+
+    rules = '   ';
+    await titler.retitleNow('s1', MESSAGES);
+    expect(systemPrompt(1)).toBe(TITLE_SYSTEM_PROMPT);
   });
 
   it('throws a failed query at its caller — someone is waiting on this one', async () => {

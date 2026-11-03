@@ -85,9 +85,10 @@ function TrunkMark() {
   )
 }
 
-function ForkMark() {
+/** The fork mark: a feature branch. `ink` overrides the where row's mark ink (`currentColor` takes the line's). */
+export function ForkMark({ ink = MARK_INK }: { ink?: string } = {}) {
   return (
-    <span aria-hidden className="relative block flex-none" style={{ width: 10, height: 12, color: MARK_INK }}>
+    <span aria-hidden className="relative block flex-none" style={{ width: 10, height: 12, color: ink }}>
       <span className="absolute rounded-[1px] bg-current" style={{ left: 1, top: 0, width: STROKE, height: 12 }} />
       <span
         className="absolute box-border"

@@ -104,7 +104,8 @@ On the server, as the account Orbital should run as (not root).
    npm under nvm is not found: the service starts without an interactive
    shell, and Ubuntu's `~/.bashrc` stops before it loads nvm.
 2. **Add the source and install.** The source file must be named
-   `orbital.sources`: the updater refreshes only that file.
+   `orbital.sources`: the updater refreshes only that file, and only that
+   file follows the update channel (see Updating).
    ```sh
    sudo install -d -m 0755 /etc/apt/keyrings
    curl -fsSL https://apt.slothworks.io/orbital.gpg | sudo tee /etc/apt/keyrings/orbital.gpg >/dev/null
@@ -185,6 +186,53 @@ How it works:
 The request file's content is ignored, so the request cannot name a
 version or a package. The pin in `/etc/apt/preferences.d/orbital.pref`
 keeps `orbital` from any other source from winning.
+
+### The update channel
+
+Releases reach the `experimental` suite first, and `stable` only after
+they are promoted (ADR `a-release-reaches-experimental-before-stable`).
+Which suite the server follows is the group's `update_channel` setting,
+shared by every Mac and server of the group. A server without a group has
+it to itself.
+
+To turn it on or off:
+- on a Mac, Settings → Updates → Experimental updates;
+- on the server, `orbital experimental on` or `orbital experimental off`.
+  `orbital experimental` shows which it is.
+
+Turning it on asks first, as the Mac's switch does; `--yes` skips the
+question. Turning it off asks nothing. Either way it changes the setting
+for every device in the group, the phones included.
+
+How the suite switches:
+- At start, and whenever `update_channel` changes (on this server or on
+  another member), the service writes `/var/lib/orbital/update/channel`:
+  `experimental` or `stable`. It writes only when the content differs.
+- The root unit `orbital-channel.path` sees the change and starts
+  `orbital-channel.service`, which runs `/usr/lib/orbital/update channel`.
+- The script reads the file only when it is a regular file, not a
+  symlink. Only the exact word `experimental` means experimental;
+  anything else, or no file, means stable.
+- It rewrites the `Suites:` line of
+  `/etc/apt/sources.list.d/orbital.sources`, only when it names the other
+  suite, and runs `apt-get update` for that file. It installs nothing.
+  Settings → Devices shows the new candidate within a few minutes.
+- An update request applies the channel first, then updates as above.
+- Without `orbital.sources`, the channel cannot switch. The script logs
+  that and leaves the source as it is. Rename the source file to
+  `orbital.sources` to fix it.
+
+Turning experimental off downgrades nothing. The pin is below 1000, so
+apt stays on the installed version until stable passes it.
+
+`orbital setup` turns `orbital-channel.path` on beside the updater. A
+server set up before the channel existed gets it with the upgrade.
+
+To see what the channel did:
+```sh
+journalctl -u orbital-channel
+grep Suites /etc/apt/sources.list.d/orbital.sources
+```
 
 `sudo apt upgrade` works as well.
 

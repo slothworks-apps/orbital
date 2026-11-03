@@ -408,7 +408,9 @@ const SECTION_KEYS = {
     'default_permission_mode',
     'default_project_dir',
     'name_sessions_automatically',
+    'session_name_rules',
   ],
+  worktrees: ['worktree_auto_on_when_occupied', 'worktree_copy_patterns'],
   clear: ['confirm_before_clear'],
   instructions: ['session_instructions_tips', 'session_instructions_custom', 'session_instructions_custom_text'],
   limits: [AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY],
@@ -565,12 +567,14 @@ export function Settings({ open, onClose }: SettingsProps) {
   const members = useOrbital((s) => s.remote?.group.members)
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [cliPathDraft, setCliPathDraft] = useState(settings.claude_executable_path ?? '')
+  const [copyPatternsDraft, setCopyPatternsDraft] = useState(settings.worktree_copy_patterns ?? '')
   // Shared across the group: a value another member sets while this is open
   // reaches the field unless it holds an unsaved edit (`useSyncedDraft`).
   const [instructionsDraft, setInstructionsDraft] = useSyncedDraft(
     settings.session_instructions_custom_text ?? '',
     open,
   )
+  const [nameRulesDraft, setNameRulesDraft] = useSyncedDraft(settings.session_name_rules ?? '', open)
   const [continueDraft, setContinueDraft] = useSyncedDraft(limitSettings(settings).text, open)
   /**
    * Orbital's tips, from the server. Null until the fetch lands and after a
@@ -658,6 +662,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     if (!open) return
     setProjectDirDraft(settings.default_project_dir ?? '')
     setCliPathDraft(settings.claude_executable_path ?? '')
+    setCopyPatternsDraft(settings.worktree_copy_patterns ?? '')
     // Only reseed on open — an in-flight PATCH from a prior keystroke resolving
     // must not fight the user's current typing while the panel stays open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -806,6 +811,16 @@ export function Settings({ open, onClose }: SettingsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliPathDraft, open])
 
+  // The files a new worktree gets copied in (spec
+  // 2026-11-02-work-in-a-worktree-design § Launch, step 4). Stored as typed:
+  // the server reads one gitignore pattern per line and skips blank ones.
+  useEffect(() => {
+    if (!open) return
+    if (copyPatternsDraft === (settings.worktree_copy_patterns ?? '')) return
+    return scheduleSave(() => void patchAndSet({ worktree_copy_patterns: copyPatternsDraft }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copyPatternsDraft, open])
+
   // And the third: Sessions' own instructions. Stored as typed — the
   // composer trims at compose time, so the field keeps showing what was
   // written (spec 2026-09-30-session-instructions-design § 3).
@@ -815,6 +830,14 @@ export function Settings({ open, onClose }: SettingsProps) {
     return scheduleSave(() => void patchAndSet({ session_instructions_custom_text: instructionsDraft }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instructionsDraft, open])
+
+  // The user's rules for session names, stored as typed like the instructions.
+  useEffect(() => {
+    if (!open) return
+    if (nameRulesDraft === (settings.session_name_rules ?? '')) return
+    return scheduleSave(() => void patchAndSet({ session_name_rules: nameRulesDraft }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameRulesDraft, open])
 
   // And the fourth: the text a limit wait sends at the reset (31c). An emptied
   // field is not saved — the server would fall back to the default anyway,
@@ -2267,6 +2290,57 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(checked) =>
                             void patchAndSet({ name_sessions_automatically: checked ? 'true' : 'false' })
                           }
+                        />
+                      </Row>
+                      <Row
+                        title="Rules for session names"
+                        setting="session_name_rules"
+                        desc="Your own rules for the names Orbital writes, at the first message and with ⟳, added to its own. Where they differ, yours win."
+                      >
+                        <TextArea
+                          aria-label="Rules for session names"
+                          size="sm"
+                          rows={3}
+                          value={nameRulesDraft}
+                          onChange={(e) => setNameRulesDraft(e.target.value)}
+                          placeholder="For example: in English, start with the ClickUp ID…"
+                          className="w-full resize-y"
+                        />
+                      </Row>
+                      </ScopeSection>
+                      {/* Spec 2026-11-02-work-in-a-worktree-design § Scope: the
+                          dialog's WORKTREE group is on by default; these two
+                          are what can be set about it. */}
+                      <ScopeSection keys={SECTION_KEYS.worktrees}>
+                      <SectionLabel>WORKTREES</SectionLabel>
+                      <Row
+                        title="Offer a worktree when another session works in the checkout"
+                        setting="worktree_auto_on_when_occupied"
+                        desc="New session turns Work in a worktree on by itself when a live session already works in the directory's checkout, and names it. Off, the switch always starts off."
+                      >
+                        <Toggle
+                          aria-label="Offer a worktree when another session works in the checkout"
+                          checked={settings.worktree_auto_on_when_occupied !== 'false'}
+                          onChange={(checked) =>
+                            void patchAndSet({ worktree_auto_on_when_occupied: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      <Row
+                        title="Files to copy into a new worktree"
+                        setting="worktree_copy_patterns"
+                        desc="Files git does not track, copied from the main checkout into each worktree Orbital makes. One gitignore pattern per line, for example .env*. CLAUDE.local.md and .claude/settings.local.json are always copied."
+                      >
+                        <TextArea
+                          aria-label="Files to copy into a new worktree"
+                          font="mono"
+                          size="sm"
+                          rows={3}
+                          spellCheck={false}
+                          value={copyPatternsDraft}
+                          onChange={(e) => setCopyPatternsDraft(e.target.value)}
+                          placeholder=".env*"
+                          className="w-full resize-y"
                         />
                       </Row>
                       </ScopeSection>

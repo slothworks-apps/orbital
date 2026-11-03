@@ -1,37 +1,56 @@
 #!/usr/bin/env node
 // The apt repository the `orbital` package ships through (spec
-// 2026-10-19-headless-server-design → The apt repository): one suite
-// (`stable`), one component (`main`), one architecture (`amd64`), every
-// released version kept, the Release file signed with the repository's key.
-// It lives in an S3 bucket (a MinIO) served at apt.slothworks.io.
+// 2026-10-19-headless-server-design → The apt repository): two suites
+// (SUITES: `experimental`, where every release lands, and `stable`, which
+// Promote fills — spec 2026-11-02-experimental-release-channel-design), one
+// component (`main`), one architecture (`amd64`), one pool both suites share,
+// every released version kept, each suite's Release file signed with the
+// repository's key. It lives in an S3 bucket (a MinIO) served at
+// apt.slothworks.io.
 //
-//   node scripts/apt-repo.mjs add --deb <file> --packages <file|-> --out <dir>
+// The commands that write name their suite; the ones that read default to
+// `stable`, the suite a server follows unless it chose experimental.
+//
+//   node scripts/apt-repo.mjs add --suite <suite> --deb <file> --packages <file|-> --out <dir>
 //       The repository's new files in <dir>, to upload over the bucket:
 //         pool/main/o/orbital/<the .deb>
-//         dists/stable/main/binary-amd64/Packages, Packages.gz,
+//         dists/<suite>/main/binary-amd64/Packages, Packages.gz,
 //           and by-hash/SHA256/<hash> copies of both
-//         dists/stable/Release, Release.gpg, InRelease
+//         dists/<suite>/Release, Release.gpg, InRelease
 //         orbital.gpg                      the public key, binary
-//       --packages is the repository's current Packages file (`-` for none,
-//       the first release); its entries are kept, so the pool on the bucket
-//       is never downloaded or rewritten. A version it lists already is not
-//       added again (mergePackages). The key is the armored secret key
+//       --packages is the suite's current Packages file (`-` for none, the
+//       suite's first release); its entries are kept, so the pool on the
+//       bucket is never downloaded or rewritten. A version it lists already
+//       is not added again (mergePackages). The key is the armored secret key
 //       in APT_GPG_PRIVATE_KEY, its passphrase (if any) in APT_GPG_PASSPHRASE.
 //       Needs dpkg-scanpackages and gpg.
 //
 //       Writes added=true|false to $GITHUB_OUTPUT when it is set.
 //
-//   node scripts/apt-repo.mjs resign --packages <file> --out <dir>
+//   node scripts/apt-repo.mjs promote --version <version> --from <Packages> --packages <file|-> --out <dir>
+//       The `stable` index with orbital <version> (a Debian version) added:
+//       its entry is taken as it is from --from, the `experimental` suite's
+//       Packages file, into --packages, the `stable` one (`-` for none). No
+//       .deb is touched: the entry names the pool file the release put there.
+//       Writes dists/stable/… and orbital.gpg into <dir>, as `add` does, and
+//       added=true|false to $GITHUB_OUTPUT. Run by .github/workflows/promote.yml.
+//
+//   node scripts/apt-repo.mjs resign --suite <suite> --packages <file|-> --out <dir>
 //       The index for that Packages file signed again, nothing added: what
 //       .github/workflows/apt-resign.yml runs so the Release never passes its
-//       Valid-Until (APT_VALID_DAYS) between releases.
+//       Valid-Until (APT_VALID_DAYS) between releases. `-` signs an empty
+//       index, so a suite exists before its first release.
 //
-//   node scripts/apt-repo.mjs --check <version> [--base <URL> | --file <Packages>]
-//       Whether the repository (apt.slothworks.io unless --base) lists
-//       `orbital` <version>, a Debian version (debVersion), in a Packages file
-//       its valid InRelease vouches for (`check`); with --file, whether that
-//       Packages file lists it. Exit 0 listed, 1 not listed, 2 the repository
-//       could not be asked.
+//   node scripts/apt-repo.mjs --check <version> [--suite <suite>] [--base <URL> | --file <Packages>]
+//       Whether the suite (`stable` unless named) of the repository
+//       (apt.slothworks.io unless --base) lists `orbital` <version>, a Debian
+//       version (debVersion), in a Packages file its valid InRelease vouches
+//       for (`check`); with --file, whether that Packages file lists it.
+//       Exit 0 listed, 1 not listed, 2 the repository could not be asked.
+//
+//   node scripts/apt-repo.mjs --valid [--suite <suite>] [--base <URL>]
+//       Whether the suite's index is there, matches its InRelease and has
+//       not expired, whatever it lists. Exit codes as --check.
 //
 // Upload pool/ first, then the by-hash copies and the Packages files, then the
 // Release files, so a client never reads an index that names a file not there
@@ -54,12 +73,24 @@ import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 
 export const APT_URL = 'https://apt.slothworks.io'
-export const SUITE = 'stable'
+export const STABLE = 'stable'
+export const EXPERIMENTAL = 'experimental'
+export const SUITES = [STABLE, EXPERIMENTAL]
 export const COMPONENT = 'main'
 export const ARCH = 'amd64'
-export const PACKAGES_PATH = `dists/${SUITE}/${COMPONENT}/binary-${ARCH}/Packages`
-export const PACKAGES_URL = `${APT_URL}/${PACKAGES_PATH}`
 export const POOL = `pool/${COMPONENT}/o/orbital`
+
+export function checkSuite(suite) {
+  if (!SUITES.includes(suite)) {
+    throw new Error(`unknown suite "${suite}": one of ${SUITES.join(', ')}`)
+  }
+  return suite
+}
+
+/** The suite's Packages file, relative to the repository's root. */
+export function packagesPath(suite) {
+  return `dists/${checkSuite(suite)}/${COMPONENT}/binary-${ARCH}/Packages`
+}
 
 // A Packages file's entries: blank-line separated, `Field: value`, a line
 // that starts with a space continues the field before it.
@@ -104,6 +135,15 @@ export function mergePackages(current, added) {
   return { text: `${all.map((e) => e.raw).join('\n\n')}\n`, added: !listed, version }
 }
 
+// Promote's index: `stable` with the entry `experimental` lists for `version`
+// added as it is, byte for byte, so it names the same pool file with the same
+// hashes. A version `stable` lists already is left as it is (mergePackages).
+export function promoteEntry({ from, into, version, pkg = 'orbital' }) {
+  const entry = parsePackages(from).find((e) => e.fields.package === pkg && e.fields.version === version)
+  if (!entry) throw new Error(`the experimental suite does not list ${pkg} ${version}: nothing to promote`)
+  return mergePackages(into, `${entry.raw}\n`)
+}
+
 // How long a signed Release stays valid. apt refuses an index past its
 // Valid-Until, so a mirror or a man in the middle cannot keep serving an old
 // index (and an old, vulnerable version) for ever. Every release signs the
@@ -124,12 +164,13 @@ const sha256 = (data) => createHash('sha256').update(data).digest('hex')
 // dists/<suite>/. SHA256 only, which every apt that reads by hash uses; with
 // Acquire-By-Hash a client fetches each index by its hash, so an upload never
 // shows it an index that does not match the Release it holds.
-export function releaseFile(files, date, validDays = APT_VALID_DAYS) {
+export function releaseFile(files, date, { suite = STABLE, validDays = APT_VALID_DAYS } = {}) {
+  checkSuite(suite)
   const lines = [
     'Origin: Orbital',
     'Label: Orbital',
-    `Suite: ${SUITE}`,
-    `Codename: ${SUITE}`,
+    `Suite: ${suite}`,
+    `Codename: ${suite}`,
     `Date: ${rfc2822(date)}`,
     `Valid-Until: ${rfc2822(new Date(date.getTime() + validDays * 86_400_000))}`,
     `Architectures: ${ARCH}`,
@@ -212,7 +253,8 @@ function sign(dir, out) {
   }
 }
 
-export function addRelease({ deb, packages, out, now = new Date(), signed = true }) {
+export function addRelease({ suite, deb, packages, out, now = new Date(), signed = true }) {
+  checkSuite(suite)
   // The new .deb's entry alone, scanned where it is the only file, with its
   // Filename relative to the repository's root.
   const scan = mkdtempSync(join(tmpdir(), 'orbital-scan-'))
@@ -233,14 +275,14 @@ export function addRelease({ deb, packages, out, now = new Date(), signed = true
     copyFileSync(deb, join(out, POOL, basename(deb)))
   }
 
-  return { packages: text, added, version, key: writeIndex({ text, out, now, signed }) }
+  return { packages: text, added, version, key: writeIndex({ suite, text, out, now, signed }) }
 }
 
-// The index for `text` in out/dists: Packages, Packages.gz, their by-hash
-// copies, the Release file and its signatures. Returns the signing key's
-// fingerprint, or null unsigned.
-export function writeIndex({ text, out, now = new Date(), signed = true }) {
-  const suite = join(out, 'dists', SUITE)
+// The index for `text` in out/dists/<suite>: Packages, Packages.gz, their
+// by-hash copies, the Release file and its signatures. Returns the signing
+// key's fingerprint, or null unsigned.
+export function writeIndex({ suite: name, text, out, now = new Date(), signed = true }) {
+  const suite = join(out, 'dists', checkSuite(name))
   const index = `${COMPONENT}/binary-${ARCH}`
   const binary = join(suite, index)
   const byHash = join(binary, 'by-hash', 'SHA256')
@@ -259,16 +301,17 @@ export function writeIndex({ text, out, now = new Date(), signed = true }) {
         { name: `${index}/Packages.gz`, data: gz },
       ],
       now,
+      { suite: name },
     ),
   )
   return signed ? sign(suite, out) : null
 }
 
-// Whether the repository lists `version` (a Debian version) as published:
-// its Packages lists it, the SHA256 its InRelease gives for that Packages file
-// matches, and the InRelease is still valid. An index caught half uploaded, or
-// expired, is not shipped, so the release job runs and signs it again.
-export async function check(version, { base = APT_URL, fetchFn = fetch, now = new Date() } = {}) {
+// The suite's Packages file as published, or null: there, the SHA256 its
+// InRelease gives for it matches, and the InRelease is still valid. An index
+// caught half uploaded, or expired, is null like a missing one.
+export async function publishedPackages({ suite = STABLE, base = APT_URL, fetchFn = fetch, now = new Date() } = {}) {
+  const path = packagesPath(suite)
   const get = async (path) => {
     const url = `${base}/${path}`
     const res = await fetchFn(url, { signal: AbortSignal.timeout(20_000) })
@@ -277,12 +320,20 @@ export async function check(version, { base = APT_URL, fetchFn = fetch, now = ne
     if (!res.ok) throw new Error(`${url}: ${res.status} ${res.statusText}`)
     return Buffer.from(await res.arrayBuffer())
   }
-  const [packages, inRelease] = await Promise.all([get(PACKAGES_PATH), get(`dists/${SUITE}/InRelease`)])
-  if (packages === null || inRelease === null) return false
+  const [packages, inRelease] = await Promise.all([get(path), get(`dists/${suite}/InRelease`)])
+  if (packages === null || inRelease === null) return null
   const release = parseRelease(inRelease.toString('utf8'))
-  if (release.sha256.get(`${COMPONENT}/binary-${ARCH}/Packages`) !== sha256(packages)) return false
-  if (release.validUntil !== null && !(release.validUntil > now)) return false
-  return listsVersion(packages.toString('utf8'), version)
+  if (release.sha256.get(`${COMPONENT}/binary-${ARCH}/Packages`) !== sha256(packages)) return null
+  if (release.validUntil !== null && !(release.validUntil > now)) return null
+  return packages.toString('utf8')
+}
+
+// Whether the suite lists `version` (a Debian version) as published: in a
+// Packages file publishedPackages vouches for. One that is not is not
+// shipped, so the release job runs and signs it again.
+export async function check(version, options = {}) {
+  const packages = await publishedPackages(options)
+  return packages !== null && listsVersion(packages, version)
 }
 
 function flags(argv) {
@@ -294,44 +345,81 @@ function flags(argv) {
   return out
 }
 
+// `-` is no Packages file yet: an empty one. A file that is there must list
+// something, so a read that came back empty never signs an index that drops
+// every version.
+function readPackages(file) {
+  if (file === '-') return ''
+  const text = readFileSync(file, 'utf8')
+  if (parsePackages(text).length === 0) throw new Error(`${file} lists no package; pass - for a suite with none yet`)
+  return text
+}
+
 async function main(argv) {
-  if (argv[0] === '--check') {
-    const f = flags(argv.slice(2))
-    if (!argv[1]) throw new Error('usage: apt-repo.mjs --check <version> [--base <URL> | --file <Packages>]')
-    let listed
+  if (argv[0] === '--check' || argv[0] === '--valid') {
+    const valid = argv[0] === '--valid'
+    const version = valid ? null : argv[1]
+    const f = flags(argv.slice(valid ? 1 : 2))
+    if (!valid && !version) {
+      throw new Error('usage: apt-repo.mjs --check <version> [--suite <suite>] [--base <URL> | --file <Packages>]')
+    }
+    const suite = checkSuite(f.suite ?? STABLE)
+    const options = { suite, ...(f.base ? { base: f.base } : {}) }
+    let ok
     try {
-      listed = f.file
-        ? listsVersion(readFileSync(f.file, 'utf8'), argv[1])
-        : await check(argv[1], f.base ? { base: f.base } : {})
+      if (valid) ok = (await publishedPackages(options)) !== null
+      else if (f.file) ok = listsVersion(readFileSync(f.file, 'utf8'), version)
+      else ok = await check(version, options)
     } catch (e) {
       console.error(`could not ask the repository: ${e.message}`)
       process.exit(2)
     }
-    console.log(listed ? `orbital ${argv[1]} is listed` : `orbital ${argv[1]} is not listed`)
-    process.exit(listed ? 0 : 1)
+    if (valid) console.log(ok ? `the ${suite} index is valid` : `the ${suite} index is missing, unvouched or expired`)
+    else console.log(`orbital ${version} is ${ok ? '' : 'not '}listed in ${suite}`)
+    process.exit(ok ? 0 : 1)
   }
   if (argv[0] === 'add') {
     const f = flags(argv.slice(1))
-    if (!f.deb || !f.packages || !f.out) {
-      throw new Error('usage: apt-repo.mjs add --deb <file> --packages <file|-> --out <dir>')
+    if (!f.suite || !f.deb || !f.packages || !f.out) {
+      throw new Error('usage: apt-repo.mjs add --suite <suite> --deb <file> --packages <file|-> --out <dir>')
     }
-    const packages = f.packages === '-' ? '' : readFileSync(f.packages, 'utf8')
-    const { key, added, version } = addRelease({ deb: resolve(f.deb), packages, out: resolve(f.out) })
+    const { key, added, version } = addRelease({
+      suite: f.suite,
+      deb: resolve(f.deb),
+      packages: readPackages(f.packages),
+      out: resolve(f.out),
+    })
     if (!added) console.log(`orbital ${version} is listed already: its entry and .deb stay; the index is signed again.`)
-    console.log(`Signed with ${key}; the repository's files are in ${f.out}`)
+    console.log(`Signed ${f.suite} with ${key}; the repository's files are in ${f.out}`)
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `added=${added}\n`)
+    return
+  }
+  if (argv[0] === 'promote') {
+    const f = flags(argv.slice(1))
+    if (!f.version || !f.from || !f.packages || !f.out) {
+      throw new Error('usage: apt-repo.mjs promote --version <version> --from <Packages> --packages <file|-> --out <dir>')
+    }
+    const { text, added } = promoteEntry({
+      from: readPackages(f.from),
+      into: readPackages(f.packages),
+      version: f.version,
+    })
+    const key = writeIndex({ suite: STABLE, text, out: resolve(f.out) })
+    if (!added) console.log(`orbital ${f.version} is in ${STABLE} already; the index is signed again.`)
+    console.log(`Signed ${STABLE} with ${key}; the repository's files are in ${f.out}`)
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `added=${added}\n`)
     return
   }
   if (argv[0] === 'resign') {
     const f = flags(argv.slice(1))
-    if (!f.packages || !f.out) throw new Error('usage: apt-repo.mjs resign --packages <file> --out <dir>')
-    const text = readFileSync(f.packages, 'utf8')
-    if (parsePackages(text).length === 0) throw new Error(`${f.packages} lists no package: nothing to sign`)
-    const key = writeIndex({ text, out: resolve(f.out) })
-    console.log(`Signed again with ${key}; the index is in ${f.out}`)
+    if (!f.suite || !f.packages || !f.out) {
+      throw new Error('usage: apt-repo.mjs resign --suite <suite> --packages <file|-> --out <dir>')
+    }
+    const key = writeIndex({ suite: f.suite, text: readPackages(f.packages), out: resolve(f.out) })
+    console.log(`Signed ${f.suite} again with ${key}; the index is in ${f.out}`)
     return
   }
-  throw new Error('usage: apt-repo.mjs add … | resign … | --check <version>')
+  throw new Error('usage: apt-repo.mjs add … | promote … | resign … | --check <version> | --valid')
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -7,6 +7,7 @@ domain: sessions
 related:
   - 2026-10-07-live-working-tree-design
   - git-location-is-ambient-not-recorded
+  - orbital-makes-the-worktree-and-names-its-branch
 tags:
   - git
   - worktree
@@ -48,3 +49,16 @@ subagents count in the header.
 - **Storing the working tree in a column.** It is live state, like
   `status`. A restart rebuilds it from the first read of the transcript
   ([[git-location-is-ambient-not-recorded]]).
+
+## Consequences
+
+- **A session Orbital launches into a worktree has the worktree as its
+  home** ([[orbital-makes-the-worktree-and-names-its-branch]]). The launch
+  makes `<repo>/.claude/worktrees/<leaf>` before the session starts, and its
+  `cwd` is that path, or the same subdirectory inside it. Home and working
+  tree are then the same tree from the first turn. The project, the tags and
+  the map follow the worktree path: tag rules are unanchored, so a rule for
+  the repository still matches it. New Session's recent directories show the
+  repository root instead of the worktree. Once the worktree is removed, the
+  home is a missing directory, and resuming the session goes through the
+  missing-directory flow.

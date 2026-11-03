@@ -5,6 +5,7 @@ import { modelByAnyId } from '../lib/models'
 import { claudeDirPrefill, type ClaudeDirPrefillSource } from '../lib/claudeDirs'
 import type { OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
 import type { DirectoryRow } from '../lib/directorySearch'
+import type { WorktreeLaunch } from '@orbital/shared/worktree'
 import { humanizeError } from './composer'
 
 /**
@@ -92,6 +93,8 @@ export interface LaunchInput {
   mcpjson?: McpjsonDecisions
   /** The device chosen in DEVICE (canvas 50j); null before any device is known, which leaves it to the default. */
   machine: string | null
+  /** The WORKTREE group's choice (spec 2026-11-02-work-in-a-worktree-design § Launch); absent, the session starts in the directory. */
+  worktree?: WorktreeLaunch
 }
 
 /**
@@ -111,5 +114,6 @@ export function launchRequest(input: LaunchInput) {
     ...(input.refs.length > 0 ? { attachments: input.refs } : {}),
     ...(input.mcpjson ? { mcpjson: input.mcpjson } : {}),
     ...(input.machine !== null ? { machine: input.machine } : {}),
+    ...(input.worktree ? { worktree: input.worktree } : {}),
   }
 }

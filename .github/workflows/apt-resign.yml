@@ -2,10 +2,13 @@ name: Sign the apt index again
 
 # The apt repository's Release file carries a Valid-Until
 # (scripts/apt-repo.mjs → APT_VALID_DAYS); apt refuses an index past it.
-# Every release signs it again, and this does once a month between releases,
-# so servers never see it expire. Nothing is built or added: the bucket's
-# Packages file is signed as it is. Run it by hand (Actions → Sign the apt
-# index again → Run workflow) after a missed month. GitHub turns schedules
+# Every release signs its suite again, and this does once a month between
+# releases, so servers never see it expire. It signs both suites, `stable`
+# and `experimental` (ADR a-release-reaches-experimental-before-stable).
+# Nothing is built or added: the bucket's Packages file is signed as it is;
+# a suite with none yet gets an empty signed index, so a server switched to
+# it reads an empty suite rather than a missing one. Run it by hand
+# (Actions → Sign the apt index again → Run workflow) after a missed month. GitHub turns schedules
 # off in a repository with no activity for 60 days; the runbook
 # run-orbital-on-an-ubuntu-server says how to tell and what to do.
 on:
@@ -51,7 +54,7 @@ jobs:
           node-version: 24
 
       # The same uploads as release.yml's deb-publish, minus the pool.
-      - name: Sign the index again and upload it
+      - name: Sign both suites again and upload them
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
@@ -66,34 +69,45 @@ jobs:
           aws configure set default.s3.addressing_style path
           s3() { aws s3 --endpoint-url "$S3_ENDPOINT" "$@"; }
           bucket="s3://$S3_BUCKET"
-          index=dists/stable/main/binary-amd64
-          current="$RUNNER_TEMP/Packages"
-          repo="$RUNNER_TEMP/repo"
-          if ! s3 cp "$bucket/$index/Packages" "$current"; then
-            if aws s3api --endpoint-url "$S3_ENDPOINT" \
-                head-object --bucket "$S3_BUCKET" --key "$index/Packages" >/dev/null 2>&1; then
-              echo "::error::Could not read the repository's Packages file."
-              exit 1
+          for suite in stable experimental; do
+            index="dists/$suite/main/binary-amd64"
+            current="$RUNNER_TEMP/Packages-$suite"
+            repo="$RUNNER_TEMP/repo-$suite"
+            if ! answer="$(aws s3api head-object --endpoint-url "$S3_ENDPOINT" \
+                --bucket "$S3_BUCKET" --key "$index/Packages" 2>&1)"; then
+              if printf '%s' "$answer" | grep -q '(404)'; then
+                echo "::notice::The $suite suite has no Packages file yet; signing an empty index."
+                current=-
+              else
+                echo "$answer"
+                echo "::error::Could not ask for the $suite suite's Packages file."
+                exit 1
+              fi
+            else
+              s3 cp "$bucket/$index/Packages" "$current"
+              [ -s "$current" ] || current=-
             fi
-            echo "::notice::The repository has no release yet; nothing to sign."
-            exit 0
-          fi
-          node scripts/apt-repo.mjs resign --packages "$current" --out "$repo"
-          s3 cp "$repo/$index/by-hash" "$bucket/$index/by-hash" --recursive \
-            --cache-control 'public, max-age=31536000, immutable'
-          for f in Packages Packages.gz; do
-            s3 cp "$repo/$index/$f" "$bucket/$index/$f" --cache-control 'no-cache'
-          done
-          for f in Release Release.gpg InRelease; do
-            s3 cp "$repo/dists/stable/$f" "$bucket/dists/stable/$f" --cache-control 'no-cache'
+            node scripts/apt-repo.mjs resign --suite "$suite" --packages "$current" --out "$repo"
+            s3 cp "$repo/$index/by-hash" "$bucket/$index/by-hash" --recursive \
+              --cache-control 'public, max-age=31536000, immutable'
+            for f in Packages Packages.gz; do
+              s3 cp "$repo/$index/$f" "$bucket/$index/$f" --cache-control 'no-cache'
+            done
+            for f in Release Release.gpg InRelease; do
+              s3 cp "$repo/dists/$suite/$f" "$bucket/dists/$suite/$f" --cache-control 'no-cache'
+            done
           done
 
-      - name: Check the repository answers with the new index
+      - name: Check the repository answers with the new indexes
         run: |
-          version="$(curl -fsS https://apt.slothworks.io/dists/stable/main/binary-amd64/Packages | awk '/^Version: /{v=$2} END{print v}')"
-          for _ in 1 2 3 4 5 6; do
-            node scripts/apt-repo.mjs --check "$version" && exit 0
-            sleep 30
+          for suite in stable experimental; do
+            ok=
+            for _ in 1 2 3 4 5 6; do
+              if node scripts/apt-repo.mjs --valid --suite "$suite"; then ok=1; break; fi
+              sleep 30
+            done
+            if [ -z "$ok" ]; then
+              echo "::error::apt.slothworks.io does not answer with a valid $suite index"
+              exit 1
+            fi
           done
-          echo "::error::apt.slothworks.io does not answer with a valid index"
-          exit 1

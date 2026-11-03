@@ -3,8 +3,10 @@ import { UPDATE_KEEPALIVE_MS } from '@orbital/shared/remote/serverUpdate';
 import { WorkingSessions } from '../src/lib/background';
 import {
   AUTO_DOWNLOAD_KEY,
+  channelStep,
   checkAnswerMessage,
   parseAutoDownload,
+  parseChannelSetting,
   parseSkippedVersion,
   parseUpdateAction,
   parseUpdateCheckAnswer,
@@ -17,6 +19,8 @@ import {
   serverStateDue,
   shouldCheckForUpdates,
   updateSize,
+  CHECK_ROUNDS,
+  UpdateChecks,
   UpdateFlow,
   type FoundOutcome,
   type UpdateAction,
@@ -24,7 +28,7 @@ import {
 
 const MB = 1_000_000;
 /** What a view carries beside the prompt when no member's update is involved. */
-const OWN = { remote: null, sessionStarted: false, receipt: null };
+const OWN = { latestRegular: null, remote: null, sessionStarted: false, receipt: null };
 
 describe('shouldCheckForUpdates', () => {
   it('checks in a packaged build that knows where its releases are', () => {
@@ -46,6 +50,115 @@ describe('parseAutoDownload', () => {
     for (const raw of [{}, { [AUTO_DOWNLOAD_KEY]: 'false' }, { [AUTO_DOWNLOAD_KEY]: 'yes' }, null, 'true']) {
       expect(parseAutoDownload(raw)).toBe(false);
     }
+  });
+});
+
+describe('the update channel', () => {
+  it('is experimental only for the exact word, stable otherwise', () => {
+    expect(parseChannelSetting({ update_channel: 'experimental' })).toBe('experimental');
+    for (const raw of [{}, { update_channel: 'stable' }, { update_channel: 'Experimental' }, { update_channel: 'experimental\n' }, null, 'experimental']) {
+      expect(parseChannelSetting(raw)).toBe('stable');
+    }
+  });
+
+  it('checks at once on a change, not on the first read or a read of the same channel', () => {
+    expect(channelStep(null, 'experimental')).toEqual({ allowPrerelease: true, check: false });
+    expect(channelStep('stable', 'experimental')).toEqual({ allowPrerelease: true, check: true });
+    expect(channelStep('experimental', 'stable')).toEqual({ allowPrerelease: false, check: true });
+    expect(channelStep('stable', 'stable')).toEqual({ allowPrerelease: false, check: false });
+  });
+});
+
+describe('UpdateChecks', () => {
+  /** A check that answers when `answer` is called; the channel is `stable` until changed. */
+  function harness() {
+    let stable = true;
+    const pending: Array<(found: string) => void> = [];
+    let prepared = 0;
+    const checks = new UpdateChecks<string>({
+      prepare: async () => {
+        prepared++;
+      },
+      onStable: () => stable,
+      check: () => new Promise<string>((resolve) => pending.push(resolve)),
+    });
+    const settle = () => new Promise((r) => setTimeout(r, 0));
+    return {
+      checks,
+      pending,
+      prepared: () => prepared,
+      settle,
+      switchTo(next: 'stable' | 'experimental') {
+        stable = next === 'stable';
+        checks.channelChanged();
+      },
+    };
+  }
+
+  it('answers with what was found and the channel it asked on', async () => {
+    const h = harness();
+    const run = h.checks.run();
+    await h.settle();
+    h.pending[0]('0.47.0');
+    expect(await run).toEqual({ kind: 'steady', result: '0.47.0', onStable: true });
+  });
+
+  it('joins a check already running rather than starting another', async () => {
+    const h = harness();
+    const a = h.checks.run();
+    const b = h.checks.run();
+    await h.settle();
+    expect(h.pending).toHaveLength(1);
+    h.pending[0]('0.47.0');
+    expect(await b).toEqual(await a);
+  });
+
+  it('asks again on the new channel when it changes during a check, and drops the old answer', async () => {
+    const h = harness();
+    const run = h.checks.run();
+    await h.settle();
+    h.switchTo('experimental');
+    // A caller after the change joins the same run, which asks again.
+    const joined = h.checks.run();
+    h.pending[0]('0.46.0');
+    await h.settle();
+    expect(h.pending).toHaveLength(2);
+    expect(h.prepared()).toBe(2);
+    h.pending[1]('0.47.0-experimental');
+    const expected = { kind: 'steady', result: '0.47.0-experimental', onStable: false };
+    expect(await run).toEqual(expected);
+    expect(await joined).toEqual(expected);
+  });
+
+  it('gives up as unsteady when the channel changes during every round', async () => {
+    const h = harness();
+    const run = h.checks.run();
+    for (let round = 0; round < CHECK_ROUNDS; round++) {
+      await h.settle();
+      h.switchTo(round % 2 ? 'stable' : 'experimental');
+      h.pending[round]('x');
+    }
+    expect(await run).toEqual({ kind: 'unsteady' });
+  });
+
+  it('starts a fresh run after one ends, and after one fails', async () => {
+    const h = harness();
+    const first = h.checks.run();
+    await h.settle();
+    h.pending[0]('a');
+    await first;
+    const failing = new UpdateChecks<string>({
+      prepare: async () => {},
+      onStable: () => true,
+      check: () => Promise.reject(new Error('offline')),
+    });
+    await expect(failing.run()).rejects.toThrow('offline');
+    await expect(failing.run()).rejects.toThrow('offline');
+    const second = h.checks.run();
+    await h.settle();
+    expect(h.pending).toHaveLength(2);
+    h.pending[1]('b');
+    expect(await second).toEqual({ kind: 'steady', result: 'b', onStable: true });
   });
 });
 
@@ -99,11 +212,30 @@ describe('UpdateFlow', () => {
     expect(flow.view.checkedAt).toBe(1000);
   });
 
+  it('names the regular release only from the last check on stable', () => {
+    expect(flow.checked(1000, '0.36.2').changed).toBe(true);
+    expect(flow.view.latestRegular).toBe('0.36.2');
+    // A check on experimental does not see the regular release: forgotten, not kept from before.
+    expect(flow.checked(2000).changed).toBe(true);
+    expect(flow.view.latestRegular).toBeNull();
+  });
+
   describe('asking before the download (setting off)', () => {
     it('offers a found version with its size, and downloads nothing', () => {
       const step = flow.available('0.26.0', 131.4 * MB);
       expect(step).toMatchObject({ changed: true, download: false, restart: false });
       expect(flow.view).toEqual({ phase: 'available', version: '0.26.0', totalMB: 131, checkedAt: null, ...OWN });
+    });
+
+    it('withdraws Available when a later check finds nothing, but not a download under way', () => {
+      flow.available('0.27.0', 130 * MB);
+      expect(flow.upToDate()).toMatchObject({ changed: true, download: false });
+      expect(flow.view).toMatchObject({ phase: 'none' });
+
+      flow.available('0.27.0', 130 * MB);
+      flow.act('download');
+      expect(flow.upToDate().changed).toBe(false);
+      expect(flow.view).toMatchObject({ phase: 'downloading', version: '0.27.0' });
     });
 
     it('downloads on Download, and shows the progress', () => {
@@ -1122,7 +1254,7 @@ describe('parseUpdateView', () => {
     const remote = { by: 'Pixel 8', working: 2, wait: false };
     const receipt = { by: 'Pixel 8', at: 5, stopped: 2, version: '0.26.0' };
     const dl = { phase: 'downloading', version: '0.26.0', percent: 40, totalMB: 130, checkedAt: null };
-    expect(parseUpdateView({ ...dl, remote, sessionStarted: false, receipt })).toEqual({ ...dl, remote, sessionStarted: false, receipt });
+    expect(parseUpdateView({ ...dl, remote, sessionStarted: false, receipt })).toEqual({ ...dl, latestRegular: null, remote, sessionStarted: false, receipt });
     const restarting = { phase: 'restarting', version: '0.26.0', checkedAt: null };
     expect(parseUpdateView({ ...restarting, remote })).toMatchObject({ remote });
     const ready = { phase: 'ready', version: '0.26.0', workingCount: 3, buttons: 'two', checkedAt: null };
@@ -1158,6 +1290,8 @@ describe('parseUpdateView', () => {
       expect(parseUpdateView(raw)).toEqual({ phase: 'none', checkedAt: null, ...OWN });
     }
     expect(parseUpdateView({ phase: 'later', checkedAt: 7 })).toEqual({ phase: 'none', checkedAt: 7, ...OWN });
+    expect(parseUpdateView({ phase: 'none', latestRegular: '0.36.2' }).latestRegular).toBe('0.36.2');
+    for (const bad of ['', 3, null]) expect(parseUpdateView({ phase: 'none', latestRegular: bad }).latestRegular).toBeNull();
   });
 });
 

@@ -312,6 +312,7 @@ describe('harness routes', () => {
     registerHarnessRoutes(app, {
       harness: made.service,
       errors,
+      titler: { nameFromHarness: vi.fn(async () => false) },
       settings: { get: (k: string) => (k === 'harness_enabled' && enabled ? 'true' : ''), set: () => {} },
     } as never, deliver, (id) => (id === 'known' ? [{ id: 'u', role: 'user', text: 'build the Input' } as never] : null));
     return { ...made, app, delivered, deliver, errors };
@@ -1003,6 +1004,7 @@ describe('the redesigned run', () => {
     const app = Fastify();
     registerHarnessRoutes(app, {
       harness: made.service, errors: { record: vi.fn() },
+      titler: { nameFromHarness: vi.fn(async () => false) },
       settings: { get: (k: string) => (k === 'harness_enabled' ? 'true' : ''), set: () => {} },
     } as never, async (_id, text) => {
       delivered.push(text);

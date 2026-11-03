@@ -59,13 +59,16 @@ The harness's kickoff, its "continue with step N" and its nudges arrive as
 ordinary user entries; nothing in the transcript tells them apart from the
 human. Orbital records the uuid of each in `harness_messages` when it sends
 one, and the indexer passes those uuids to `extractMeta`, which counts the
-entries but never takes a title from them. The session is named after the
-user's first own message; until there is one, the harness's name stands in,
-and the indexer replaces that stand-in (only while it is still `derived`)
-once the user writes. When the indexer reads the kickoff before its uuid is
-recorded, recording it swaps a title equal to the kickoff for the harness's
-name. Migration 0028 blanked the titles of sessions indexed before this, so
-they work their titles out again.
+entries but never takes a title from them. A session the user had written
+in before the harness came keeps the title of that first message. One the
+harness started, or that Clear carried it into, takes the harness's name,
+and the titler names it from the harness's name, its inputs and the step it
+begins with, the way it names any other session from its first message. The
+indexer never replaces a title once there is one, so the user's first reply
+(often a bare "yes") does not rename the session. When the indexer reads
+the kickoff before its uuid is recorded, recording it swaps a title equal
+to the kickoff for the harness's name. Migration 0028 blanked the titles of
+sessions indexed before this, so they work their titles out again.
 
 The stats (`server/src/stats/compute.ts`) do **not** skip `isMeta`. A meta
 entry is still input the model was sent, and a user entry is where API

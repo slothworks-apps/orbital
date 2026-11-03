@@ -191,6 +191,9 @@ describe('openDb', () => {
       default_model: 'sonnet',
       remember_model_per_project: 'true',
       name_sessions_automatically: 'true',
+      session_name_rules: '',
+      worktree_auto_on_when_occupied: 'true',
+      worktree_copy_patterns: '',
       map_show_model: 'true',
       map_show_trash: 'true',
       map_limit_sun_positions: '{}',
@@ -237,6 +240,7 @@ describe('openDb', () => {
       limits_auto_continue: 'true',
       limits_continue_text: 'Continue where you left off.',
       update_auto_download: 'false',
+      update_channel: 'stable',
       // Installed before WHAT'S NEW: it shows once for the running version (spec 2026-10-19-whats-new-design).
       whats_new_seen: 'before-whats-new',
     });

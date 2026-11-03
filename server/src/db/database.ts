@@ -35,6 +35,19 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
    * that row still sits in older databases, left by a removed feature.
    */
   name_sessions_automatically: 'true',
+  /**
+   * The user's own rules for the names Orbital writes, added to every
+   * naming prompt (adr session-names-lead-with-the-task-id). Empty: none.
+   */
+  session_name_rules: '',
+  /**
+   * Work in a worktree (spec 2026-11-02-work-in-a-worktree-design § Scope):
+   * New Session turns the switch on when another live session works in the
+   * chosen checkout. Default-on convention: read as `!== 'false'`.
+   */
+  worktree_auto_on_when_occupied: 'true',
+  /** More files to copy into a new worktree: gitignore-style patterns, one per line. */
+  worktree_copy_patterns: '',
   /** Pre-selected in the New session dialog (canvas 4c). A
    * value the catalog does not offer falls back to its first row, client-side. */
   default_model: 'sonnet',
@@ -79,6 +92,15 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
    * and its phones. Default-on convention: read client-side as `!== 'false'`.
    */
   questions_review_before_send: 'true',
+  /**
+   * Which releases the group takes (spec
+   * 2026-11-02-experimental-release-channel-design): `experimental` or
+   * `stable`. Seeded so that every server that knows the setting answers
+   * it: a phone takes a read without it as a member too old to know, and
+   * keeps its channel. The seeded row's stamp is the column default, below
+   * any change made anywhere, so it never wins over a synced `experimental`.
+   */
+  update_channel: 'stable',
   /**
    * Appearance → default planet size (canvas 5a, `Feature - Planet
    * size.dc.html`). Stored as the normalized multiplier ('0.7'–'1.6', slider

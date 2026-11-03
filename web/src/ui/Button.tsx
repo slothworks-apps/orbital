@@ -7,6 +7,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'primary-plain'
     | 'ghost'
     | 'danger'
+    | 'danger-soft'
     | 'warning'
     | 'warning-outline'
     | 'accent-outline'
@@ -54,6 +55,9 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   // the reply well and must not outweigh Send.
   'warning-outline': 'bg-transparent text-warning font-semibold border border-warning-deep/50 hover:bg-warning/10',
   danger: 'bg-transparent text-red-400 font-semibold border border-red-400/40 hover:bg-red-400/10',
+  // Canvas 63e's `des`: a removal that loses work — the soft error ink on a
+  // hairline of its own, never a fill (oklch(84% .08 25) ink, oklch(82% .09 25 / .45) edge).
+  'danger-soft': 'bg-transparent text-danger-pale font-semibold border border-danger-pale/45 hover:bg-danger-pale/8',
   // The map's floating "New session" (1a). Deliberate deviation from the
   // export: it specifies the same two greys at .85/.9 alpha over a 16px
   // backdrop blur, which reads as see-through wherever the button sits over a

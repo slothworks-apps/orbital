@@ -76,7 +76,12 @@ export type UpdateExtras = {
   receipt?: UpdateReceipt | null
 }
 
-export type UpdateState = UpdatePrompt & { checkedAt: number | null } & UpdateExtras
+/**
+ * `latestRegular`: the newest regular release the last check on stable saw,
+ * null before one (`UpdateView.latestRegular` in `desktop/src/lib/updates.ts`).
+ * Absent from a main older than experimental updates.
+ */
+export type UpdateState = UpdatePrompt & { checkedAt: number | null; latestRegular?: string | null } & UpdateExtras
 
 /**
  * The prompt's buttons: Available's Download and × (`skip`), Ready's

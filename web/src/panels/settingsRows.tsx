@@ -150,9 +150,21 @@ export function GroupLine({ scope, className = '' }: { scope?: SettingsScope; cl
 
 /** Mono section kicker inside the settings content column (canvas 1h):
  * 8px/4px above the first group, 14px/4px above every later one. While the
- * group shares settings, its right end says the section's scope (63c). */
-export function SectionLabel({ children, first = false }: { children: ReactNode; first?: boolean }) {
-  const scope = useShownScope()
+ * group shares settings, its right end says the section's scope (63c).
+ * `scope` says it outright instead, null for none, whether or not the
+ * group shares settings: a section whose own rule decides when it has a
+ * label (Settings › Updates' RELEASES). */
+export function SectionLabel({
+  children,
+  first = false,
+  scope: own,
+}: {
+  children: ReactNode
+  first?: boolean
+  scope?: SettingsScope | null
+}) {
+  const shown = useShownScope()
+  const scope = own === undefined ? shown : own
   const kicker = `pb-1 font-mono fs-10 tracking-[0.18em] text-ink-900/60 ${first ? 'pt-2' : 'pt-3.5'}`
   if (!scope) return <div className={kicker}>{children}</div>
   return (

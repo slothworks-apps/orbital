@@ -1,0 +1,155 @@
+name: Promote
+
+# Moves what the experimental channel has to stable, on every platform at
+# once: the same versions, nothing built or signed again (spec
+# 2026-11-02-experimental-release-channel-design → Promote, ADR
+# a-release-reaches-experimental-before-stable). Started by hand only
+# (Actions → Promote → Run workflow); a hotfix is a release followed by
+# Promote straight away.
+#
+#   apt     the experimental suite's entry for the desktop's version added to
+#           `stable`, signed and uploaded (scripts/apt-repo.mjs promote)
+#   mac     the newest published GitHub Release v<version> made a full
+#           release and Latest
+#   phone   the version Beam's channel `experimental` serves promoted to
+#           `production`
+#
+# scripts/promote.mjs reads everything first and decides; a step whose move
+# is done already is skipped, so running Promote again after a failure
+# finishes the job. The job summary says what moved. The manual fallback is
+# in the runbook run-the-desktop-app.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# Never during a release or a re-sign, which write the same files.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    # write: the release edit (prerelease off, Latest on).
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check the secrets are there
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          BEAM_UPLOAD_KEY: ${{ secrets.BEAM_UPLOAD_KEY }}
+        run: |
+          missing=""
+          for name in APT_GPG_PRIVATE_KEY S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_BUCKET BEAM_UPLOAD_KEY; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets:$missing (runbooks run-orbital-on-an-ubuntu-server, ship-the-phone-over-the-air)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # Reads only: GitHub's releases, both apt suites through
+      # apt.slothworks.io, Beam's two channels. Stops, with nothing changed,
+      # when the experimental suite does not list the desktop's version.
+      - name: Find what is in experimental
+        id: plan
+        env:
+          BEAM_UPLOAD_KEY: ${{ secrets.BEAM_UPLOAD_KEY }}
+        run: node scripts/promote.mjs plan --out "$RUNNER_TEMP/promote.json"
+
+      # The same uploads as release.yml's deb-publish, into `stable` and
+      # without the pool: the entry names the .deb the release put there.
+      # Both Packages files are read from the bucket, not through a cache.
+      - name: Promote the Linux package
+        id: apt
+        if: steps.plan.outputs.apt == 'promote'
+        env:
+          VERSION: ${{ steps.plan.outputs.apt-version }}
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          aws configure set default.s3.addressing_style path
+          s3() { aws s3 --endpoint-url "$S3_ENDPOINT" "$@"; }
+          bucket="s3://$S3_BUCKET"
+          experimental="$RUNNER_TEMP/Packages-experimental"
+          s3 cp "$bucket/dists/experimental/main/binary-amd64/Packages" "$experimental"
+
+          index=dists/stable/main/binary-amd64
+          current="$RUNNER_TEMP/Packages-stable"
+          if ! answer="$(aws s3api head-object --endpoint-url "$S3_ENDPOINT" --bucket "$S3_BUCKET" --key "$index/Packages" 2>&1)"; then
+            if printf '%s' "$answer" | grep -q '(404)'; then
+              current=-
+            else
+              echo "$answer"
+              exit 1
+            fi
+          else
+            s3 cp "$bucket/$index/Packages" "$current"
+            [ -s "$current" ] || current=-
+          fi
+
+          repo="$RUNNER_TEMP/repo"
+          node scripts/apt-repo.mjs promote --version "$VERSION" --from "$experimental" \
+            --packages "$current" --out "$repo"
+          s3 cp "$repo/$index/by-hash" "$bucket/$index/by-hash" --recursive \
+            --cache-control 'public, max-age=31536000, immutable'
+          for f in Packages Packages.gz; do
+            s3 cp "$repo/$index/$f" "$bucket/$index/$f" --cache-control 'no-cache'
+          done
+          for f in Release Release.gpg InRelease; do
+            s3 cp "$repo/dists/stable/$f" "$bucket/dists/stable/$f" --cache-control 'no-cache'
+          done
+
+          # Through apt.slothworks.io, as servers read it; its cache may take
+          # a moment to let the new index through.
+          for _ in 1 2 3 4 5 6; do
+            node scripts/apt-repo.mjs --check "$VERSION" --suite stable && exit 0
+            sleep 30
+          done
+          echo "::error::apt.slothworks.io does not list orbital $VERSION in stable after the upload"
+          exit 1
+
+      - name: Make the Mac's release stable and Latest
+        id: desktop
+        if: steps.plan.outputs.desktop == 'promote'
+        env:
+          VERSION: ${{ steps.plan.outputs.desktop-version }}
+        run: gh release edit "v$VERSION" --prerelease=false --latest
+
+      - name: Promote the phone's bundle
+        id: phone
+        if: steps.plan.outputs.phone == 'promote'
+        env:
+          BEAM_UPLOAD_KEY: ${{ secrets.BEAM_UPLOAD_KEY }}
+        run: node scripts/promote.mjs beam --plan "$RUNNER_TEMP/promote.json"
+
+      - name: Report
+        if: ${{ !cancelled() && steps.plan.outcome == 'success' }}
+        env:
+          APT_OUTCOME: ${{ steps.apt.outcome }}
+          DESKTOP_OUTCOME: ${{ steps.desktop.outcome }}
+          PHONE_OUTCOME: ${{ steps.phone.outcome }}
+        run: node scripts/promote.mjs summary --plan "$RUNNER_TEMP/promote.json"

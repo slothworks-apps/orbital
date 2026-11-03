@@ -4,6 +4,11 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-11-03
+### Added
+- The phone follows Experimental updates when your Mac turns them on for the group, gets each release early, and shows "· experimental" next to its version in Settings. Needs the update from TestFlight or Google Play and Orbital for Mac 0.47.0 or later.
+- New session can start a session in its own git worktree, turned on by itself when another live session already works in that checkout, with an optional branch name and a choice of base. Ending a session in a worktree offers to remove it; the branch always stays. Needs Orbital for Mac 0.47.0 or later.
+
 ## [0.23.0] — 2026-11-01
 ### Added
 - A file name Claude writes on its own in a code chip, like `findAll.ts`, opens when you tap it; when several files have that name, a sheet lists them to pick from. Needs Orbital 0.46.0 or later on the Mac; before that the name stays plain text.

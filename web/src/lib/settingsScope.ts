@@ -7,8 +7,11 @@ import type { GroupMember } from './types'
  * canvas `Feature - Shared settings` 63a–63d). `shared`: every row applies on
  * every Mac and server in the group. `device`: every row applies to this
  * device only. `mixed`: shared, except the rows marked THIS MAC ONLY.
+ * `group`: a setting the phones follow too — Settings › Updates' RELEASES
+ * (canvas `Feature - Experimental updates` 1a), said outright, never read
+ * off keys.
  */
-export type SettingsScope = 'shared' | 'device' | 'mixed'
+export type SettingsScope = 'shared' | 'device' | 'mixed' | 'group'
 
 /**
  * A section's scope from the keys its rows edit, so the label cannot drift
@@ -32,6 +35,7 @@ export const SCOPE_LABEL: Record<SettingsScope, string> = {
   shared: 'SHARED · ALL MACS & SERVERS',
   device: 'THIS MAC ONLY',
   mixed: 'SHARED · EXCEPT MARKED',
+  group: 'SHARED · EVERY DEVICE IN THE GROUP',
 }
 
 /**

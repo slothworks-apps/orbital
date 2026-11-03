@@ -296,6 +296,12 @@ export interface UtilityStripProps {
   walkthroughEntry: WalkthroughSummary | null
   /** What the path line budgets against before its cell has been measured. */
   pathBudgetPx: number
+  /**
+   * The session works in a linked worktree: the ⋯ menu ends with Remove
+   * worktree, pressable when `removable` (spec 2026-11-02-work-in-a-worktree-design
+   * § Where it is offered, 3). Absent outside a worktree.
+   */
+  worktree?: { removable: boolean; onRemove: () => void }
 }
 
 /**
@@ -316,6 +322,7 @@ export function UtilityStrip({
   onCollapse,
   walkthroughEntry,
   pathBudgetPx,
+  worktree,
 }: UtilityStripProps) {
   const cellRef = useRef<HTMLSpanElement | null>(null)
   const readout = useStatsReadout(session && statsVariant === 'button' ? session : null)
@@ -419,6 +426,10 @@ export function UtilityStrip({
         }
       })
     : []
+  if (session && worktree) {
+    if (menu.length > 0) menu.push(MENU_SEPARATOR)
+    menu.push({ key: 'remove-worktree', label: 'Remove worktree…', disabled: !worktree.removable, onSelect: worktree.onRemove })
+  }
 
   return (
     <>

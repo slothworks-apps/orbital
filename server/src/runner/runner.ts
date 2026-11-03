@@ -56,6 +56,12 @@ const CONTEXT_USAGE_TIMEOUT_MS = 2_000;
  */
 export const REWIND_STOP_TIMEOUT_MS = 10_000;
 
+/** The session a start composes its appendix for: its id, and the directory it starts in. */
+export interface AppendixSession {
+  sessionId: string;
+  cwd: string;
+}
+
 /**
  * How the CLI words a truncating resume it will not do: the
  * `--resume-drops-turn` guard refusing the range, and a fork point it cannot
@@ -972,7 +978,7 @@ export class Runner {
   private claudeExecutablePath?: string | null;
   private ide?: IdeApprovals;
   /** See the `appendix` dep. */
-  private appendix?: () => string | null;
+  private appendix?: (session: AppendixSession) => string | null;
   /** See the `mcpConfig` dep. */
   private mcpConfig?: (cwd: string, sessionId: string) => McpConfigSnapshot;
   /** See the `cwdOf` dep. */
@@ -1249,9 +1255,11 @@ export class Runner {
      * `composeAppendix` (spec 2026-09-30-session-instructions-design § 1).
      * Read at every start — spawn and revive alike — so it holds for a
      * query from the moment it starts and a change counts from the next
-     * one. Unwired or null, the bare preset goes out.
+     * one. Unwired or null, the bare preset goes out. Given the session
+     * being started, whose worktree it names (spec
+     * 2026-11-02-work-in-a-worktree-design § What the session is told).
      */
-    appendix?: () => string | null;
+    appendix?: (session: AppendixSession) => string | null;
     /**
      * The `user` and `local` MCP servers of a project, read from the CLI's
      * config — what makes a `/mcp` row editable (see `shapeMcpServers`).
@@ -1635,7 +1643,7 @@ export class Runner {
       // unless the session was launched in it. It grants nothing by itself:
       // the mode stays whatever the user picked until they pick another.
       allowDangerouslySkipPermissions: true,
-      systemPrompt: systemPromptOption(this.appendix?.() ?? null),
+      systemPrompt: systemPromptOption(this.appendix?.({ sessionId, cwd: opts.cwd }) ?? null),
       settingSources: ['user', 'project', 'local'],
       // The subagent panel's whole feed: without this only tool_use/tool_result
       // blocks cross from a subagent to the stream, and prose/thinking never

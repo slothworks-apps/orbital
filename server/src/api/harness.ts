@@ -12,6 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { DEFAULT_DRAFT_MODEL, DRAFT_MODELS, INTERVIEW_PROMPT, MAX_EVENTS_PAGE, type Deliver, type TemplateBody } from '../harness/service.js';
 import { projectRootOf } from '../harness/project.js';
 import { isScope } from '../harness/logic.js';
+import { NAME_SESSIONS_KEY } from '../titler/titler.js';
 import type { ChatMessage, PermissionMode, SessionPurpose } from '../types.js';
 import type { RouteContext } from './routes.js';
 
@@ -207,6 +208,7 @@ export function registerHarnessRoutes(
     const template = harness.getTemplate(body.templateId);
     const missing = template?.inputs.find((input) => !values[input.key]?.trim() && !/optional/i.test(input.hint ?? ''));
     if (missing) return reply.code(400).send({ error: `${missing.label} is required` });
+    const started = startedByHarness(id);
     const result = harness.attach(id, body.templateId, values);
     if (!result.ok) return reply.code(result.status).send({ error: result.error });
     const delivery = await harness.say(id, result.value.kickoff, 'kickoff', 0);
@@ -216,6 +218,7 @@ export function registerHarnessRoutes(
       return reply.code(409).send({ error: delivery.outcome === 'terminal' ? 'session_is_terminal' : 'not found' });
     }
     await harness.stepStarted(id, 0, delivery.uuid);
+    if (started) nameFromHarness(id, result.value.subject);
     return reply.code(201).send({ harness: harness.get(id) });
   });
 
@@ -307,11 +310,27 @@ export function registerHarnessRoutes(
   return { carryHarness };
 
   async function carryHarness(fromId: string, toId: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+    const started = startedByHarness(toId);
     const result = harness.carry(fromId, toId);
     if (!result.ok) return result;
-    const { kickoff, index } = result.value;
+    const { kickoff, index, subject } = result.value;
     const delivery = await harness.say(toId, kickoff, 'kickoff', index);
     if (harness.get(toId)?.state[index]?.status === 'active') await harness.stepStarted(toId, index, delivery.uuid);
+    if (started) nameFromHarness(toId, subject);
     return { ok: true };
+  }
+
+  /**
+   * Whether the harness's kickoff will be the session's first message:
+   * nobody has written in it yet. A session that has a conversation keeps
+   * the name it has.
+   */
+  function startedByHarness(id: string): boolean {
+    return !(readTranscript(id) ?? []).some((m) => m.role === 'user');
+  }
+
+  /** Names a session the harness started, in the background, as any other is named from its first message. */
+  function nameFromHarness(id: string, subject: string): void {
+    if (ctx.settings.get(NAME_SESSIONS_KEY) !== 'false') void ctx.titler.nameFromHarness(id, subject);
   }
 }

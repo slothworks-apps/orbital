@@ -29,9 +29,10 @@ export interface DialogProps {
    * Panel width and chrome, straight off the export:
    * `sm` = 440px stop confirm (1b), `md` = 560px clear confirm (1g),
    * `lg` = 660px form dialog with a ruled header (1d),
-   * `xl` = 760px error log (canvas 5b) — lg's chrome, one step wider.
+   * `xl` = 760px error log (canvas 5b) — lg's chrome, one step wider,
+   * `2xl` = 920px two-column New session (canvas 63a) — lg's chrome at a 28px gutter.
    */
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
   /** Mono muted line on the ruled header's right, before the esc keycap
    * (5b: "12 entries · 3 unseen cleared"). */
   headerMeta?: ReactNode
@@ -145,7 +146,7 @@ const XL_CORNERS = {
 }
 
 const cornerRadius: Record<
-  'sm' | 'md' | 'lg' | 'xl',
+  NonNullable<DialogProps['size']>,
   Record<'tl' | 'tr' | 'bl' | 'br', string>
 > = {
   sm: {
@@ -162,6 +163,7 @@ const cornerRadius: Record<
   },
   lg: XL_CORNERS,
   xl: XL_CORNERS,
+  '2xl': XL_CORNERS,
 }
 
 const corners = ['tl', 'tr', 'bl', 'br'] as const
@@ -176,6 +178,7 @@ const frameRadius: Record<NonNullable<DialogProps['size']>, string> = {
   md: 'rounded-[14px]',
   lg: 'rounded-2xl',
   xl: 'rounded-2xl',
+  '2xl': 'rounded-2xl',
 }
 
 /** Width + glass fill per artboard. */
@@ -184,6 +187,7 @@ const sizeClasses: Record<NonNullable<DialogProps['size']>, string> = {
   md: 'w-[560px] bg-gradient-to-b from-raised/94 to-space-deep/97',
   lg: 'w-[660px] bg-gradient-to-b from-raised/90 to-space-deep/94',
   xl: 'w-[760px] bg-gradient-to-b from-raised/90 to-space-deep/94',
+  '2xl': 'w-[920px] bg-gradient-to-b from-raised/90 to-space-deep/94',
 }
 
 /** Inner gutter: confirms sit at 24px, the form dialogs at 26px. */
@@ -192,6 +196,7 @@ const gutter: Record<NonNullable<DialogProps['size']>, string> = {
   md: 'px-6',
   lg: 'px-[26px]',
   xl: 'px-[26px]',
+  '2xl': 'px-7',
 }
 
 const BASE_SHADOW = '0 40px 120px color-mix(in oklab, var(--color-shadow) 70%, transparent), inset 0 1px 0 color-mix(in oklab, var(--color-highlight) 7%, transparent)'
@@ -293,7 +298,7 @@ export function Dialog({
   const frame = toneFrame[tone]
   // Only the form dialogs (1d, 5b) rule off their header; the confirms run
   // the eyebrow, title and body together as one padded block.
-  const ruledHeader = size === 'lg' || size === 'xl'
+  const ruledHeader = size === 'lg' || size === 'xl' || size === '2xl'
 
   // Portalled to <body> on purpose. `StopDialog`/`ClearDialog` are rendered
   // from inside `DetailPanel`, and any ancestor with a `backdrop-filter`,

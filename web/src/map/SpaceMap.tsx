@@ -24,7 +24,7 @@ import { StateDot } from '../ui/StateDot'
 import { reportError } from '../lib/errors'
 import { isMemberOffline } from '../lib/devices'
 import { useViewportWidth } from '../lib/useViewportWidth'
-import { EndDialog } from '../panels/EndDialog'
+import { EndDialog, type EndOptions } from '../panels/EndDialog'
 import { useSessionMenu, useSessionMenuSubject } from '../panels/SessionContextMenu'
 import { useSessionActions } from '../store/sessionActions'
 import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
@@ -180,17 +180,27 @@ const CLUSTER_LABEL_GAP_PX = 14
  *
  * `Html` reprojects from its parent's world matrix every frame, so writing
  * the wrapping group's position is all it takes.
+ *
+ * A click on the name frames the tag's planets the way fit frames the
+ * whole map; hovered, the name brightens to say it can be clicked. A map pan
+ * cannot start on the name, which costs nothing at its size.
  */
 function ClusterLabel({
   label,
   simRef,
   leaving,
+  onFit,
 }: {
   label: SceneLabel
   simRef: RefObject<SimState>
   leaving: ReadonlySet<string>
+  /** Frames this tag's planets — what a click on the name does. */
+  onFit: (tagId: number) => void
 }) {
   const groupRef = useRef<Group>(null)
+  // Presses on the label stay with it: bubbling on, they would reach the
+  // canvas's raycaster with offsets measured against the label (`StatePill`).
+  const stop = (event: { stopPropagation: () => void }) => event.stopPropagation()
 
   // Moves only with the bodies, whose motion `SimStepper` already reports.
   useMapFrame((state) => {
@@ -216,8 +226,25 @@ function ClusterLabel({
     <group ref={groupRef} position={[label.x, label.y, 0]}>
       {/* zIndexRange keeps map text under the z-10 side panels and z-50 dialogs (drei's default range is in the millions). */}
       <Html center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
-        <span
+        <button
+          type="button"
+          title={`Fit ${label.name}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onFit(label.tagId)
+          }}
+          onPointerDown={stop}
+          onPointerMove={stop}
+          onPointerUp={stop}
+          // Brightens while hovered: the one hint that the name is a control.
+          className="[--label-alpha:.8] hover:[--label-alpha:1]"
           style={{
+            appearance: 'none',
+            margin: 0,
+            border: 0,
+            padding: 0,
+            background: 'none',
+            cursor: 'pointer',
             // Bottom edge on the anchor rather than centred on it, so the gap
             // is measured from the text, whatever its line height.
             display: 'inline-block',
@@ -226,16 +253,17 @@ function ClusterLabel({
             fontSize: 10,
             letterSpacing: '0.2em',
             textTransform: 'uppercase',
-            color: `oklch(var(--tt-l) var(--tt-c) ${label.hue} / .8)`,
+            color: `oklch(var(--tt-l) var(--tt-c) ${label.hue} / var(--label-alpha))`,
             whiteSpace: 'nowrap',
             // A cluster left with only bodies whose device chip is off fades
             // with them (canvas 50e `transition:opacity .5s ease`).
             opacity: label.empty ? 0 : 1,
-            transition: `opacity ${DEVICE_FADE_MS}ms ease`,
+            transition: `opacity ${DEVICE_FADE_MS}ms ease, color .18s ease`,
+            pointerEvents: label.empty ? 'none' : 'auto',
           }}
         >
           {label.text}
-        </span>
+        </button>
       </Html>
     </group>
   )
@@ -646,7 +674,7 @@ export function SpaceMap() {
   const [confirmEndId, setConfirmEndId] = useState<string | null>(null)
   const closeConfirmEnd = useCallback(() => setConfirmEndId(null), [])
   const endFromConfirm = useCallback(
-    (id: string) => trashSession(id, { undo: false }),
+    (id: string, opts: EndOptions) => trashSession(id, { undo: false, ...opts }),
     [trashSession]
   )
   // The bodies on their way off the map: leaving it, or faded out with their
@@ -1084,7 +1112,7 @@ export function SpaceMap() {
    * frames centres leaves whatever is drawn around the outermost ones
    * hanging over the edge, which on the hole is most of it.
    */
-  const fitCamera = useCallback(() => {
+  const fitCamera = useCallback((tagId?: number) => {
     // Planets are framed where the simulation will rest them (`settledCopy`):
     // fit runs on the first frame, before the clumps have walked out of
     // their spiral seeds. The layout does not follow the camera (outlines
@@ -1095,14 +1123,17 @@ export function SpaceMap() {
     const planets: FitBody[] = []
     for (const body of settledCopy(sim).bodies.values()) {
       if (leavingIds.has(body.id)) continue
+      if (tagId !== undefined && body.tagId !== tagId) continue
       // A planet's box enters as its two opposite corners.
       const { left, right, bottom, top } = body.extent
       planets.push({ x: body.x + left, y: body.y + bottom }, { x: body.x + right, y: body.y + top })
     }
     // The suns are part of the map too, while they are on.
-    const suns = sunsOn ? useSunState.getState().suns : []
+    // A tag's fit frames its planets alone.
+    const whole = tagId === undefined
+    const suns = sunsOn && whole ? useSunState.getState().suns : []
     const bodiesAt = (zoom: number): FitBody[] => [
-      ...(trashShown ? [{ x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS * bodyZoomFactor(zoom) }] : []),
+      ...(trashShown && whole ? [{ x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS * bodyZoomFactor(zoom) }] : []),
       ...suns.map((sun) => ({ ...sun.position, r: SUN_REACH * bodyZoomFactor(zoom) * planetScale })),
       ...planets,
     ]
@@ -1117,10 +1148,15 @@ export function SpaceMap() {
     return fitViewTo(bodiesAt, viewport, mapInsets)
   }, [sim, model.hole.x, model.hole.y, mapInsets, leavingIds, trashShown, sunsOn, planetScale])
 
-  const handleFit = useCallback(() => {
-    cancelCameraMotion()
-    flyTo(cameraRef.current, fitCamera())
-  }, [cancelCameraMotion, flyTo, fitCamera])
+  const handleFitTag = useCallback(
+    (tagId?: number) => {
+      cancelCameraMotion()
+      flyTo(cameraRef.current, fitCamera(tagId))
+    },
+    [cancelCameraMotion, flyTo, fitCamera]
+  )
+  // Not `handleFitTag` itself: a click would hand it the event as a tag.
+  const handleFit = useCallback(() => handleFitTag(), [handleFitTag])
 
   /**
    * Fit once per page load, on the first frame that has both sessions to
@@ -1341,7 +1377,7 @@ export function SpaceMap() {
           ))}
 
           {model.labels.map((label) => (
-            <ClusterLabel key={label.tagId} label={label} simRef={simRef} leaving={leavingIds} />
+            <ClusterLabel key={label.tagId} label={label} simRef={simRef} leaving={leavingIds} onFit={handleFitTag} />
           ))}
 
           {sunsOn && (

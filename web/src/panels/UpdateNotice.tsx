@@ -1,7 +1,9 @@
 import { useEffect } from 'react'
 import { updateNoticeContent, updateNoticeOnMap, type UpdateNoticeButton } from '../lib/appUpdate'
+import { experimentalUpdatesOn } from '../lib/updateChannel'
 import { useAppUpdate } from '../store/appUpdate'
 import { useMapNotices } from '../store/mapNotices'
+import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { MapNotice, MapNoticeProgress, MapNoticeText } from '../ui/MapNotice'
 
@@ -39,7 +41,9 @@ export function useAppUpdateNotice(): void {
 
 function UpdateNotice() {
   const state = useAppUpdate((s) => s.shown)
-  const shown = state ? updateNoticeContent(state) : null
+  // Canvas `Feature - Experimental updates` 1e: the head names an experimental group's build.
+  const experimental = useOrbital((s) => experimentalUpdatesOn(s.settings))
+  const shown = state ? updateNoticeContent(state, { experimental }) : null
   const source = useAppUpdate((s) => s.source)
   if (!shown || !source) return null
 

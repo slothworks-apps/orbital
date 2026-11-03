@@ -12,6 +12,7 @@ import {
   endedSeenVersion, installedLine, parseSeenVersion, serializeSeenVersion, whatsNewHead, whatsNewOnLaunch,
   type SeenVersion,
 } from '../lib/whatsNew'
+import { experimentalUpdatesOn } from '../lib/updateChannel'
 import { useAppUpdate } from '../store/appUpdate'
 import { useMapNotices } from '../store/mapNotices'
 import { useOrbital } from '../store/store'
@@ -124,6 +125,8 @@ function WhatsNewNotice({ close }: { close: () => void }) {
   const notes = useWhatsNew((s) => s.notes)
   const hasNotes = notes.length > 0
   const [open, setOpen] = useState(false)
+  // Canvas `Feature - Experimental updates` 1e: the head names an experimental group's build.
+  const experimental = useOrbital((s) => experimentalUpdatesOn(s.settings))
 
   // × on the toast or the dialog closed: gone for good, and the receipt with
   // it. A closing dialog plays its exit first; the toast leaves after it.
@@ -142,7 +145,7 @@ function WhatsNewNotice({ close }: { close: () => void }) {
   return (
     <>
       <MapNotice
-        label={whatsNewHead(orbitalVersion)}
+        label={whatsNewHead(orbitalVersion, experimental)}
         onClose={end}
         actions={
           hasNotes && (

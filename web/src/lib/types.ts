@@ -1522,6 +1522,10 @@ export type ErrorKind =
   | 'session_id_collision'
   | 'thumbnail_failed'
   | 'file_listing_failed'
+  /** Git refused to remove a session's worktree, or a failed worktree launch could not be fully undone. */
+  | 'worktree_failed'
+  /** The call naming a worktree's branch failed or answered nothing usable; the temporary name stood in. */
+  | 'branch_naming_failed'
 
 export interface ErrorRecord {
   id: number

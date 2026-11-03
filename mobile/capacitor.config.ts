@@ -76,9 +76,13 @@ const updater = release
       resetWhenUpdate: true,
       autoDeleteFailed: true,
       autoDeletePrevious: true,
-      // No channels: Beam has one per app, and nothing may pick another.
-      channelUrl: '',
-      allowSetDefaultChannel: false,
+      // Beam's `production` channel by default; the phone joins `experimental` when the group's
+      // `update_channel` says so (web/src/mobile/update/channel.ts, spec
+      // 2026-11-02-experimental-release-channel-design → On the phone). `setChannel` asks Beam's channel_self,
+      // which accepts only a channel that allows self-assignment, and the plugin persists the choice; a shell
+      // built before this has `allowSetDefaultChannel` off and stays on production.
+      channelUrl: `${beam.url}/api/channel_self`,
+      allowSetDefaultChannel: true,
       // "Send diagnostics" off sets the stats URL to '' (web/src/mobile/update/platform.ts); persisted, the
       // plugin loads it on the next start before it reports anything. The plugin has no switch for the stats
       // URL alone, so any script in the WebView could also move the update and channel URLs, persistently;

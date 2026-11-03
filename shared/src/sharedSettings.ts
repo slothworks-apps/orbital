@@ -17,7 +17,7 @@ export const SETTINGS_SYNC_CAPABILITY = 'settings-sync';
 /** Shared across the group: the person's habits. */
 export const SHARED_SETTING_KEYS: readonly string[] = [
   'default_permission_mode', 'default_model', 'remember_model_per_project',
-  'confirm_before_clear', 'end_closes_panel', 'name_sessions_automatically',
+  'confirm_before_clear', 'end_closes_panel', 'name_sessions_automatically', 'session_name_rules',
   'transcript_edit_diffs', 'transcript_expand_diff_on_permission',
   'permission_guard_gesture', 'questions_review_before_send',
   'context_threshold_warn', 'context_threshold_critical',
@@ -33,6 +33,9 @@ export const SHARED_SETTING_KEYS: readonly string[] = [
   // Found after the first list (spec § Which settings are shared).
   'map_moon_orbits', 'stats_show_human_wait', 'narrate_model', 'narrate_commentary',
   'issue_check_enabled', 'issue_check_model', 'terminal_enabled', 'terminal_cursor', 'terminal_cursor_blink',
+  // Which releases every Mac, server and phone of the group takes (spec 2026-11-02-experimental-release-channel-design).
+  'update_channel',
+  'worktree_auto_on_when_occupied',
 ];
 
 /**
@@ -60,6 +63,8 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   'terminal_placement', 'terminal_dock_height', 'gh_tip', 'experimental_unlocked',
   // The colour theme: a bright room and macOS's appearance belong to this Mac, as text size does.
   'colour_theme', 'colour_theme_follow_system', 'colour_theme_light', 'colour_theme_dark',
+  // Work in a worktree: what this device's repositories hold untracked, and the worktrees on its disk the user kept.
+  'worktree_copy_patterns', 'worktree_dismissed',
 ];
 
 const PER_DEVICE_PREFIXES = ['remote_', 'new_session_last_'];

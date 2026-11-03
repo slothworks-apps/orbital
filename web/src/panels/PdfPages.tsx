@@ -151,6 +151,8 @@ export function PdfPager({
   return (
     <>
       <div
+        // A press on a page here would reach the viewer's backdrop and close it.
+        onClick={(event) => event.stopPropagation()}
         className="flex flex-none flex-col gap-1.5 overflow-y-auto [scrollbar-width:none]"
         style={{ height: stageHeightPx }}
       >

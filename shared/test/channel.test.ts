@@ -10,6 +10,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import { HANDSHAKE_BYTES, startHandshake } from '../src/remote/handshake.js';
 import { RESPONDER_FIRST_ID } from '../src/remote/device.js';
 import type { AskMessage, HelloMessage } from '../src/remote/messages.js';
+import { WORKTREE_FETCH_REQUEST_TIMEOUT_MS, WORKTREE_LAUNCH_REQUEST_TIMEOUT_MS } from '../src/worktree.js';
 
 const desktop = (name: string, capabilities: string[] = ['sessions']) => ({
   app: `orbital-desktop/1.0.0`, server: '1.0.0', macName: name, version: '1.0.0', kind: 'desktop', os: 'macos', name,
@@ -327,5 +328,31 @@ describe('Channel downloads from a peer that does not stop', () => {
     await vi.advanceTimersByTimeAsync(step);
     expect(outcome).toBeInstanceOf(TunnelError);
     expect((outcome as TunnelError).reason).toBe('timeout');
+  });
+});
+
+describe('Channel requests to the slow worktree routes', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('wait for a worktree launch and a fetch longer than for any other request', async () => {
+    vi.useFakeTimers();
+    const { a, b, pump } = pair();
+    a.start();
+    pump();
+    // Nothing is pumped from here on: no answer ever comes back.
+    const plain = b.request('POST', '/api/sessions', { cwd: '/r', prompt: 'go' });
+    const launch = b.request('POST', '/api/sessions', { cwd: '/r', prompt: 'go', worktree: { base: 'origin/main' } });
+    const fetch = b.request('POST', '/api/worktree/fetch?machine=m', { cwd: '/r' });
+    const settled: string[] = [];
+    plain.catch(() => settled.push('plain'));
+    launch.catch(() => settled.push('launch'));
+    fetch.catch(() => settled.push('fetch'));
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
+    expect(settled).toEqual(['plain']);
+    await vi.advanceTimersByTimeAsync(WORKTREE_FETCH_REQUEST_TIMEOUT_MS - REQUEST_TIMEOUT_MS);
+    expect(settled).toEqual(['plain', 'fetch']);
+    await vi.advanceTimersByTimeAsync(WORKTREE_LAUNCH_REQUEST_TIMEOUT_MS - WORKTREE_FETCH_REQUEST_TIMEOUT_MS);
+    expect(settled).toEqual(['plain', 'fetch', 'launch']);
+    await expect(launch).rejects.toEqual(new TunnelError('timeout'));
   });
 });

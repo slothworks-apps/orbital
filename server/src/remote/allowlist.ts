@@ -111,6 +111,12 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['PATCH', '/api/tags/:id', 'sessions'],
   ['DELETE', '/api/tags/:id', 'sessions'],
   ['GET', '/api/projects', 'sessions'],
+  // A session's worktree: its state, its removal and *Keep* (spec
+  // 2026-11-02-work-in-a-worktree-design § The phone). Removal on End rides
+  // `POST /api/sessions/:id/end`'s body.
+  ['GET', '/api/sessions/:id/worktree', 'sessions'],
+  ['POST', '/api/sessions/:id/worktree/remove', 'sessions'],
+  ['POST', '/api/sessions/:id/worktree/keep', 'sessions'],
 
   // spawn group: start sessions
   ['POST', '/api/sessions', 'spawn'],
@@ -128,6 +134,9 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   // The question's *View file*: the one project file `.mcp.json` names, read
   // on the device the session would run on.
   ['GET', '/api/mcpjson/file', 'spawn'],
+  // New Session's WORKTREE group; the worktree itself rides `POST /api/sessions`.
+  ['GET', '/api/worktree/options', 'spawn'],
+  ['POST', '/api/worktree/fetch', 'spawn'],
 
   // settings group: settings, tags, tag rules, harness templates
   // A federated Settings (spec 2026-10-16-device-group-design § 6). The

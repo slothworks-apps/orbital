@@ -18,6 +18,7 @@ export type ContextAction =
   | 'takeover'
   | 'clear'
   | 'end'
+  | 'remove-worktree'
 
 export interface ContextRow {
   action: ContextAction
@@ -30,6 +31,12 @@ export interface ContextMenuOptions {
   offline: boolean
   /** Open in new window is on offer here — the desktop's main window, as the header's detach. */
   detachable: boolean
+  /**
+   * The session works in a linked worktree: Remove worktree closes the
+   * deliberate group (spec 2026-11-02-work-in-a-worktree-design § Where it is
+   * offered, 3). Whether it can be removed now is the caller's to say.
+   */
+  worktree?: boolean
 }
 
 /** What an offline machine's session can still do: nothing of it is asked of that machine. */
@@ -46,7 +53,7 @@ const NEEDS_NO_MACHINE: ReadonlySet<ContextAction> = new Set(['open', 'copy-path
  */
 export function contextMenuGroups(
   session: Pick<ApiSession, 'source' | 'status' | 'firstAt'>,
-  { offline, detachable }: ContextMenuOptions,
+  { offline, detachable, worktree = false }: ContextMenuOptions,
 ): ContextRow[][] {
   const { items } = menuFor(session, offline, true)
   const openings: ContextAction[] = detachable ? ['open', 'detach'] : ['open']
@@ -56,9 +63,10 @@ export function contextMenuGroups(
     else if (item === 'tag' || item === 'pin') labels.push(item)
   }
   labels.push('copy-path')
-  const deliberate = items.filter((item): item is 'takeover' | 'clear' | 'end' =>
+  const deliberate: ContextAction[] = items.filter((item): item is 'takeover' | 'clear' | 'end' =>
     item === 'takeover' || item === 'clear' || item === 'end',
   )
+  if (worktree) deliberate.push('remove-worktree')
   return [openings, labels, deliberate]
     .filter((group) => group.length > 0)
     .map((group) => group.map((action) => ({ action, disabled: offline && !NEEDS_NO_MACHINE.has(action) })))

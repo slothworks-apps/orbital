@@ -23,6 +23,7 @@
 //   /usr/bin/orbital                           the CLI wrapper
 //   /usr/lib/systemd/user/orbital.service
 //   /usr/lib/systemd/system/orbital-update.{service,path}
+//   /usr/lib/systemd/system/orbital-channel.{service,path}
 //   /etc/apt/preferences.d/orbital.pref        the pin (a conffile)
 /* global URL, Buffer, console, process, fetch */
 import { execFileSync } from 'node:child_process'
@@ -263,6 +264,8 @@ export async function buildDeb({ root, outDir }) {
     place('orbital.service', 'usr/lib/systemd/user/orbital.service')
     place('orbital-update.service', 'usr/lib/systemd/system/orbital-update.service')
     place('orbital-update.path', 'usr/lib/systemd/system/orbital-update.path')
+    place('orbital-channel.service', 'usr/lib/systemd/system/orbital-channel.service')
+    place('orbital-channel.path', 'usr/lib/systemd/system/orbital-channel.path')
     place('orbital.pref', 'etc/apt/preferences.d/orbital.pref')
     const doc = join(stage, 'usr/share/doc/orbital')
     mkdirSync(doc, { recursive: true })
