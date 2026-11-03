@@ -38,6 +38,10 @@ change applies to the next name. Blank, the prompt is exactly what it was.
 The prompt carries at most a fixed number of its characters
 (`MAX_USER_RULES_CHARS`).
 
+The rules can ask for longer names than Orbital's: the length in its rules
+is what the prompt asks for, and a reply is only cut, at the longest title
+Orbital stores ([[session-names-lead-with-the-task-id]]).
+
 ## Why not the session instructions
 
 Settings → Sessions → Your instructions is written for the agent ("answer in

@@ -10,6 +10,7 @@ import {
   TITLE_SYSTEM_PROMPT,
 } from '../src/titler/titler.js';
 import type { ChatMessage } from '../src/types.js';
+import { TITLE_MAX_CHARS } from '../src/transcript/parser.js';
 
 const userMsg = (text: string): ChatMessage => ({ id: text, role: 'user', text });
 
@@ -70,9 +71,13 @@ describe('parseTitleReply', () => {
     expect(parseTitleReply('Space map zoom.')).toBe('Space map zoom');
   });
 
-  it('returns null for a reply longer than MAX_TITLE_CHARS', () => {
-    expect(parseTitleReply('x'.repeat(MAX_TITLE_CHARS))).toBe('x'.repeat(MAX_TITLE_CHARS));
-    expect(parseTitleReply('x'.repeat(MAX_TITLE_CHARS + 1))).toBeNull();
+  it('keeps a reply past the asked length, and cuts one past the stored title at a word', () => {
+    const asked = 'word '.repeat(Math.ceil(MAX_TITLE_CHARS / 5) + 2).trim();
+    expect(parseTitleReply(asked)).toBe(asked);
+    const stored = 'word '.repeat(Math.ceil(TITLE_MAX_CHARS / 5) + 2).trim();
+    const cut = parseTitleReply(stored)!;
+    expect(cut.length).toBeLessThanOrEqual(TITLE_MAX_CHARS);
+    expect(cut.endsWith('word…')).toBe(true);
   });
 
   it('returns null for an empty or whitespace reply', () => {

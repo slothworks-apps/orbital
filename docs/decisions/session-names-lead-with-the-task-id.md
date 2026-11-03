@@ -8,6 +8,7 @@ related:
   - sessions-are-named-once-from-their-first-message
   - session-titles-only-on-demand
   - 2026-09-18-auto-title-design
+  - 2026-11-03-session-name-rules-design
 tags:
   - titler
   - sessions
@@ -24,6 +25,13 @@ now ask for two things the auto-title spec did not:
 - A longer, descriptive name is preferred over a short vague one: the word
   range widened and `MAX_TITLE_CHARS` grew past what the map's label shows
   uncut.
+
+`MAX_TITLE_CHARS` is only what the prompt asks for. A reply is never
+refused for its length: one past `TITLE_MAX_CHARS`, the longest title
+Orbital stores, is cut at a word with an ellipsis. So the user's own rules
+([[2026-11-03-session-name-rules-design]]) can ask for longer names, and a
+name a little over the asked length is kept rather than thrown away, which
+used to leave the session on its first sentence.
 
 ## Why
 
