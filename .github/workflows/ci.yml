@@ -199,7 +199,7 @@ jobs:
           mkdir -m 700 "$GNUPGHOME"
           gpg --batch --passphrase '' --quick-gen-key "Orbital CI <ci@example.invalid>" ed25519 sign 1d
           APT_GPG_PRIVATE_KEY="$(gpg --batch --armor --export-secret-keys)" \
-            node scripts/apt-repo.mjs add --deb "$(ls "$RUNNER_TEMP"/deb/orbital_*_amd64.deb)" --packages - --out "$RUNNER_TEMP/repo"
+            node scripts/apt-repo.mjs add --suite stable --deb "$(ls "$RUNNER_TEMP"/deb/orbital_*_amd64.deb)" --packages - --out "$RUNNER_TEMP/repo"
           sudo cp -r "$RUNNER_TEMP/repo" "$REPO"
           sudo install -d -m 0755 /etc/apt/keyrings
           sudo cp "$REPO/orbital.gpg" /etc/apt/keyrings/orbital.gpg
