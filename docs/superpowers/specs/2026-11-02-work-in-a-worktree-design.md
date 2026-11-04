@@ -2,7 +2,7 @@
 id: 2026-11-02-work-in-a-worktree-design
 title: Work in a worktree — Orbital makes the worktree before a session starts
 type: spec
-status: active
+status: done
 domain: sessions
 related:
   - a-session-has-a-home-and-a-working-tree
@@ -46,6 +46,10 @@ so it knows.
   - When the directory they pick already has a live session in its checkout,
     the switch is already on and names that session.
   - Ending a session that works in a worktree offers to remove the worktree.
+  - In New Session, PROFILE and TAG sit in the right column, and an account
+    with more models than fit in two rows of tiles picks its model from a
+    dropdown.
+  - The switch starts as they last left it in that repository.
 - **What can be set:** Settings → Sessions.
   - *Offer a worktree when another session works in the checkout* (key
     `worktree_auto_on_when_occupied`, on by default). Off, the switch in the
@@ -89,7 +93,8 @@ open, so the group unfolds by its height rather than appearing at once.
 - **Quiet (A1).** The repository is free: no live session has its working
   tree in the main checkout. The group is one line with a switch, *Work in a
   worktree*, as the user last left it in this repository (its main checkout,
-  per device): off until it was once left on.
+  on that Mac or server): off until it was once left on. Each app keeps its
+  own memory of it: the Mac's dialog and the phone's form do not share it.
 - **Occupied (A2).** At least one live session has its working tree in the
   main checkout. The switch turns on when the directory is chosen, as long as
   the setting above is on. Under the switch, one muted line names the session

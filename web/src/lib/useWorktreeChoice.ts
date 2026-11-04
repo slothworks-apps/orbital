@@ -24,7 +24,14 @@ function readLastSwitch(): Record<string, boolean> {
   }
 }
 
-function rememberSwitch(key: string, on: boolean): void {
+/** How the switch starts for `repo`: on when occupied (`autoOn`), or when it was last left on there. */
+export function worktreeSwitchStartsOn(repo: WorktreeRepo, machine?: string): boolean {
+  return repo.autoOn || readLastSwitch()[switchKey(machine, repo)] === true
+}
+
+/** Remembers the switch as the user left it in `repo`, for that repository's next dialog. */
+export function rememberWorktreeSwitch(repo: WorktreeRepo, machine: string | undefined, on: boolean): void {
+  const key = switchKey(machine, repo)
   try {
     const all = readLastSwitch()
     // Only an on is worth a line: off is where every repository starts.
@@ -135,7 +142,7 @@ export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: strin
     setBranchState('')
     setLaunchError(null)
     setFetch({ state: 'idle' })
-    setOnState(repo ? repo.autoOn || readLastSwitch()[switchKey(machine, repo)] === true : false)
+    setOnState(repo ? worktreeSwitchStartsOn(repo, machine) : false)
     setBaseState(repo ? defaultBase(repo) : '')
     // `repo` is read for the tree `treeKey` names.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,7 +178,7 @@ export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: strin
     (next: boolean) => {
       setTouched(true)
       setOnState(next)
-      if (repo) rememberSwitch(switchKey(machine, repo), next)
+      if (repo) rememberWorktreeSwitch(repo, machine, next)
     },
     [repo, machine],
   )

@@ -6,7 +6,7 @@ import { api } from '../lib/api'
 import { command, matches, shortcutLabel } from '../lib/keymap'
 import { reportError } from '../lib/errors'
 import { blocksLaunch, directoryLine, useDirectoryState } from '../lib/useDirectoryState'
-import { formatContextWindow, shortenPath } from '../lib/format'
+import { shortenPath } from '../lib/format'
 import { canChooseDirectory, chooseDirectory } from '../lib/desktop'
 import { Dialog } from '../ui/Dialog'
 import { useEscapeLayer } from '../ui/escapeLayer'
@@ -19,7 +19,7 @@ import { useImageDrop } from './useImageDrop'
 import { promptWithFiles } from '../lib/attachedFiles'
 import { Chip } from '../ui/Chip'
 import { ModeCards } from '../ui/ModeCards'
-import { ModelCards } from '../ui/ModelCards'
+import { ModelCards, contextLabel } from '../ui/ModelCards'
 import { CustomModelField } from '../ui/CustomModelField'
 import { modelByValue, modelByAnyId } from '../lib/models'
 import { claudeDirPrefill, nextClaudeDir } from '../lib/claudeDirs'
@@ -56,6 +56,7 @@ import type { SelectOption } from '../ui/Select'
 import { AutoHeight } from '../ui/AutoHeight'
 import { Collapse } from '../ui/Collapse'
 import { useNoticeSwap } from '../ui/useNoticeSwap'
+import { NOTICE_FADE_MS } from '../ui/motion'
 import { KindGlyph } from '../ui/KindGlyph'
 import { useWorktreeChoice } from '../lib/useWorktreeChoice'
 import { useLaunchAttempt } from '../lib/useLaunchAttempt'
@@ -307,6 +308,12 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const modelPicker = useNoticeSwap(useMemo(() => ({ id: modelPickerId, models }), [modelPickerId, models]))
   // The swap keeps the catalog it was given; only the outgoing picker draws from it.
   const pickerModels = modelPicker.shown?.id === modelPickerId ? models : (modelPicker.shown?.models ?? models)
+  // Focus goes to the ID field in the render that mounts it, not on a later
+  // remount (another profile re-keys it), so it never pulls focus from there.
+  const [focusCustomModel, setFocusCustomModel] = useState(false)
+  useEffect(() => {
+    if (focusCustomModel) setFocusCustomModel(false)
+  }, [focusCustomModel])
   const pickModel = (next: string) => {
     setModelOverridden(true)
     setOtherActive(false)
@@ -318,6 +325,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     setOtherActive(true)
     setCustomInitial(null)
     setModel(null)
+    setFocusCustomModel(true)
   }
 
   const canBrowse = canChooseDirectory()
@@ -1041,8 +1049,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     cut by the height transition's clip; the padding gives it back. */}
                 <AutoHeight className="-m-5">
                   <div
+                    // The outgoing picker lists the old catalog: it must not take a pick while it fades.
+                    inert={modelPicker.shown?.id !== modelPickerId}
+                    style={{ transitionDuration: `${NOTICE_FADE_MS}ms` }}
                     className={[
-                      'p-5 transition-opacity duration-150 ease-out motion-reduce:transition-none',
+                      'p-5 transition-opacity ease-out motion-reduce:transition-none',
                       modelPicker.visible ? 'opacity-100' : 'opacity-0',
                     ].join(' ')}
                   >
@@ -1076,7 +1087,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     size="lg"
                     initial={customInitial ? { id: customInitial, trusted: true } : undefined}
                     // Picked by hand (63a: "opens the ID field, focused"); a remembered id is not.
-                    autoFocus={customInitial === null}
+                    autoFocus={focusCustomModel}
                     onValidated={(id) => setModel(id)}
                     onCleared={() => setModel(null)}
                     claudeDir={choosesDir && claudeDirId !== null ? claudeDirId : undefined}
@@ -1194,6 +1205,18 @@ function existingTag(tags: Tag[], name: string): Tag | undefined {
   return wanted ? tags.find((t) => t.name.toLowerCase() === wanted) : undefined
 }
 
+/** The model dropdown's rows (63a): name and context window, Other last. */
+function modelOptions(models: OrbitalModel[]): SelectOption<string>[] {
+  return [
+    ...models.map((m) => ({
+      value: m.value,
+      label: m.shortVersion,
+      sub: contextLabel(m) ?? undefined,
+    })),
+    { value: OTHER_MODEL, label: 'Other', sub: 'ANY ID' },
+  ]
+}
+
 /**
  * The TAG row's last chip (canvas `Feature - Tag chips` 80c, spec
  * 2026-10-25-tag-toggles-and-order-design § 3): + New tag turns into a name
@@ -1202,18 +1225,6 @@ function existingTag(tags: Tag[], name: string): Tag | undefined {
  * hand; a name that exists already, in any case, picks that tag. Escape,
  * leaving the field or an empty name backs out.
  */
-/** The model dropdown's rows (63a): name and context window, Other last. */
-function modelOptions(models: OrbitalModel[]): SelectOption<string>[] {
-  return [
-    ...models.map((m) => ({
-      value: m.value,
-      label: m.shortVersion,
-      sub: m.contextWindow !== null ? `${formatContextWindow(m.contextWindow).toUpperCase()} CTX` : undefined,
-    })),
-    { value: OTHER_MODEL, label: 'Other', sub: 'ANY ID' },
-  ]
-}
-
 function NewTagChip({ draft, onDraft, tags, onPick, onMade }: {
   draft: string | null
   onDraft: (draft: string | null) => void
