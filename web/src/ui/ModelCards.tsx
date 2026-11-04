@@ -26,6 +26,11 @@ export interface ModelCardsProps {
 
 const OTHER_BLURB = 'Any model id Claude Code accepts'
 
+/** A model's context window as the cards and New session's dropdown spell it (`200K CTX`), or null when unknown. */
+export function contextLabel(model: OrbitalModel): string | null {
+  return model.contextWindow !== null ? `${formatContextWindow(model.contextWindow).toUpperCase()} CTX` : null
+}
+
 function cardClassName(active: boolean, compact: boolean, dense = false): string {
   return [
     'relative min-w-0 text-left transition-colors',
@@ -131,7 +136,7 @@ export function ModelCards({
           // 63a: `DEFAULT · $$` under the name; ours carries the context window for the price.
           const meta = [
             defaultValue === model.value ? 'DEFAULT' : null,
-            model.contextWindow !== null ? `${formatContextWindow(model.contextWindow).toUpperCase()} CTX` : null,
+            contextLabel(model),
           ].filter(Boolean)
           return (
             <button
@@ -189,9 +194,7 @@ export function ModelCards({
                 ].join(' ')}
               >
                 {isDefault && <span>DEFAULT</span>}
-                {model.contextWindow !== null && (
-                  <span>{formatContextWindow(model.contextWindow).toUpperCase()} CTX</span>
-                )}
+                {model.contextWindow !== null && <span>{contextLabel(model)}</span>}
               </span>
             )}
             {compact && isDefault && (

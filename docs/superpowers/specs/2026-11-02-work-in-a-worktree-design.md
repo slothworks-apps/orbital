@@ -2,7 +2,7 @@
 id: 2026-11-02-work-in-a-worktree-design
 title: Work in a worktree — Orbital makes the worktree before a session starts
 type: spec
-status: active
+status: done
 domain: sessions
 related:
   - a-session-has-a-home-and-a-working-tree
@@ -46,11 +46,15 @@ so it knows.
   - When the directory they pick already has a live session in its checkout,
     the switch is already on and names that session.
   - Ending a session that works in a worktree offers to remove the worktree.
+  - In New Session, PROFILE and TAG sit in the right column, and an account
+    with more models than fit in two rows of tiles picks its model from a
+    dropdown.
+  - The switch starts as they last left it in that repository.
 - **What can be set:** Settings → Sessions.
   - *Offer a worktree when another session works in the checkout* (key
     `worktree_auto_on_when_occupied`, on by default). Off, the switch in the
-    dialog always starts off. Switching it off in the dialog holds for that
-    dialog only.
+    dialog starts as the user last left it in that repository. On, an
+    occupied checkout starts it on whatever was left.
   - *Files to copy into a new worktree* (key `worktree_copy_patterns`); see
     [Launch](#launch), step 4.
 - **Out of scope:**
@@ -62,10 +66,18 @@ so it knows.
 ## Two-column dialog
 
 New Session widens to the canvas's 920 px and gets two columns. On the left is
-*where* the session runs: DEVICE, PROJECT DIRECTORY, WORKTREE, PROFILE, TAG.
-On the right is *how* it runs: MODEL, PERMISSION MODE. FIRST PROMPT spans both
+*where* the session runs: DEVICE, PROJECT DIRECTORY, WORKTREE. On the right
+is *how* it runs: PROFILE, MODEL, PERMISSION MODE, TAG. PROFILE heads the
+column because it decides which models are offered. FIRST PROMPT spans both
 columns, so nothing in the dialog scrolls (63a). The two columns help every
 user, not only this feature.
+
+MODEL stays tiles while every model plus Other fits in two rows of four.
+Past that it is one dropdown field, the shape of DEVICE, listing name and
+context, Other last. The list stops at eight and a half rows. The
+choice is made again for each profile's catalog; a switch fades one picker
+out and the other in while the slot eases to its new height. The canvas
+lists a price on each row; the app has none to show (`ModelCards`).
 
 It ships in the same PR as the worktree.
 
@@ -73,13 +85,16 @@ It ships in the same PR as the worktree.
 
 It sits under PROJECT DIRECTORY. It is shown only when the directory resolves
 to a git repository, on the device in DEVICE. A non-git directory or a
-missing directory shows nothing.
+missing directory shows nothing. The answer arrives after the dialog is
+open, so the group unfolds by its height rather than appearing at once.
 
 ### States
 
 - **Quiet (A1).** The repository is free: no live session has its working
   tree in the main checkout. The group is one line with a switch, *Work in a
-  worktree*, set to off.
+  worktree*, as the user last left it in this repository (its main checkout,
+  on that Mac or server): off until it was once left on. Each app keeps its
+  own memory of it: the Mac's dialog and the phone's form do not share it.
 - **Occupied (A2).** At least one live session has its working tree in the
   main checkout. The switch turns on when the directory is chosen, as long as
   the setting above is on. Under the switch, one muted line names the session
@@ -384,10 +399,11 @@ These are decisions taken after the canvas was drawn:
 - 63h's rule note says the End row appears only for a worktree Orbital made.
   Like the rest of the cleanup, it appears for every linked worktree.
 
-- TAG sits in the left column, not the right one. The real model list fills four
-  rows of cards there, and at 1440×900 the dialog would scroll. For the same
-  reason, the model cards use a slightly smaller name, and the selection pip
-  sits on the second line, so names like "Sonnet 5.5" are not cut off.
+- The model cards use a slightly smaller name, and the selection pip sits on
+  the second line, so names like "Sonnet 5.5" are not cut off. (PROFILE and
+  TAG first shipped in the left column, for fear that a long model list would
+  make the dialog scroll at 1440×900. The list runs to two rows in practice,
+  and they moved to the right column, as 63a draws them.)
 
 ## Tests
 

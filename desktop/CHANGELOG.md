@@ -4,6 +4,13 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.47.1] — 2026-11-04
+### Changed
+- New session: Profile and Tag move to the right column, beside Model and Permission mode; the left column keeps where the session runs.
+- New session: with more models than fit in two rows of tiles, Model becomes a dropdown.
+- New session: Work in a worktree starts the way you last left it in that repository.
+- New session no longer jumps taller when it learns the directory is a git repository; the worktree switch unfolds into place.
+
 ## [0.47.0] — 2026-11-03
 ### Added
 - Click a cluster's name on the map to fit that tag's planets in the view, the way ⌘F fits the whole map.

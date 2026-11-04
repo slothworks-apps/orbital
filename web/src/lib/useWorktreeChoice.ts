@@ -7,6 +7,42 @@ import { branchProblem, defaultBase, fetchFailureText, isWorktreeRepo, type Fetc
 /** Quiet time after the last keystroke in the directory before the repository is asked about. */
 export const WORKTREE_OPTIONS_DEBOUNCE_MS = 300
 
+/** The switch as the user last left it, per repository: `{ "<machine>|<main checkout>": true }`. */
+const LAST_SWITCH_KEY = 'orbital.newSession.worktree'
+
+function switchKey(machine: string | undefined, repo: WorktreeRepo): string {
+  // The main checkout, so the repository's own worktrees share the choice.
+  return `${machine ?? ''}|${repo.repoRoot}`
+}
+
+function readLastSwitch(): Record<string, boolean> {
+  try {
+    const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(LAST_SWITCH_KEY) ?? '{}')
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, boolean>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** How the switch starts for `repo`: on when occupied (`autoOn`), or when it was last left on there. */
+export function worktreeSwitchStartsOn(repo: WorktreeRepo, machine?: string): boolean {
+  return repo.autoOn || readLastSwitch()[switchKey(machine, repo)] === true
+}
+
+/** Remembers the switch as the user left it in `repo`, for that repository's next dialog. */
+export function rememberWorktreeSwitch(repo: WorktreeRepo, machine: string | undefined, on: boolean): void {
+  const key = switchKey(machine, repo)
+  try {
+    const all = readLastSwitch()
+    // Only an on is worth a line: off is where every repository starts.
+    if (on) all[key] = true
+    else delete all[key]
+    globalThis.localStorage?.setItem(LAST_SWITCH_KEY, JSON.stringify(all))
+  } catch {
+    // Storage full or blocked: the next dialog starts from `autoOn` alone.
+  }
+}
+
 /** One inline error of the group (canvas 63c A4), with the one fix it offers. */
 export interface WorktreeProblem {
   field: 'branch' | 'base' | 'launch'
@@ -43,8 +79,10 @@ export interface WorktreeChoice {
  *
  * - The repository is asked about once the directory settles and is a
  *   directory (`enabled`); another device's through `machine`.
- * - A new repository starts the switch from `autoOn` (occupied, and the
- *   setting allows it); switched off by hand it stays off for this dialog.
+ * - A new repository starts the switch on when the user last left it on in
+ *   that repository, or from `autoOn` (occupied, and the setting allows it).
+ *   Flipped by hand, the choice is remembered for the repository's next
+ *   dialog — except that an occupied checkout still starts it on.
  * - Turning the switch on fetches `origin` once for that repository; a
  *   failure offers local main, and the repository is read again after a
  *   success, so a branch the fetch brought is known to the name check.
@@ -104,7 +142,7 @@ export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: strin
     setBranchState('')
     setLaunchError(null)
     setFetch({ state: 'idle' })
-    setOnState(repo?.autoOn ?? false)
+    setOnState(repo ? worktreeSwitchStartsOn(repo, machine) : false)
     setBaseState(repo ? defaultBase(repo) : '')
     // `repo` is read for the tree `treeKey` names.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -136,10 +174,14 @@ export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: strin
       })
   }, [repo, on, fetch.state, typed, machine, treeKey])
 
-  const setOn = useCallback((next: boolean) => {
-    setTouched(true)
-    setOnState(next)
-  }, [])
+  const setOn = useCallback(
+    (next: boolean) => {
+      setTouched(true)
+      setOnState(next)
+      if (repo) rememberWorktreeSwitch(repo, machine, next)
+    },
+    [repo, machine],
+  )
   const setBranch = useCallback((next: string) => {
     setLaunchError(null)
     setBranchState(next)

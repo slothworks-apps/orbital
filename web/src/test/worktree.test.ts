@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { WorktreeState } from '@orbital/shared/worktree'
 import { launchAttempt } from '../lib/useLaunchAttempt'
+import { rememberWorktreeSwitch, worktreeSwitchStartsOn } from '../lib/useWorktreeChoice'
 import {
   baseMatches,
   baseNote,
@@ -262,5 +263,34 @@ describe('cleanupChoice', () => {
     expect(cleanupChoice({ variant: 'c2b', endsSession: false })).toEqual({ keep: 'filled', remove: 'plain', removeLabel: 'Remove', force: false })
     expect(cleanupChoice({ variant: 'c1', endsSession: true }).removeLabel).toBe('End and remove')
     expect(cleanupChoice({ variant: 'c2a', endsSession: true }).removeLabel).toBe('End, discard, remove')
+  })
+})
+
+describe('the worktree switch as last left', () => {
+  const free: WorktreeRepo = { ...repo, occupants: [], autoOn: false }
+  const linked: WorktreeRepo = { ...free, treeRoot: '/r/orbital/.claude/worktrees/x' }
+  const other: WorktreeRepo = { ...free, repoRoot: '/r/ergaily', treeRoot: '/r/ergaily' }
+
+  it('starts on where it was left on — in that repository and its worktrees, on that machine only', () => {
+    localStorage.clear()
+    expect(worktreeSwitchStartsOn(free)).toBe(false)
+    rememberWorktreeSwitch(free, undefined, true)
+    expect(worktreeSwitchStartsOn(free)).toBe(true)
+    expect(worktreeSwitchStartsOn(linked)).toBe(true)
+    expect(worktreeSwitchStartsOn(other)).toBe(false)
+    expect(worktreeSwitchStartsOn(free, 'studio')).toBe(false)
+  })
+
+  it('forgets a switch left off, but an occupied checkout still starts it on', () => {
+    localStorage.clear()
+    rememberWorktreeSwitch(free, undefined, true)
+    rememberWorktreeSwitch(free, undefined, false)
+    expect(worktreeSwitchStartsOn(free)).toBe(false)
+    expect(worktreeSwitchStartsOn({ ...free, autoOn: true })).toBe(true)
+  })
+
+  it('starts from autoOn alone when the stored value is not JSON', () => {
+    localStorage.setItem('orbital.newSession.worktree', '{nope')
+    expect(worktreeSwitchStartsOn(free)).toBe(false)
   })
 })

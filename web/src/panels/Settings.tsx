@@ -2316,7 +2316,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       <Row
                         title="Offer a worktree when another session works in the checkout"
                         setting="worktree_auto_on_when_occupied"
-                        desc="New session turns Work in a worktree on by itself when a live session already works in the directory's checkout, and names it. Off, the switch always starts off."
+                        desc="New session turns Work in a worktree on by itself when a live session already works in the directory's checkout, and names it. Off, the switch starts as you last left it in that repository."
                       >
                         <Toggle
                           aria-label="Offer a worktree when another session works in the checkout"

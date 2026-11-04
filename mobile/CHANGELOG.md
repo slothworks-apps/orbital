@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.24.1] — 2026-11-04
+### Changed
+- New session: Work in a worktree starts the way you last left it in that repository.
+
 ## [0.24.0] — 2026-11-03
 ### Added
 - The phone follows Experimental updates when your Mac turns them on for the group, gets each release early, and shows "· experimental" next to its version in Settings. Needs the update from TestFlight or Google Play and Orbital for Mac 0.47.0 or later.
