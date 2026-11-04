@@ -321,6 +321,15 @@ The local branch is never deleted.
    with `worktree_failed` (git refused, and the error is recorded) or
    `not_worktree`. Ending with the box unticked counts as *Keep*: the strip
    does not come back for that worktree.
+   The session's title sits on its own line above "Stops and moves to
+   history…" (63h, 63i), so a long one does not break the sentence. From the
+   moment End is pressed until the answer, the row holds what it showed:
+   the server ends the session before it removes the worktree, and the
+   worktree read again on that status change must not move the tick. The
+   End button reads *Ending…*; Cancel, the row and the key hint dim and wait,
+   and esc (on the phone, a tap on the backdrop or back) does nothing. Every
+   step of the server's End is bounded (the stop wait, git's timeout), so
+   the wait always ends.
 2. **A strip in the detail panel** (63e). It is 46 px tall, directly under the
    where row, and never in the transcript. It is shown only for an ended
    session whose branch is pushed and has a PR (open, merged or closed), and
@@ -398,6 +407,9 @@ These are decisions taken after the canvas was drawn:
   every device.
 - 63h's rule note says the End row appears only for a worktree Orbital made.
   Like the rest of the cleanup, it appears for every linked worktree.
+- 63h ENDING… dims the disabled End and Cancel to .45; they keep the app's
+  shared disabled look (.40), as every other disabled button does. The row's
+  hairline and well stay as they are; its checkbox and label dim.
 
 - The model cards use a slightly smaller name, and the selection pip sits on
   the second line, so names like "Sonnet 5.5" are not cut off. (PROFILE and

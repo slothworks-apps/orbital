@@ -173,10 +173,12 @@ export function SessionMenuSheet({
             </>
           ) : undefined
         }
-        confirmLabel={busy ? 'Ending…' : (endRow.copy?.endLabel ?? 'End session')}
+        confirmLabel={endRow.endLabel}
         onConfirm={() => void end()}
         onCancel={() => setView('menu')}
         busy={busy}
+        // 63i ENDING…: Cancel waits with the rest until the End answers.
+        cancelWaits
       />
     )
   } else if (view === 'takeover') {
@@ -330,11 +332,14 @@ export function SessionMenuSheet({
   }
 
   return (
-    <BottomSheet label={`${title} — session menu`} onDismiss={onClose}>
+    // An End on its way keeps the sheet, as the desktop's dialog does (63i ENDING…).
+    <BottomSheet label={`${title} — session menu`} onDismiss={view === 'end' && busy ? ignore : onClose}>
       {body}
     </BottomSheet>
   )
 }
+
+const ignore = () => {}
 
 /** canvas 10i: a 52 px menu row — the glyph in a 20 px column, the label, a mono hint at the end. */
 function Row({ glyph, label, hint, onPress }: { glyph: ReactNode; label: string; hint?: ReactNode; onPress: () => void }) {
@@ -383,13 +388,8 @@ function MediaGlyph() {
  */
 function WorktreeEndRow({ busy, ticked, line, loses, onToggle }: { busy: boolean; ticked: boolean; line: string; loses: boolean; onToggle: () => void }) {
   return (
-    // 63i ENDING…: dimmed with the buttons while the End is under way.
-    <div
-      className={[
-        'mt-3.5 flex min-h-15 items-center rounded-[12px] border border-line/12 bg-space-deep/60 px-3.5 py-2.5',
-        busy ? 'opacity-45' : '',
-      ].join(' ')}
-    >
+    // 63i ENDING…: the checkbox dims with the buttons while the End is under way.
+    <div className="mt-3.5 flex min-h-15 items-center rounded-[12px] border border-line/12 bg-space-deep/60 px-3.5 py-2.5">
       <Checkbox
         size="touch"
         checked={ticked}

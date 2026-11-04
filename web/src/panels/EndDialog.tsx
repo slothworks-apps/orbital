@@ -111,7 +111,7 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
           </Button>
           <Button variant="primary" size="lg" onClick={() => void handleEnd()} disabled={pending}>
             {/* 63h ENDING…: removing a worktree takes a moment after the session stops. */}
-            {pending ? 'Ending…' : (row.copy?.endLabel ?? 'End session')}
+            {row.endLabel}
           </Button>
         </>
       }
@@ -127,13 +127,8 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
       {row.offered && row.copy && (
         // 63h: 14px under the sentence, 11px/13px inside a 10px radius, the
         // well fill under a .12 hairline; the box is the row's checkbox.
-        // 63h ENDING…: dimmed with the buttons while the End is under way.
-        <div
-          className={[
-            'mt-3.5 rounded-[10px] border border-line/12 bg-space-deep/60 px-[13px] py-[11px]',
-            pending ? 'opacity-45' : '',
-          ].join(' ')}
-        >
+        // 63h ENDING…: the checkbox dims with the buttons while the End is under way.
+        <div className="mt-3.5 rounded-[10px] border border-line/12 bg-space-deep/60 px-[13px] py-[11px]">
           <Checkbox
             size="row"
             checked={row.ticked}

@@ -66,7 +66,14 @@ export function Checkbox({
     // overflow-hidden ancestor's scrollHeight, and the browser scroll-on-focus
     // then scrolls that ancestor when the label is clicked — shearing the
     // whole layout (Settings dialog, 2026-09-20).
-    <label className={`relative flex cursor-pointer select-none ${CHECKBOX_LABEL[size]}`}>
+    // Disabled dims like `Toggle` (End's row while the End is under way, canvas 63h ENDING…).
+    <label
+      className={[
+        'relative flex select-none',
+        disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer',
+        CHECKBOX_LABEL[size],
+      ].join(' ')}
+    >
       <input
         type="checkbox"
         className="peer sr-only"
