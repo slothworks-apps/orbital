@@ -20,8 +20,16 @@ export interface EndWorktreeRow {
   toggle: () => void
   /** The row's line, whether it names a loss, and End's label for this tick. */
   copy: ReturnType<typeof endRowCopy> | null
-  /** What End sends besides the session: nothing unticked; the removal and the path the row showed, ticked. */
-  request: EndWithWorktreeRequest
+  /**
+   * Holds the row as it stands and returns what End sends besides the
+   * session: nothing unticked; the removal and the path the row showed,
+   * ticked. Called as End is pressed: the server ends the session before it
+   * removes the worktree, and the state read again on that status change —
+   * a worktree half gone — must not move the tick under the press.
+   */
+  hold: () => EndWithWorktreeRequest
+  /** Lets go of a held row after an End that failed; `settle` lets go after a refusal. */
+  release: () => void
   /** The calm one line after a refusal (the worktree changed under the confirmation), in the confirmation. */
   note: string | null
   /**
@@ -48,18 +56,23 @@ export function useEndWorktreeRow(
   active: boolean,
 ): EndWorktreeRow {
   const { state, refresh } = useSessionWorktree(session, active)
-  const offered = endOffersRemoval(state) ? state : null
   /** The tick by hand; null follows the variant. */
   const [byHand, setByHand] = useState<boolean | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  /** The row as End was pressed, while the End is under way. */
+  const [held, setHeld] = useState<{ offered: WorktreeState | null; ticked: boolean } | null>(null)
   const id = session?.id ?? null
   useEffect(() => {
     if (!active) return
     setByHand(null)
     setNote(null)
+    setHeld(null)
   }, [active, id])
 
-  const ticked = offered ? (byHand ?? endRowStartsTicked(offered)) : false
+  const live = endOffersRemoval(state) ? state : null
+  const liveTicked = live ? (byHand ?? endRowStartsTicked(live)) : false
+  const offered = held ? held.offered : live
+  const ticked = held ? held.ticked : liveTicked
   return {
     offered,
     ticked,
@@ -68,10 +81,15 @@ export function useEndWorktreeRow(
       setNote(null)
     },
     copy: offered ? endRowCopy(offered, ticked) : null,
-    request: endRequest(offered, ticked),
+    hold: () => {
+      setHeld({ offered, ticked })
+      return endRequest(offered, ticked)
+    },
+    release: () => setHeld(null),
     note,
     settle: (answer) => {
       if (endRefused(answer)) {
+        setHeld(null)
         refresh()
         setByHand(null)
         setNote(REFUSALS[answer.error])

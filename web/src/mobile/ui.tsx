@@ -477,7 +477,7 @@ export function ConfirmBody({
       {extra}
       <div className="flex flex-col gap-2 pb-2.5 pt-[18px]">
         <PrimaryButton variant="sheet" onClick={onConfirm} disabled={busy}>{confirmLabel}</PrimaryButton>
-        <SecondaryButton variant="sheet" onClick={onCancel}>{cancelLabel}</SecondaryButton>
+        <SecondaryButton variant="sheet" onClick={onCancel} disabled={busy}>{cancelLabel}</SecondaryButton>
       </div>
     </div>
   )
