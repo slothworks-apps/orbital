@@ -111,6 +111,9 @@ import { TagsRulesSection } from './TagsRules'
 import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
 import { DevicesSection } from './DevicesSection'
+import { BrowserBridgeRows } from './BrowserBridgeSection'
+import { BROWSER_BRIDGE_SETTING } from '../lib/browserBridge'
+import { browserBridgeOfferedHere } from '../lib/useBrowserBridge'
 import { UpdatesSection } from './UpdatesSection'
 import { LimitSunsSetting } from './LimitSunsSetting'
 import { useAppUpdate } from '../store/appUpdate'
@@ -367,8 +370,8 @@ const SECTION_KEYS = {
   delivery: [NOTIFICATION_SETTING_KEYS.sound, NOTIFICATION_SETTING_KEYS.onlyWhenBackground],
   approving: ['permission_guard_gesture', 'questions_review_before_send'],
   reports: [ISSUE_CHECK_ENABLED_KEY],
-  // Empty: the next feature to try adds its keys here, and the nav lists Labs again.
-  labs: [] as string[],
+  // The browser bridge, offered only where it can work (`browserBridgeOfferedHere`).
+  labs: [BROWSER_BRIDGE_SETTING] as string[],
   experimental: [
     ARCHIPELAGO_ENABLED_KEY,
     WALKTHROUGH_ENABLED_KEY,
@@ -448,7 +451,9 @@ function visibleNavItems(settings: Record<string, string | undefined>, hasUpdate
   return NAV_ITEMS.filter(
     (item) =>
       (item.key !== 'experimental' || experimentalUnlocked(settings)) &&
-      (item.key !== 'labs' || SECTION_KEYS.labs.length > 0) &&
+      // Labs holds only the browser bridge, which the Linux server's web app
+      // does not offer.
+      (item.key !== 'labs' || (SECTION_KEYS.labs.length > 0 && browserBridgeOfferedHere())) &&
       (item.key !== 'updates' || hasUpdates),
   )
 }
@@ -1607,7 +1612,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </p>
                       <ScopeSection keys={SECTION_KEYS.labs}>
                       <SectionLabel first>FEATURES</SectionLabel>
-                      {/* The next feature to try goes here, its keys in SECTION_KEYS.labs. */}
+                      <BrowserBridgeRows settings={settings} patchAndSet={patchAndSet} />
                       </ScopeSection>
                     </>
                   )}
