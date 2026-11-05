@@ -90,7 +90,7 @@ export function SessionMenuSheet({
     if (busy) return
     setBusy(true)
     try {
-      const outcome = endRow.settle(await useOrbital.getState().endSession(id, endRow.request))
+      const outcome = endRow.settle(await useOrbital.getState().endSession(id, endRow.hold()))
       // Refused (the worktree changed under the row): nothing ended; the
       // confirm stays, on the state read again, with a line saying so.
       if (!outcome.ended) {
@@ -149,10 +149,11 @@ export function SessionMenuSheet({
         // Copy from canvas 10i End confirm, the desktop EndDialog's words with the phone's "Ended".
         eyebrow="/END"
         title="End this session?"
+        // The title on a line of its own, then the sentence (canvas 63i).
         body={
           <>
-            <span className="font-mono text-ink-100">{title}</span> stops and moves to Ended — the transcript
-            stays readable there.
+            <span className="block font-mono text-ink-100 [overflow-wrap:anywhere]">{title}</span>
+            <span className="mt-0.5 block">Stops and moves to Ended — the transcript stays readable there.</span>
           </>
         }
         detail={stops.length > 0 ? <Lines lines={stops} /> : undefined}
@@ -161,6 +162,7 @@ export function SessionMenuSheet({
             <>
               {endRow.copy && (
                 <WorktreeEndRow
+                  busy={busy}
                   ticked={endRow.ticked}
                   line={endRow.copy.line}
                   loses={endRow.copy.loses}
@@ -171,10 +173,12 @@ export function SessionMenuSheet({
             </>
           ) : undefined
         }
-        confirmLabel={endRow.copy?.endLabel ?? 'End session'}
+        confirmLabel={endRow.endLabel}
         onConfirm={() => void end()}
         onCancel={() => setView('menu')}
         busy={busy}
+        // 63i ENDING…: Cancel waits with the rest until the End answers.
+        cancelWaits
       />
     )
   } else if (view === 'takeover') {
@@ -328,11 +332,14 @@ export function SessionMenuSheet({
   }
 
   return (
-    <BottomSheet label={`${title} — session menu`} onDismiss={onClose}>
+    // An End on its way keeps the sheet, as the desktop's dialog does (63i ENDING…).
+    <BottomSheet label={`${title} — session menu`} onDismiss={view === 'end' && busy ? ignore : onClose}>
       {body}
     </BottomSheet>
   )
 }
+
+const ignore = () => {}
 
 /** canvas 10i: a 52 px menu row — the glyph in a 20 px column, the label, a mono hint at the end. */
 function Row({ glyph, label, hint, onPress }: { glyph: ReactNode; label: string; hint?: ReactNode; onPress: () => void }) {
@@ -379,13 +386,15 @@ function MediaGlyph() {
  * a 60px row whose checkbox is the 22px `touch` box. Its line names what the
  * variant keeps or, ticked in C2a, what goes — in the soft error ink.
  */
-function WorktreeEndRow({ ticked, line, loses, onToggle }: { ticked: boolean; line: string; loses: boolean; onToggle: () => void }) {
+function WorktreeEndRow({ busy, ticked, line, loses, onToggle }: { busy: boolean; ticked: boolean; line: string; loses: boolean; onToggle: () => void }) {
   return (
+    // 63i ENDING…: the checkbox dims with the buttons while the End is under way.
     <div className="mt-3.5 flex min-h-15 items-center rounded-[12px] border border-line/12 bg-space-deep/60 px-3.5 py-2.5">
       <Checkbox
         size="touch"
         checked={ticked}
         onChange={onToggle}
+        disabled={busy}
         label={
           <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
             <span className="fs-14 font-semibold">Also remove worktree</span>

@@ -4,6 +4,11 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.24.2] — 2026-11-05
+### Fixed
+- End session: “Also remove worktree” no longer unticks itself after you press End; while the session ends and the worktree is removed, the button says “Ending…” and the rest of the dialog waits.
+- End session: the session's name sits on its own line, so a long one no longer breaks up the sentence.
+
 ## [0.24.1] — 2026-11-04
 ### Changed
 - New session: Work in a worktree starts the way you last left it in that repository.

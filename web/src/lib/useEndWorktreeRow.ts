@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { EndWithWorktreeRequest, WorktreeState } from '@orbital/shared/worktree'
 import type { ApiSession } from './types'
 import { useSessionWorktree } from './useSessionWorktree'
@@ -20,8 +20,18 @@ export interface EndWorktreeRow {
   toggle: () => void
   /** The row's line, whether it names a loss, and End's label for this tick. */
   copy: ReturnType<typeof endRowCopy> | null
-  /** What End sends besides the session: nothing unticked; the removal and the path the row showed, ticked. */
-  request: EndWithWorktreeRequest
+  /** End's label: "Ending…" while the End is under way (canvas 63h ENDING…), else the tick's. */
+  endLabel: string
+  /**
+   * Holds the row as it stands and returns what End sends besides the
+   * session: nothing unticked; the removal and the path the row showed,
+   * ticked. Called as End is pressed: the server ends the session before it
+   * removes the worktree, and the state read again on that status change —
+   * a worktree half gone — must not move the tick under the press.
+   */
+  hold: () => EndWithWorktreeRequest
+  /** Lets go of a held row after an End that failed; `settle` lets go after a refusal. */
+  release: () => void
   /** The calm one line after a refusal (the worktree changed under the confirmation), in the confirmation. */
   note: string | null
   /**
@@ -48,18 +58,36 @@ export function useEndWorktreeRow(
   active: boolean,
 ): EndWorktreeRow {
   const { state, refresh } = useSessionWorktree(session, active)
-  const offered = endOffersRemoval(state) ? state : null
   /** The tick by hand; null follows the variant. */
   const [byHand, setByHand] = useState<boolean | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  /**
+   * The row as End was pressed, for the session it was pressed for. Kept
+   * after a successful End, so the confirmation closes on what was sent.
+   */
+  const [held, setHeld] = useState<{ id: string | null; offered: WorktreeState | null; ticked: boolean } | null>(null)
+  /** An End on its way: what `active` does meanwhile (the phone's relay reconnecting) does not start the row over. */
+  const [ending, setEnding] = useState(false)
+  const endingRef = useRef(false)
+  const setRunning = (running: boolean) => {
+    endingRef.current = running
+    setEnding(running)
+  }
   const id = session?.id ?? null
   useEffect(() => {
-    if (!active) return
+    if (!active || endingRef.current) return
     setByHand(null)
     setNote(null)
+    setHeld(null)
   }, [active, id])
 
-  const ticked = offered ? (byHand ?? endRowStartsTicked(offered)) : false
+  const live = endOffersRemoval(state) ? state : null
+  const liveTicked = live ? (byHand ?? endRowStartsTicked(live)) : false
+  // Only the session it was held for: another one opening never shows it, not even for a frame.
+  const hit = held && held.id === id ? held : null
+  const offered = hit ? hit.offered : live
+  const ticked = hit ? hit.ticked : liveTicked
+  const copy = offered ? endRowCopy(offered, ticked) : null
   return {
     offered,
     ticked,
@@ -67,11 +95,22 @@ export function useEndWorktreeRow(
       setByHand(!ticked)
       setNote(null)
     },
-    copy: offered ? endRowCopy(offered, ticked) : null,
-    request: endRequest(offered, ticked),
+    copy,
+    endLabel: ending ? 'Ending…' : (copy?.endLabel ?? 'End session'),
+    hold: () => {
+      setRunning(true)
+      setHeld({ id, offered, ticked })
+      return endRequest(offered, ticked)
+    },
+    release: () => {
+      setRunning(false)
+      setHeld(null)
+    },
     note,
     settle: (answer) => {
+      setRunning(false)
       if (endRefused(answer)) {
+        setHeld(null)
         refresh()
         setByHand(null)
         setNote(REFUSALS[answer.error])

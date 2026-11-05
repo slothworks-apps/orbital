@@ -27,6 +27,8 @@ export interface EndDialogProps {
   onEnd?: (id: string, opts: EndOptions) => Promise<EndAnswer>
 }
 
+const ignore = () => {}
+
 /**
  * Confirms ending a session (spec 2026-09-23-end-session-design; canvas
  * `Feature - Header actions` 23a, "3 · DIALOG"): the 1g shell minus the
@@ -59,14 +61,14 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
   // Canvas 63h: a session in a linked worktree gets one more row — every
   // worktree but one another live session is still in (C3).
   const row = useEndWorktreeRow(session, open)
-  const { request, settle } = row
+  const { hold, release, settle } = row
 
   const handleEnd = useCallback(async () => {
     if (!targetId || pending) return
     setPending(true)
     try {
       const end = onEnd ?? ((id: string, opts: EndOptions) => useOrbital.getState().endSession(id, opts))
-      const outcome = settle(await end(targetId, request))
+      const outcome = settle(await end(targetId, hold()))
       // Refused (the worktree changed under the row): nothing ended, the row
       // shows the state read again with a line saying so.
       if (!outcome.ended) return
@@ -74,11 +76,12 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
       if (outcome.stayed) useOrbital.setState({ toast: { kind: 'info', message: outcome.stayed } })
       onClose()
     } catch (err) {
+      release()
       reportError(err, 'Failed to end the session')
     } finally {
       setPending(false)
     }
-  }, [targetId, pending, onClose, onEnd, request, settle])
+  }, [targetId, pending, onClose, onEnd, hold, release, settle])
 
   // ⏎ ends, per the footer caption (23a: "esc · ⏎ end"); esc is the Dialog's.
   useEffect(() => {
@@ -98,33 +101,39 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
       title="End this session?"
       // Lowercase like its sibling `/clear`, not the canvas's "/END".
       eyebrow="/end"
-      onClose={onClose}
-      footerCaption="esc · ⏎ end"
+      // 63h ENDING…: esc does nothing while the End is under way.
+      onClose={pending ? ignore : onClose}
+      footerCaption={<span className={pending ? 'opacity-45' : undefined}>esc · ⏎ end</span>}
       footer={
         <>
           <Button variant="ghost" size="lg" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
           <Button variant="primary" size="lg" onClick={() => void handleEnd()} disabled={pending}>
-            {row.copy?.endLabel ?? 'End session'}
+            {/* 63h ENDING…: removing a worktree takes a moment after the session stops. */}
+            {row.endLabel}
           </Button>
         </>
       }
     >
-      {/* Copy from canvas 23a. */}
-      <p className="fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]">
-        {session?.title && <span className="font-mono text-ink-100">{session.title}</span>}
-        {session?.title ? ' stops' : 'This session stops'} and moves to history — the transcript
-        stays readable there.
+      {/* Copy from canvas 23a; the title on a line of its own, then the
+          sentence (canvas 63h): run into it, a long title broke it. */}
+      {session?.title && (
+        <div className="fs-13 font-mono leading-[1.55] text-ink-100 [overflow-wrap:anywhere]">{session.title}</div>
+      )}
+      <p className={`${session?.title ? 'mt-0.5' : ''} fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]`}>
+        {session?.title ? 'Stops' : 'This session stops'} and moves to history — the transcript stays readable there.
       </p>
       {row.offered && row.copy && (
         // 63h: 14px under the sentence, 11px/13px inside a 10px radius, the
         // well fill under a .12 hairline; the box is the row's checkbox.
+        // 63h ENDING…: the checkbox dims with the buttons while the End is under way.
         <div className="mt-3.5 rounded-[10px] border border-line/12 bg-space-deep/60 px-[13px] py-[11px]">
           <Checkbox
             size="row"
             checked={row.ticked}
             onChange={row.toggle}
+            disabled={pending}
             label={
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="fs-13 font-semibold">
