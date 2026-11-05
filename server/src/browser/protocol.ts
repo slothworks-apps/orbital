@@ -75,7 +75,13 @@ export type BrowserHubEvent =
       url: string;
       title: string;
       at: number;
-    };
+    }
+  /**
+   * What `GET /api/browser` would answer now, sent whenever it changes (a
+   * pairing made or revoked, an extension connecting or leaving, the switch
+   * moving), so Settings follows it without asking again.
+   */
+  | { type: 'browser_status'; status: BrowserStatus };
 
 // ── REST, web → server (API token) ─────────────────────────────────────────
 //
