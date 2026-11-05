@@ -50,6 +50,7 @@ function seed(sessions: ApiSession[]) {
     order: sessions.map((s) => s.id),
     transcripts: {},
     ideDismissed: {},
+    browserSelections: {},
     composerDrafts: {},
   })
 }
@@ -199,5 +200,43 @@ describe('the editor selection on the way out', () => {
     // wrapped around it.
     expect(api.sendMessage).not.toHaveBeenCalled()
     expect(useOrbital.getState().decisionDrafts.tu1).toEqual({ 'which?': 'the second one' })
+  })
+})
+
+describe('the browser selection on the way out', () => {
+  const PAGE = { eventId: 'e1', text: 'the paragraph', url: 'https://example.com/spec', title: 'Spec', at: 1 }
+  beforeEach(() => useOrbital.setState({ pendingDecisions: {} }))
+
+  it('rides once, after the editor block and before the typed words', async () => {
+    seed([session({ id: 's1', ide: { ideName: 'WebStorm', workspaceRoot: '/w/x', selection: SELECTION } })])
+    useOrbital.getState().setBrowserSelection('s1', PAGE)
+
+    await useOrbital.getState().sendPrompt('s1', 'consistent?')
+    await useOrbital.getState().sendPrompt('s1', 'and again')
+
+    const [first, second] = sentTexts()
+    const editor = first.indexOf('Selected in the editor')
+    const browser = first.indexOf('Selected in the browser — Spec (https://example.com/spec):')
+    expect(editor).toBe(0)
+    expect(browser).toBeGreaterThan(editor)
+    expect(first.indexOf('consistent?')).toBeGreaterThan(browser)
+    expect(second).not.toContain('Selected in the browser')
+    expect(useOrbital.getState().browserSelections.s1).toBeUndefined()
+  })
+
+  it('leaves a slash command untouched and keeps the selection standing', async () => {
+    seed([session({ id: 's1' })])
+    useOrbital.getState().setBrowserSelection('s1', PAGE)
+    await useOrbital.getState().sendPrompt('s1', '/compact')
+    expect(sentTexts()).toEqual(['/compact'])
+    expect(useOrbital.getState().browserSelections.s1).toEqual(PAGE)
+  })
+
+  it('belongs to its own session', async () => {
+    seed([session({ id: 's1' }), session({ id: 's2' })])
+    useOrbital.getState().setBrowserSelection('s1', PAGE)
+    await useOrbital.getState().sendPrompt('s2', 'other')
+    expect(sentTexts()).toEqual(['other'])
+    expect(useOrbital.getState().browserSelections.s1).toEqual(PAGE)
   })
 })

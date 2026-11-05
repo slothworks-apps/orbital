@@ -18,6 +18,7 @@ import { harnessEnabled, terminalEnabled } from './lib/experimental'
 import { nextNeedingInput, sidebarOrder, stepSession } from './lib/sidebarOrder'
 import { useViewportWidth } from './lib/useViewportWidth'
 import { useTranscriptCheck } from './lib/useTranscriptCheck'
+import { useBrowserBridge } from './lib/useBrowserBridge'
 import { STATS_PATH } from './stats/route'
 import type { ApiSession } from './lib/types'
 import { MapView } from './map/MapView'
@@ -298,6 +299,8 @@ export default function App() {
     )
   }, [selectedId, applySessionEvent])
   useTranscriptCheck(selectedId)
+  // Browser events reach the session open here when this window was focused last.
+  useBrowserBridge({ isMainWindow: true })
 
   // App is the OUTERMOST escape layer — always registered, so it only ever
   // sees the key when nothing is open above it (see `ui/escapeLayer`). Any

@@ -1,5 +1,7 @@
 import { ATTACHMENT_RETRY_LIMIT, attachmentMeta, type Attachment } from '../lib/attachments'
 import { extensionLabel } from '../lib/attachedFiles'
+import { pageHost } from '../lib/browserBridge'
+import { BrowserHoverCard, useHoverDelay } from './BrowserHoverCard'
 
 /**
  * One pending attachment in the well (canvas 9c-2, 9d-A, 9d-B).
@@ -21,7 +23,45 @@ export interface AttachmentChipProps {
   onRetry: (id: string) => void
 }
 
-export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps) {
+/** A size as the browser chip says it: `1440×900`, or nothing when the image did not say. */
+function dims(chip: Attachment): string {
+  const entry = chip.entry
+  return entry && 'w' in entry && entry.w && entry.h ? `${entry.w}×${entry.h}` : ''
+}
+
+/** The house clock reading, `14:32`. */
+function clock(at: number): string {
+  return new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
+export function AttachmentChip(props: AttachmentChipProps) {
+  const { chip } = props
+  const hover = useHoverDelay()
+  if (!chip.browser) return <ChipFrame {...props} />
+  // A screenshot from the browser (canvas 64c): the same chip, only the words
+  // differ — the page title for the name, the host where the size goes — and
+  // after a beat the lip's shell says which page and when. The shell hangs
+  // outside the chip, whose frame clips (web/CLAUDE.md: an overlay dies inside
+  // an `overflow: hidden`).
+  const browser = chip.browser
+  const size = dims(chip)
+  return (
+    <div className="relative max-w-full" onMouseEnter={hover.onMouseEnter} onMouseLeave={hover.onMouseLeave}>
+      <ChipFrame {...props} meta={[pageHost(browser.url), size].filter(Boolean).join(' · ')} />
+      {hover.shown && !chip.exiting && (
+        // 64c-C: 330px wide, its left edge on the chip's, 7px above it.
+        <BrowserHoverCard
+          title={chip.name}
+          lines={[browser.url, ['visible tab', size, `taken ${clock(browser.at)}`].filter(Boolean).join(' · ')]}
+          className="left-0 w-[330px]"
+          style={{ bottom: 'calc(100% + 7px)' }}
+        />
+      )}
+    </div>
+  )
+}
+
+function ChipFrame({ chip, onRemove, onRetry, meta }: AttachmentChipProps & { meta?: string }) {
   const failed = chip.state === 'failed'
   const uploading = chip.state === 'uploading'
   // The rail only exists once there is a figure to draw it from, which is what
@@ -76,6 +116,8 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
           data-chip-name
           className={[
             'whitespace-nowrap font-mono fs-11',
+            // 64c-B: a page title is cut at 190px.
+            chip.browser ? 'max-w-[190px] truncate' : '',
             // 9d-B: a failed chip's name steps back to the muted row ink.
             failed ? 'text-ink-500/80' : 'text-ink-100',
           ].join(' ')}
@@ -86,7 +128,7 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
           data-chip-meta
           className="whitespace-nowrap font-mono fs-9.5 text-ink-900/55"
         >
-          {attachmentMeta(chip)}
+          {meta ?? attachmentMeta(chip)}
         </span>
       </span>
 

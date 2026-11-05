@@ -28,6 +28,7 @@ import { parseTerminalFocused, terminalKeyDecision } from './lib/terminalKeys';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
 import { pickerStartPath } from './lib/chooseDirectory';
 import { parseRevealPath } from './lib/showInFolder';
+import { browserExtensionDir } from './lib/browserExtension';
 import { parseEditCommand } from './lib/editCommand';
 import {
   decideWindowButtons,
@@ -1708,6 +1709,21 @@ ipcMain.on('show-in-folder', (event, payload: unknown) => {
   if (!fromOrbitalWindow(event.sender)) return;
   const path = parseRevealPath(payload);
   if (path !== null) shell.showItemInFolder(path);
+});
+// Settings → Labs → Browser bridge: the extension's folder, for Load unpacked.
+// Opened rather than revealed, so Finder shows what is in it; from the
+// repository before the extension is built, its workspace is shown instead.
+// And where that folder is, for Settings to name it (canvas 64e).
+ipcMain.handle('browser-extension-path', (event) =>
+  fromOrbitalWindow(event.sender)
+    ? browserExtensionDir({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, repoRoot })
+    : null,
+);
+ipcMain.on('show-browser-extension', (event) => {
+  if (!fromOrbitalWindow(event.sender)) return;
+  const dir = browserExtensionDir({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, repoRoot });
+  if (existsSync(dir)) void shell.openPath(dir);
+  else shell.showItemInFolder(join(repoRoot, 'browser-extension'));
 });
 // The text context menu's rows: the sender's own edit command, as its shortcut runs it.
 ipcMain.on('edit-command', (event, payload: unknown) => {

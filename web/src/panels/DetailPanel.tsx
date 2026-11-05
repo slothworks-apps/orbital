@@ -49,6 +49,8 @@ import { Select } from '../ui/Select'
 import { Button } from '../ui/Button'
 import { Composer } from './Composer'
 import { useAttachments } from './useAttachments'
+import { registerBrowserIntake } from '../lib/useBrowserBridge'
+import { apiImagePath, resolveImage } from '../lib/images'
 import { useImageDrop } from './useImageDrop'
 import { promptWithFiles } from '../lib/attachedFiles'
 import { Transcript } from './Transcript'
@@ -314,6 +316,31 @@ export function DetailPanel({
   const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files, folders) =>
     attachments.accept(files, 'file', folders),
   )
+
+  // The browser bridge (spec 2026-11-05-browser-bridge-design): the session
+  // this panel shows is the one a browser event reaches, and a screenshot
+  // lands in its row of chips. Registered only while the panel is on screen.
+  const browserSelection = useOrbital((s) => (id ? s.browserSelections[id] : undefined))
+  const dismissBrowserSelection = useOrbital((s) => s.dismissBrowserSelection)
+  const attachmentsRef = useRef(attachments)
+  attachmentsRef.current = attachments
+  const intakeSession = selectedId != null && !hidden && session !== undefined ? selectedId : null
+  useEffect(() => {
+    if (!intakeSession) return
+    return registerBrowserIntake({
+      sessionId: intakeSession,
+      attachmentCount: () => attachmentsRef.current.items.length,
+      adoptImage: ({ ref, name, w, h, bytes, browser }) => {
+        const url = resolveImage(ref)
+        attachmentsRef.current.adoptStored({
+          entry: { ref, w, h, bytes },
+          name,
+          previewUrl: typeof url === 'string' ? url : apiImagePath(ref),
+          browser,
+        })
+      },
+    })
+  }, [intakeSession])
 
   // Resizable width (docs/ideas/resizable-detail-panel.md). The store value
   // moves LIVE during the drag — the panel and the map's follow inset track
@@ -1414,6 +1441,8 @@ export function DetailPanel({
             ide={ide}
             ideDismissedId={ideDismissedId}
             onIdeDismiss={(selectionId) => id && dismissIdeSelection(id, selectionId)}
+            browserSelection={browserSelection ?? null}
+            onBrowserDismiss={() => id && dismissBrowserSelection(id)}
             attachments={attachments}
             dropArmed={dropArmed}
             // In a hint row narrower than 440px (a narrow panel) the buttons

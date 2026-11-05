@@ -55,6 +55,7 @@ import type {
   SessionDefaults,
 } from './types'
 import { markUnauthorized } from './unauthorized'
+import type { BrowserOutcome, BrowserStatus } from './browserBridge'
 import {
   parseServerUpdateState,
   SERVER_UPDATE_CANCEL_REFUSALS,
@@ -1551,6 +1552,26 @@ export const api = {
   // shows (or quietly waits out), not an error to toast.
   async getRemote(): Promise<RemoteStatus> {
     return request('GET', '/api/remote')
+  },
+
+  /** The browser bridge's switch and paired extensions (spec 2026-11-05-browser-bridge-design § Pairing). */
+  async browserStatus(): Promise<BrowserStatus> {
+    return request<BrowserStatus>('GET', '/api/browser')
+  },
+
+  /** A short single-use code the extension's popup takes. */
+  async browserPairingCode(): Promise<{ code: string; expiresAt: number }> {
+    return request<{ code: string; expiresAt: number }>('POST', '/api/browser/pairing-code')
+  },
+
+  /** Revokes one extension's browser token. */
+  async unpairBrowser(id: string): Promise<void> {
+    return request<void>('DELETE', apiPath`/api/browser/pairings/${id}`)
+  },
+
+  /** What became of a browser event, for the extension's badge. */
+  async browserOutcome(outcome: BrowserOutcome): Promise<void> {
+    return request<void>('POST', '/api/browser/outcome', outcome)
   },
 
   /**

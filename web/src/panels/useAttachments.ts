@@ -12,8 +12,9 @@ import {
   type Refusal,
   type RefusalNotice,
 } from '../lib/attachments'
-import type { AttachmentSource, FileEntry } from '../lib/types'
+import type { AttachmentSource, FileEntry, ImageRefEntry } from '../lib/types'
 import type { SentAttachment } from '../store/store'
+import type { BrowserShot } from '../lib/browserBridge'
 
 /**
  * The composer's attachment state machine (spec: 2026-09-20-composer-design
@@ -97,6 +98,14 @@ export interface AttachmentsHandle {
     folders?: ReadonlySet<string>,
     original?: { w: number; h: number },
   ): void
+  /**
+   * Puts an image the server already stored in the row as a done chip: a
+   * screenshot the browser extension sent (spec
+   * 2026-11-05-browser-bridge-design § A screenshot from the extension).
+   * Nothing to upload, nothing to retry; it counts toward `MAX_ATTACHMENTS`
+   * like any chip, and a full row takes nothing.
+   */
+  adoptStored(image: { entry: ImageRefEntry; name: string; previewUrl: string; browser?: BrowserShot }): boolean
   remove(id: string): void
   retry(id: string): void
   /**
@@ -119,7 +128,8 @@ export interface TakenAttachments {
 
 /** Per-chip bookkeeping that never needs to re-render anything. */
 interface ChipWork {
-  file: File
+  /** Absent for a chip adopted already stored: it never uploads. */
+  file?: File
   controller?: AbortController
   /** Resolves when the current attempt settles, however it settles. */
   run?: Promise<void>
@@ -129,6 +139,11 @@ interface ChipWork {
 }
 
 let chipCounter = 0
+
+/** Only a local preview is this hook's to release; an adopted chip's is the server's URL. */
+function revokePreview(url: string): void {
+  if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+}
 
 /**
  * `sessionId` is `null` in the New Session dialog, which has no session until
@@ -215,9 +230,11 @@ export function useAttachments(
         })
       }
 
+      const source = entry.file
+      if (!source) return
       // An image is brought down to what the API takes first; one the browser
       // cannot decode fails like an upload the server refused.
-      entry.run = (chip.kind === 'image' ? fitImage(entry.file) : Promise.resolve(entry.file))
+      entry.run = (chip.kind === 'image' ? fitImage(source) : Promise.resolve(source))
         .then((file) => {
           if (!file) throw new Error('the image could not be brought down to size')
           return api.uploadAttachment(sessionId, file, { signal: controller.signal })
@@ -336,6 +353,36 @@ export function useAttachments(
     [foreign, showRefusal, startUpload, sync],
   )
 
+  const adoptStored = useCallback(
+    (image: { entry: ImageRefEntry; name: string; previewUrl: string; browser?: BrowserShot }) => {
+      if (listRef.current.length >= MAX_ATTACHMENTS) return false
+      chipCounter += 1
+      const id = `chip:${chipCounter}`
+      work.current.set(id, {
+        result: { entry: image.entry, name: image.name, source: 'file', ...(image.browser ? { browser: image.browser } : {}) },
+      })
+      listRef.current = [
+        ...listRef.current,
+        {
+          id,
+          kind: 'image',
+          name: image.name,
+          source: 'file',
+          size: image.entry.bytes,
+          previewUrl: image.previewUrl,
+          state: 'uploaded',
+          entry: image.entry,
+          progress: null,
+          retries: 0,
+          ...(image.browser ? { browser: image.browser } : {}),
+        },
+      ]
+      sync()
+      return true
+    },
+    [sync],
+  )
+
   const remove = useCallback(
     (id: string) => {
       const chip = listRef.current.find((c) => c.id === id)
@@ -344,7 +391,7 @@ export function useAttachments(
       patch(id, { exiting: true })
       setTimeout(() => {
         listRef.current = listRef.current.filter((c) => c.id !== id)
-        if (chip.previewUrl) URL.revokeObjectURL(chip.previewUrl)
+        if (chip.previewUrl) revokePreview(chip.previewUrl)
         sync()
       }, CHIP_EXIT_MS)
     },
@@ -381,7 +428,7 @@ export function useAttachments(
       if (result && 'kind' in result) out.files.push(result)
       else if (result) out.images.push(result)
       release(chip.id, { abort: false })
-      if (chip.previewUrl) URL.revokeObjectURL(chip.previewUrl)
+      if (chip.previewUrl) revokePreview(chip.previewUrl)
     }
     return out
   }, [release, sync])
@@ -389,7 +436,7 @@ export function useAttachments(
   const reset = useCallback(() => {
     for (const chip of listRef.current) {
       release(chip.id, { abort: true })
-      if (chip.previewUrl) URL.revokeObjectURL(chip.previewUrl)
+      if (chip.previewUrl) revokePreview(chip.previewUrl)
     }
     listRef.current = []
     sync()
@@ -411,7 +458,7 @@ export function useAttachments(
       }
       work.current.clear()
       for (const timer of refusalTimers.current) clearTimeout(timer)
-      for (const chip of listRef.current) if (chip.previewUrl) URL.revokeObjectURL(chip.previewUrl)
+      for (const chip of listRef.current) if (chip.previewUrl) revokePreview(chip.previewUrl)
       listRef.current = []
     },
     [],
@@ -421,7 +468,7 @@ export function useAttachments(
   const uploading = items.some((chip) => chip.state === 'uploading')
 
   return useMemo(
-    () => ({ items, refusal, armed, uploading, accept, remove, retry, takeForSend, reset }),
-    [items, refusal, armed, uploading, accept, remove, retry, takeForSend, reset],
+    () => ({ items, refusal, armed, uploading, accept, adoptStored, remove, retry, takeForSend, reset }),
+    [items, refusal, armed, uploading, accept, adoptStored, remove, retry, takeForSend, reset],
   )
 }

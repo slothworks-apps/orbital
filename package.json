@@ -8,6 +8,7 @@
     "server",
     "web",
     "desktop",
+    "browser-extension",
     "relay",
     "mobile",
     "site"
@@ -22,9 +23,9 @@
     "dev:desktop": "ORBITAL_PORT=4838 npm run dev -w desktop",
     "orbital": "npm run --silent cli -w server --",
     "orbital:dev": "ORBITAL_PORT=4838 ORBITAL_DATA_DIR=\"$HOME/Library/Application Support/orbital-dev\" npm run --silent cli -w server --",
-    "desktop:build": "npm run build -w server && npm run build -w web && npm run dist:local -w desktop",
-    "desktop:build:self": "npm run build -w server && npm run build -w web && npm run dist:self -w desktop",
-    "desktop:release": "npm run build -w server && npm run build -w web && npm run dist -w desktop",
+    "desktop:build": "npm run build -w server && npm run build -w web && npm run build -w @orbital/browser-extension && npm run dist:local -w desktop",
+    "desktop:build:self": "npm run build -w server && npm run build -w web && npm run build -w @orbital/browser-extension && npm run dist:self -w desktop",
+    "desktop:release": "npm run build -w server && npm run build -w web && npm run build -w @orbital/browser-extension && npm run dist -w desktop",
     "android:release": "env -u ORBITAL_MOBILE_DEV ORBITAL_MOBILE_RELEASE=1 npm run build -w @orbital/mobile && npm run play -w @orbital/mobile",
     "android:bundle": "env -u ORBITAL_MOBILE_DEV ORBITAL_MOBILE_RELEASE=1 npm run build -w @orbital/mobile && npm run aab -w @orbital/mobile",
     "ios:release": "env -u ORBITAL_MOBILE_DEV ORBITAL_MOBILE_RELEASE=1 npm run build:ios -w @orbital/mobile && npm run ipa -w @orbital/mobile",
@@ -32,8 +33,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm test -w shared && npm test -w server && npm run test:run -w web && npm test -w desktop && npm test -w relay",
-    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w web && npm run typecheck -w desktop && npm run typecheck -w relay && npm run typecheck -w mobile"
+    "test": "npm test -w shared && npm test -w server && npm run test:run -w web && npm test -w desktop && npm test -w relay && npm test -w @orbital/browser-extension",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w web && npm run typecheck -w desktop && npm run typecheck -w relay && npm run typecheck -w mobile && npm run typecheck -w @orbital/browser-extension"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

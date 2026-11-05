@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Orbital browser bridge",
+  "description": "Sends what you select, and screenshots, to the session open in Orbital.",
+  "version": "0.0.0",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA21/elqNcZXQmQ7C07WhQM+piwjstI0oa/2DvzfH97enlWpcR4wFg5s6uQbPj3T8ppFocatep2rNP9tW0kQq+nmxye02NOqt4LHIqNKMX5vvfmderX8wGtxk9iXkyBMNtTx7Kz8lL4Y9aclQF33xMsyQu++/jzPcrz2zLYaTz6b0ATry965pz/EfkEXbXcr6i2+VVrCWGc1ULqZuv1+amKlaP1kRCvj1LU6Kp+y1NuLxUqMdujGLg0gEfpSzVAEreKO5RDKSeNwGLQ1ADwB+GWd1yekgLKJT1TyCJeloR6njvmH0wDJfcZlv/lw9DgUQMkhG8JG6poeMSeM0+8G+ycwIDAQAB",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Orbital",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "commands": {
+    "take-screenshot": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Send a screenshot of this tab to Orbital"
+    }
+  }
+}

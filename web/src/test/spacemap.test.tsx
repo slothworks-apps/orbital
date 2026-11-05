@@ -111,6 +111,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     questionCursors: {},
     decisionVerdicts: {},
     ideDismissed: {},
+    browserSelections: {},
     composerDrafts: {},
     rewindSending: {},
     detachedIds: [],

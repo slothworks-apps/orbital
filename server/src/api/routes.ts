@@ -100,6 +100,8 @@ import { hostOsVersion } from '../remote/osVersion.js';
 import { findSimilarIssues, type SimilarIssue } from '../issues/similar.js';
 import type { DuplicateCheck } from '../issues/duplicates.js';
 import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY } from '../limits/logic.js';
+import type { BrowserBridge } from '../browser/bridge.js';
+import { BROWSER_BRIDGE_SETTING } from '../browser/protocol.js';
 import {
   NOTIFICATION_SETTING_KEYS, NOTIFICATIONS_TIP_ENDED, NOTIFICATIONS_TIP_KEY,
 } from '@orbital/shared/notifications';
@@ -146,6 +148,8 @@ export interface RouteContext {
    * 2026-09-23-ide-bridge-design). Read through `toApiSession`, and directly
    * by the open-files route. */
   ide: IdeStore;
+  /** The browser extension's bridge (spec 2026-11-05-browser-bridge-design); its switch is a setting. */
+  browser?: BrowserBridge;
   /** The listings `GET /api/files/find` searches; a test injects its own lister. One of the routes' own without. */
   fileListings?: ListingCache;
   /** Every subagent's own transcript, keyed the same way `subagents` is — see
@@ -270,6 +274,7 @@ export function settingsChangedEffects(
     limits?: Pick<LimitsService, 'settingsChanged'>;
     branchStatus: Pick<BranchStatusStore, 'settingsChanged'>;
     updateChannelChanged?: () => void;
+    browser?: Pick<BrowserBridge, 'settingsChanged'>;
   },
 ): void {
   const changed = new Set(keys);
@@ -280,6 +285,8 @@ export function settingsChangedEffects(
   // Without a reload: a switch turned off drops the field from the open
   // sessions, one turned on starts reading and fills it.
   if (changed.has(PR_SETTING) || changed.has(LINES_SETTING)) ctx.branchStatus.settingsChanged();
+  // Turned off, the browser bridge drops every extension connected.
+  if (changed.has(BROWSER_BRIDGE_SETTING)) ctx.browser?.settingsChanged();
 }
 
 const SIMULATED_OUTCOMES = new Set<string>(['success', 'success_no_post_tokens', 'failed', 'failed_no_error']);

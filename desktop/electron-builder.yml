@@ -28,6 +28,10 @@ extraResources:
     to: drizzle
   - from: ../web/dist
     to: web
+  # The browser bridge's extension, loaded unpacked from here (spec
+  # 2026-11-05-browser-bridge-design § Installing it); main opens the folder.
+  - from: ../browser-extension/dist
+    to: browser-extension
   # The menu bar's template image, both scales — `nativeImage` looks the @2x
   # file up beside the 1x one, so it has to land in the same directory.
   # Regenerate them with build/make-icon.sh if the artwork changes.
