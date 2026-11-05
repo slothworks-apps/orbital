@@ -240,6 +240,12 @@ const IDE_OPEN_FILE_LINE = /^The user opened the file .+? in the IDE\. This may 
  * it is taken off after it, past the blank line between them.
  */
 const BROWSER_SELECTION_BLOCK = /^\n*Selected in the browser — [^\n]* \(\S+\):\n\n(`{3,})\n[\s\S]*?\n\1(?:\n|$)/;
+/**
+ * The line each screenshot from the browser adds, naming its page
+ * (`promptWithBrowserScreenshots` in `web/src/lib/browserBridge.ts`, the same
+ * contract): after the selection blocks, before the typed words.
+ */
+const BROWSER_SCREENSHOT_LINES = /^\n*(?:Screenshot of [^\n]* — \S+(?:\n|$))+/;
 
 /**
  * The list of attached files the composer appends after a prompt
@@ -255,7 +261,8 @@ export function cleanTitle(text: string): string {
     .replace(ATTACHED_FILES_BLOCK, '')
     .replace(IDE_SELECTION_BLOCK, '')
     .replace(IDE_OPEN_FILE_LINE, '')
-    .replace(BROWSER_SELECTION_BLOCK, '');
+    .replace(BROWSER_SELECTION_BLOCK, '')
+    .replace(BROWSER_SCREENSHOT_LINES, '');
   const commandName = /<command-name>([^<\n]+)<\/command-name>/.exec(text)?.[1]?.trim();
   const commandArgs = /<command-args>([^<\n]*)/.exec(text)?.[1]?.trim();
   const stripped = text.replace(NOISE_BLOCK, ' ').replace(/\s+/g, ' ').trim();

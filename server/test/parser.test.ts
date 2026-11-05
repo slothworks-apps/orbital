@@ -357,6 +357,16 @@ describe('cleanTitle', () => {
     expect(cleanTitle('Selected in the browser — the left tab')).toBe('Selected in the browser — the left tab');
   });
 
+  // Written by `promptWithBrowserScreenshots` in the web app, after any selection block.
+  it('drops the lines naming the pages of screenshots from the browser', () => {
+    const shots = 'Screenshot of Onboarding — Summary (draft) — http://localhost:5173/a\nScreenshot of Docs — https://x.test/\n\nsame on the summary step';
+    expect(cleanTitle(shots)).toBe('same on the summary step');
+    const browser = 'Selected in the browser — Spec (https://x.test/s):\n\n```\nthe text\n```\n\n';
+    expect(cleanTitle(browser + shots)).toBe('same on the summary step');
+    expect(cleanTitle('Screenshot of Docs — https://x.test/')).toBe('');
+    expect(cleanTitle('Screenshot of the login page please')).toBe('Screenshot of the login page please');
+  });
+
   it('keeps a prompt that only mentions the editor in passing', () => {
     expect(cleanTitle('Selected in the editor — the left one')).toBe('Selected in the editor — the left one');
   });
