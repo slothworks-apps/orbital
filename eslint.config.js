@@ -140,10 +140,10 @@ export default tseslint.config(
     extends: [tseslint.configs.disableTypeChecked],
   },
   // The icon and signing scripts electron-builder runs under Node, and the
-  // phone's icon generator; the `.cjs` hook has to be CommonJS, so `require`
+  // phone's and the browser extension's icon generators; the `.cjs` hook has to be CommonJS, so `require`
   // is how it imports.
   {
-    files: ['desktop/build/*.{mjs,cjs}', 'mobile/scripts/*.mjs'],
+    files: ['desktop/build/*.{mjs,cjs}', 'mobile/scripts/*.mjs', 'browser-extension/scripts/*.mjs'],
     languageOptions: { globals: globals.node },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },

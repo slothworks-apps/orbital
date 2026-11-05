@@ -33,7 +33,8 @@ try {
   await page.addScriptTag({ content: bundle.outputFiles[0].text })
   for (const size of [16, 32, 48, 128]) {
     const dataUrl = await page.evaluate((s) => {
-      const canvas = document.createElement('canvas')
+      // Runs in the page, not in Node.
+      const canvas = globalThis.document.createElement('canvas')
       canvas.width = canvas.height = s
       globalThis.drawIcon(canvas.getContext('2d'), s)
       return canvas.toDataURL('image/png')
