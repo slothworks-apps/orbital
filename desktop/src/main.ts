@@ -1713,6 +1713,12 @@ ipcMain.on('show-in-folder', (event, payload: unknown) => {
 // Settings → Labs → Browser bridge: the extension's folder, for Load unpacked.
 // Opened rather than revealed, so Finder shows what is in it; from the
 // repository before the extension is built, its workspace is shown instead.
+// And where that folder is, for Settings to name it (canvas 64e).
+ipcMain.handle('browser-extension-path', (event) =>
+  fromOrbitalWindow(event.sender)
+    ? browserExtensionDir({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, repoRoot })
+    : null,
+);
 ipcMain.on('show-browser-extension', (event) => {
   if (!fromOrbitalWindow(event.sender)) return;
   const dir = browserExtensionDir({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, repoRoot });

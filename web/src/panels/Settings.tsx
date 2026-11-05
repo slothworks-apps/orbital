@@ -1605,13 +1605,9 @@ export function Settings({ open, onClose }: SettingsProps) {
 
                   {section === 'labs' && (
                     <>
-                      {/* The lead note of Notifications (canvas `Feature - Notifications off` 1c). */}
-                      <p className="pb-2.5 pt-3.5 fs-13 leading-[1.5] text-ink-900/80">
-                        Finished features you can try. Each stays off until you turn it on, and any of
-                        them may still change, move into the regular settings, or be removed.
-                      </p>
+                      {/* `Feature - Browser bridge` 64e/64f: LABS, and what Labs is on the same line. */}
                       <ScopeSection keys={SECTION_KEYS.labs}>
-                      <SectionLabel first>FEATURES</SectionLabel>
+                      <SectionLabel first aside="Finished features, each off until you turn it on.">LABS</SectionLabel>
                       <BrowserBridgeRows settings={settings} patchAndSet={patchAndSet} />
                       </ScopeSection>
                     </>

@@ -50,6 +50,10 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   showBrowserExtension() {
     ipcRenderer.send('show-browser-extension');
   },
+  /** The bundled extension's folder, which Settings names. */
+  browserExtensionPath(): Promise<string | null> {
+    return ipcRenderer.invoke('browser-extension-path');
+  },
   // The text context menu's Cut, Copy, Paste and Select All (spec
   // 2026-11-02-text-context-menu-design): main runs the window's own edit
   // command, the one the shortcut runs.

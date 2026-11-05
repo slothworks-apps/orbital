@@ -10,6 +10,7 @@ type DesktopBridge = {
   openNotificationSettings?: () => void
   showInFolder?: (path: string) => void
   showBrowserExtension?: () => void
+  browserExtensionPath?: () => Promise<string | null>
   edit?: (command: EditCommand) => void
   detachSession?: (id: string) => void
   focusSession?: (id: string) => void
@@ -362,6 +363,18 @@ export function canShowBrowserExtension(): boolean {
 /** Reveals the bundled browser extension's folder in Finder, for Load unpacked. */
 export function showBrowserExtension(): void {
   bridge()?.showBrowserExtension?.()
+}
+
+/** The bundled browser extension's folder, or null outside a desktop build that knows it. */
+export async function browserExtensionPath(): Promise<string | null> {
+  const ask = bridge()?.browserExtensionPath
+  if (typeof ask !== 'function') return null
+  try {
+    const path = await ask()
+    return typeof path === 'string' && path ? path : null
+  } catch {
+    return null
+  }
 }
 
 /** The window's own edit commands, as their shortcuts run them (spec 2026-11-02-text-context-menu-design). */

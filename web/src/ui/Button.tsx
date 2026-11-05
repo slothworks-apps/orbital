@@ -30,7 +30,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'ink'
     | 'dashed-link'
     | 'muted-chip'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action' | 'labs' | 'labs-row'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -182,6 +182,10 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   // `Feature - Stop hook` 1d: an action inside a one-line row, mono 11 at
   // 2px/7px, a 22px box the row lays out around with its −2px margin.
   'row-action': 'px-[7px] py-[2px] fs-11 leading-[1.5]',
+  // `Feature - Browser bridge` 64f's Pair a browser, Cancel and Show the
+  // extension folder: 7px/12px at 12.5px; and a paired browser's Unpair, 5px/10px at 12px.
+  labs: 'px-3 py-[7px] fs-12.5',
+  'labs-row': 'px-2.5 py-[5px] fs-12 leading-(--text-xs--line-height)',
 }
 
 export function Button({
