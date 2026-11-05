@@ -18,8 +18,22 @@ export const BROWSER_PAIRINGS_FILE = 'browser-pairings.json';
 /** How long a pairing code stays good. */
 export const PAIRING_CODE_TTL_MS = 5 * 60_000;
 
-/** Digits in a pairing code: typed by hand into the popup. */
-export const PAIRING_CODE_DIGITS = 6;
+/** Characters in a pairing code: typed by hand into the popup, shown as 3 + 3. */
+export const PAIRING_CODE_LENGTH = 6;
+
+/**
+ * What a pairing code is made of: letters and digits without 0/O and 1/I,
+ * which read alike when typed off the screen (canvas 64f, The code).
+ */
+export const PAIRING_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/**
+ * A code as typed, the way it is compared: case does not matter, nor the
+ * space or dash someone types between its two halves.
+ */
+export function normalizePairingCode(raw: string): string {
+  return raw.replace(/[\s-]/g, '').toUpperCase();
+}
 
 /** Wrong codes a code survives; the next wrong one ends it, so it cannot be walked. */
 export const PAIRING_CODE_MAX_FAILURES = 5;
@@ -29,6 +43,8 @@ export interface StoredPairing {
   browser: string;
   pairedAt: number;
   tokenHash: string;
+  /** When its extension was last connected: set as it connects and as it leaves. */
+  lastSeenAt?: number;
 }
 
 export type PairFailure = 'no-code' | 'expired' | 'wrong-code';
@@ -59,7 +75,8 @@ export class BrowserPairings {
 
   /** A new code, replacing any still open: Settings shows one at a time. */
   newCode(): { code: string; expiresAt: number } {
-    const code = String(randomInt(0, 10 ** PAIRING_CODE_DIGITS)).padStart(PAIRING_CODE_DIGITS, '0');
+    let code = '';
+    for (let i = 0; i < PAIRING_CODE_LENGTH; i++) code += PAIRING_CODE_ALPHABET[randomInt(0, PAIRING_CODE_ALPHABET.length)];
     const expiresAt = this.now() + PAIRING_CODE_TTL_MS;
     this.code = { code, expiresAt, failures: 0 };
     return { code, expiresAt };
@@ -77,13 +94,14 @@ export class BrowserPairings {
       this.code = null;
       return { failure: 'expired' };
     }
-    if (code.trim() !== open.code) {
+    if (normalizePairingCode(code) !== open.code) {
       if (++open.failures >= PAIRING_CODE_MAX_FAILURES) this.code = null;
       return { failure: 'wrong-code' };
     }
     this.code = null;
     const token = randomBytes(32).toString('base64url');
-    const pairing: StoredPairing = { id: randomUUID(), browser: browserName(browser), pairedAt: this.now(), tokenHash: hashToken(token) };
+    const now = this.now();
+    const pairing: StoredPairing = { id: randomUUID(), browser: browserName(browser), pairedAt: now, tokenHash: hashToken(token), lastSeenAt: now };
     this.pairings = [...this.pairings, pairing];
     this.save();
     return { pairing, token };
@@ -94,6 +112,18 @@ export class BrowserPairings {
     if (!token) return null;
     const hash = hashToken(token);
     return this.pairings.find((p) => p.tokenHash === hash) ?? null;
+  }
+
+  /** Its extension is connected now, or just left: kept, so "last seen" survives a restart. */
+  seen(id: string): void {
+    const at = this.now();
+    let changed = false;
+    this.pairings = this.pairings.map((p) => {
+      if (p.id !== id) return p;
+      changed = true;
+      return { ...p, lastSeenAt: at };
+    });
+    if (changed) this.save();
   }
 
   revoke(id: string): boolean {
@@ -117,7 +147,8 @@ export class BrowserPairings {
     return raw.filter((p): p is StoredPairing =>
       typeof p === 'object' && p !== null
       && typeof p.id === 'string' && typeof p.browser === 'string'
-      && typeof p.pairedAt === 'number' && typeof p.tokenHash === 'string');
+      && typeof p.pairedAt === 'number' && typeof p.tokenHash === 'string'
+      && (p.lastSeenAt === undefined || typeof p.lastSeenAt === 'number'));
   }
 
   private save(): void {

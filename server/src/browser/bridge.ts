@@ -62,6 +62,8 @@ export interface BrowserBridgeOptions {
   titleOf: (sessionId: string) => string | null;
   /** The ceiling a stored screenshot fits under: the composer attachment's. */
   maxImageBytes: number;
+  /** The port Orbital listens on, for Settings' status line. */
+  port: number;
   now?: () => number;
   timeouts?: { firstFrameMs?: number; outcomeMs?: number; captureMs?: number };
 }
@@ -116,8 +118,9 @@ export class BrowserBridge {
     const live = new Set([...this.connections].map((c) => c.pairingId));
     return {
       enabled: this.enabled(),
+      port: this.opts.port,
       pairings: this.pairings.list().map((p) => ({
-        id: p.id, browser: p.browser, pairedAt: p.pairedAt, connected: live.has(p.id),
+        id: p.id, browser: p.browser, pairedAt: p.pairedAt, connected: live.has(p.id), lastSeenAt: p.lastSeenAt ?? null,
       })),
     };
   }
@@ -202,6 +205,7 @@ export class BrowserBridge {
       firstFrame = null;
       connection = { socket, pairingId, activeAt: this.now() };
       this.connections.add(connection);
+      this.pairings.seen(pairingId);
       this.publishStatus();
     };
 
@@ -250,6 +254,7 @@ export class BrowserBridge {
       if (firstFrame) clearTimeout(firstFrame);
       if (!connection) return;
       this.connections.delete(connection);
+      this.pairings.seen(connection.pairingId);
       for (const [eventId, pending] of this.outcomes) {
         if (pending.connection !== connection) continue;
         clearTimeout(pending.timer);
@@ -306,6 +311,8 @@ export class BrowserBridge {
         this.event(connection, {
           type: 'browser_screenshot', eventId, ref: entry.ref,
           url: str(frame.url, URL_MAX_CHARS) ?? '', title: str(frame.title, TITLE_MAX_CHARS) ?? '', at: this.now(),
+          ...(entry.w && entry.h ? { w: entry.w, h: entry.h } : {}),
+          bytes: entry.bytes,
         });
         return;
       }

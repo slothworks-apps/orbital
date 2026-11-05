@@ -3,7 +3,14 @@ import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { BrowserBridge, type BridgeSocket } from '../src/browser/bridge.js';
-import { BROWSER_PAIRINGS_FILE, PAIRING_CODE_MAX_FAILURES, PAIRING_CODE_TTL_MS } from '../src/browser/pairings.js';
+import {
+  BROWSER_PAIRINGS_FILE,
+  PAIRING_CODE_ALPHABET,
+  PAIRING_CODE_LENGTH,
+  PAIRING_CODE_MAX_FAILURES,
+  PAIRING_CODE_TTL_MS,
+  normalizePairingCode,
+} from '../src/browser/pairings.js';
 import { parseOutcome } from '../src/browser/routes.js';
 import { decodeDataUrl, fitScreenshot } from '../src/browser/image.js';
 import { browserScreenshotTool, browserSessionTools } from '../src/browser/tool.js';
@@ -50,6 +57,7 @@ function makeBridge(opts: { dir?: string; enabled?: { on: boolean }; now?: () =>
     isEnabled: () => enabled.on,
     titleOf: (id) => (id === 's1' ? 'Billing v2' : null),
     maxImageBytes: 5 * 1024 * 1024,
+    port: 47823,
     now: opts.now,
   });
   return { bridge, dir, enabled, published, events: () => published.filter((p) => p.type !== 'browser_status') };
@@ -76,6 +84,39 @@ afterEach(() => {
 });
 
 describe('pairing', () => {
+  it('makes codes from an alphabet without 0/O or 1/I', () => {
+    expect(PAIRING_CODE_ALPHABET).not.toMatch(/[0O1I]/);
+    const { bridge } = makeBridge();
+    for (let i = 0; i < 50; i++) {
+      const { code } = bridge.newPairingCode()!;
+      expect(code).toHaveLength(PAIRING_CODE_LENGTH);
+      expect([...code].every((c) => PAIRING_CODE_ALPHABET.includes(c))).toBe(true);
+    }
+  });
+
+  it('takes a code typed in lower case or with a space or dash between its halves', () => {
+    expect(normalizePairingCode(' k7q 4md ')).toBe('K7Q4MD');
+    expect(normalizePairingCode('k7q-4Md')).toBe('K7Q4MD');
+    const { bridge } = makeBridge();
+    const { code } = bridge.newPairingCode()!;
+    const fake = fakeSocket();
+    bridge.handleSocket(fake.socket);
+    fake.frame({ type: 'pair', code: `${code.slice(0, 3).toLowerCase()} ${code.slice(3).toLowerCase()}`, browser: 'Arc' });
+    expect(fake.sent[0]).toMatchObject({ type: 'paired' });
+  });
+
+  it('remembers when a paired browser was last connected', () => {
+    let now = 1_000;
+    const { bridge, dir } = makeBridge({ now: () => now });
+    const { fake } = paired(bridge);
+    expect(bridge.status()).toMatchObject({ port: 47823, pairings: [{ connected: true, lastSeenAt: 1_000 }] });
+    now = 5_000;
+    fake.socket.close();
+    expect(bridge.status().pairings).toMatchObject([{ connected: false, lastSeenAt: 5_000 }]);
+    // Kept across a restart.
+    expect(makeBridge({ dir }).bridge.status().pairings).toMatchObject([{ lastSeenAt: 5_000 }]);
+  });
+
   it('spends a code once', () => {
     const { bridge } = makeBridge();
     const { code } = bridge.newPairingCode()!;
@@ -93,7 +134,8 @@ describe('pairing', () => {
   it('refuses a wrong code and leaves the socket open, until too many wrong ones end the code', () => {
     const { bridge } = makeBridge();
     const { code } = bridge.newPairingCode()!;
-    const wrong = code === '000000' ? '000001' : '000000';
+    // 0 is not in the alphabet, so this is never the code.
+    const wrong = '000000';
     const fake = fakeSocket();
     bridge.handleSocket(fake.socket);
     for (let i = 0; i < PAIRING_CODE_MAX_FAILURES; i++) fake.frame({ type: 'pair', code: wrong, browser: 'Chrome' });
@@ -224,7 +266,8 @@ describe('events and their outcome', () => {
     fake.frame({ type: 'screenshot', eventId: 'e2', dataUrl: await png(), url: 'https://x.test/', title: 'X' });
     await vi.waitFor(() => expect(events()).toHaveLength(1));
     const [event] = events();
-    expect(event).toMatchObject({ type: 'browser_screenshot', eventId: 'e2', url: 'https://x.test/', title: 'X' });
+    expect(event).toMatchObject({ type: 'browser_screenshot', eventId: 'e2', url: 'https://x.test/', title: 'X', w: 4, h: 3 });
+    expect(event.bytes).toBeGreaterThan(0);
     expect(event.ref).toMatch(/^[a-f0-9]{64}\.png$/);
     expect(createImageStore(join(dir, 'images')).entry(event.ref)).toMatchObject({ w: 4, h: 3 });
   });
@@ -339,6 +382,10 @@ describe('browser_screenshot', () => {
     expect(ok.content[1]).toMatchObject({ type: 'text', text: expect.stringContaining('https://x.test/') });
 
     const none = await browserScreenshotTool({ capture: async () => ({ ok: false, reason: 'no-extension' }) }).handler({}, {});
-    expect(none).toMatchObject({ isError: true, content: [{ type: 'text', text: expect.stringContaining('No browser') }] });
+    // Not a failure: nothing went wrong, there is just no browser to look at.
+    expect(none.isError).toBeUndefined();
+    expect(none.content).toEqual([{ type: 'text', text: 'No browser is connected to Orbital. The user can open the Orbital extension in their browser, or pair one in Settings → Labs → Browser bridge.' }]);
+    const failed = await browserScreenshotTool({ capture: async () => ({ ok: false, reason: 'failed', detail: 'chrome:// page' }) }).handler({}, {});
+    expect(failed.isError).toBe(true);
   });
 });

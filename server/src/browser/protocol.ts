@@ -75,6 +75,10 @@ export type BrowserHubEvent =
       url: string;
       title: string;
       at: number;
+      /** The stored image's pixel size and byte length, for the chip's second line; absent when unread. */
+      w?: number;
+      h?: number;
+      bytes?: number;
     }
   /**
    * What `GET /api/browser` would answer now, sent whenever it changes (a
@@ -96,10 +100,14 @@ export interface BrowserPairing {
   browser: string;
   pairedAt: number;
   connected: boolean;
+  /** When its extension was last connected, null if never since pairing was recorded. */
+  lastSeenAt: number | null;
 }
 
 export interface BrowserStatus {
   enabled: boolean;
+  /** The port Orbital listens on, which the extension's Advanced field takes. */
+  port: number;
   pairings: BrowserPairing[];
 }
 

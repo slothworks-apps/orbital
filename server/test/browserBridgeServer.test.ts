@@ -88,7 +88,7 @@ describe('the browser bridge through the server', () => {
     expect((await app!.inject({ method: 'POST', url: '/api/browser/pairing-code', headers: auth })).statusCode).toBe(409);
     await setSwitch(true);
     const { code } = (await app!.inject({ method: 'POST', url: '/api/browser/pairing-code', headers: auth })).json();
-    expect(code).toMatch(/^\d{6}$/);
+    expect(code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
 
     const ext = await open(port);
     ext.ws.send(JSON.stringify({ type: 'pair', code, browser: 'Chrome' }));

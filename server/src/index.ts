@@ -589,6 +589,7 @@ export async function buildServer(overrides: {
     titleOf: (sessionId) =>
       db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, sessionId)).get()?.title || null,
     maxImageBytes: ATTACHMENT_MAX_BYTES,
+    port: CONFIG.port,
   });
   const files = createFileStore(join(CONFIG.dataDir, 'files'));
 

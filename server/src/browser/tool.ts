@@ -26,7 +26,8 @@ const DESCRIPTION = [
 ].join(' ');
 
 const FAILURE_TEXT: Record<Exclude<CaptureResult, { ok: true }>['reason'], string> = {
-  'no-extension': 'No browser is connected to Orbital: the browser extension is not installed, not paired, or the browser is closed.',
+  // Word for word what the transcript shows (canvas 64d.5): it names where to fix it.
+  'no-extension': 'No browser is connected to Orbital. The user can open the Orbital extension in their browser, or pair one in Settings → Labs → Browser bridge.',
   disabled: 'The browser bridge is turned off in Orbital\'s Settings.',
   timeout: 'The browser did not answer in time.',
   failed: 'The browser could not take the screenshot',
@@ -42,6 +43,12 @@ export function browserScreenshotTool(bridge: Pick<BrowserBridge, 'capture'>) {
     if (!result.ok) {
       const why = FAILURE_TEXT[result.reason];
       // A chrome:// page or the Web Store is the usual reason the browser gives.
+      if (result.reason === 'no-extension' || result.reason === 'disabled') {
+        // Nothing failed: there is no browser to look at, and the agent can say
+        // so. Not an error, so the transcript does not count it as a failure
+        // (canvas 64d.3: "no browser" in muted ink, not the failure amber).
+        return text(why);
+      }
       return text(result.reason === 'failed' ? `${why}${result.detail ? `: ${result.detail}` : '.'} Pages such as chrome:// and the extension store cannot be captured.` : why, true);
     }
     const shot = await fitScreenshot(result.shot, { maxBytes: TOOL_IMAGE_MAX_BYTES, maxEdge: TOOL_IMAGE_MAX_EDGE });
