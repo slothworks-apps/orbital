@@ -305,3 +305,32 @@ In order:
   session.
 - The message shapes on `/ws/browser`.
 - Whether the browser token is one per extension or one per browser.
+
+## Settled while building
+
+- **Pairing codes** are 6 digits, single-use, valid for 5 minutes, and
+  cancelled after 5 wrong tries; a new code replaces the old one. After
+  `paired` the same socket is authenticated, with no `hello` and no
+  `welcome`.
+- **`/ws/browser` with the switch off** accepts the upgrade and closes at
+  once with 4403, so the extension can tell "off" from "Orbital not
+  running".
+- **Origin on `/ws/browser`:** the extension's origin, or none at all. A
+  page always sends one, so a missing Origin is a local process, which still
+  needs a token or a code. The token exemption is keyed to that exact route.
+- **A socket** that sends nothing valid within 5 s, or a malformed or
+  unexpected first frame, is closed with 1008.
+- **Outcomes:** with no Orbital window subscribed, `no-window` comes back at
+  once; otherwise after 3 s of silence. Only the first outcome per event
+  counts. A screenshot the server cannot read or shrink under the
+  attachment limit comes back undelivered with no reason.
+- **Screenshots** are stored in the image store (re-encoded as JPEG when the
+  PNG is over the limit); the agent's copy is scaled to at most 1568 px on
+  its long side.
+- **`browser_screenshot`** joins a session's tools when the session starts
+  with the switch on; turning the switch off mid-session makes it answer
+  "turned off".
+- **The extension's shortcut** for a screenshot is ⌘⇧S, when the browser
+  has it free. Its content script runs in the top frame only, so a
+  selection inside an iframe is not sent. Unpair in its popup forgets the
+  local token; the pairing itself is revoked in Settings.
