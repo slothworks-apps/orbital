@@ -40,7 +40,14 @@ const windowId = newWindowId()
 export interface BrowserIntake {
   sessionId: string
   attachmentCount(): number
-  adoptImage(image: { ref: string; name: string; w: number | null; h: number | null; bytes: number }): void
+  adoptImage(image: {
+    ref: string
+    name: string
+    w: number | null
+    h: number | null
+    bytes: number
+    browser: { title: string; url: string; at: number }
+  }): void
 }
 
 let intake: BrowserIntake | null = null
@@ -104,6 +111,7 @@ function deliver(event: BrowserDelivery, isMainWindow: boolean): void {
         w: event.w ?? null,
         h: event.h ?? null,
         bytes: event.bytes ?? 0,
+        browser: { title: event.title, url: event.url, at: event.at },
       })
     }
   }

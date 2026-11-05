@@ -16,7 +16,12 @@ import {
 } from '../lib/questionCard'
 import { onQuestionDraftsChanged, readQuestionDrafts, updateQuestionDrafts } from './questionDrafts'
 import { isAttachable, isSlashCommand, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
-import { promptWithBrowserSelection, type BrowserSelection } from '../lib/browserBridge'
+import {
+  promptWithBrowserScreenshots,
+  promptWithBrowserSelection,
+  type BrowserSelection,
+  type BrowserShot,
+} from '../lib/browserBridge'
 import { withViewTransition } from '../lib/viewTransition'
 import { moveTagTo } from '../lib/tagFilter'
 import { nextTagHue } from '../lib/tagHues'
@@ -590,6 +595,8 @@ export interface SentAttachment {
   entry: ImageRefEntry
   name: string
   source: AttachmentSource
+  /** A screenshot from the browser: the page it shows, named for the agent in the prompt. */
+  browser?: BrowserShot
 }
 
 export interface OrbitalActions {
@@ -2374,7 +2381,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const cwd = session?.cwd ?? ''
     const slash = isSlashCommand(text)
     const browserSelection = slash ? undefined : get().browserSelections[id]
-    const typed = browserSelection ? promptWithBrowserSelection(text, browserSelection) : text
+    // A screenshot from the browser names its page for the agent, a line in
+    // front of the typed words (canvas 64c-D).
+    const shots = slash ? [] : (attachments ?? []).flatMap((a) => (a.browser ? [a.browser] : []))
+    const withShots = promptWithBrowserScreenshots(text, shots)
+    const typed = browserSelection ? promptWithBrowserSelection(withShots, browserSelection) : withShots
     const outgoing = slash
       ? text
       : isAttachable(selection) && get().ideDismissed[id] !== selectionId(selection)

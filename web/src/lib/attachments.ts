@@ -12,6 +12,7 @@
  */
 
 import { formatBytes } from './format'
+import type { BrowserShot } from './browserBridge'
 import type { AttachmentSource, FileEntry, ImageRefEntry } from './types'
 
 /**
@@ -196,6 +197,13 @@ export interface Attachment {
    * photo that was sent as it was.
    */
   original?: { w: number; h: number }
+  /**
+   * A screenshot the browser extension sent (spec
+   * 2026-11-05-browser-bridge-design § A screenshot from the extension): the
+   * page it shows. Its chip is named for the page (canvas 64c-B), and the sent
+   * turn names the page for the agent.
+   */
+  browser?: BrowserShot
 }
 
 /**

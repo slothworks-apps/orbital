@@ -4,7 +4,10 @@ import {
   isLastFocusedWindow,
   outcomeFor,
   parseLastFocused,
+  parseSentBrowserScreenshots,
   parseSentBrowserSelection,
+  parseToolScreenshotPage,
+  promptWithBrowserScreenshots,
   promptWithBrowserSelection,
 } from '../lib/browserBridge'
 import { IDE_SELECTION_MAX_CHARS, parseSentSelection, promptWithOpenFile, promptWithSelection } from '../lib/ideSelection'
@@ -100,6 +103,52 @@ describe('parseSentBrowserSelection', () => {
     const sent = promptWithOpenFile(promptWithBrowserSelection('hm', page), '/p', '/p/a.ts')
     const rest = sent.slice(sent.indexOf('Selected in the browser'))
     expect(parseSentBrowserSelection(rest)?.text).toBe('hm')
+  })
+})
+
+describe('promptWithBrowserScreenshots', () => {
+  const shot = { title: 'Onboarding — Summary', url: 'http://localhost:5173/onboarding/summary' }
+
+  it('names each page on a line before the typed words, and reads them back', () => {
+    const prompt = promptWithBrowserScreenshots('same on the summary step', [shot, { title: '', url: 'https://x.test/a b' }])
+    expect(prompt).toBe(
+      'Screenshot of Onboarding — Summary — http://localhost:5173/onboarding/summary\n' +
+        'Screenshot of https://x.test/a b — https://x.test/ab\n\nsame on the summary step',
+    )
+    expect(parseSentBrowserScreenshots(prompt)).toEqual({
+      shots: [
+        { title: 'Onboarding — Summary', url: 'http://localhost:5173/onboarding/summary' },
+        { title: 'https://x.test/a b', url: 'https://x.test/ab' },
+      ],
+      text: 'same on the summary step',
+    })
+  })
+
+  it('reads an image-only turn, and leaves a prompt with no screenshot as it is', () => {
+    expect(parseSentBrowserScreenshots(promptWithBrowserScreenshots('', [shot]))).toEqual({ shots: [shot], text: '' })
+    expect(promptWithBrowserScreenshots('hello', [])).toBe('hello')
+  })
+
+  it('reads behind a browser selection, which rides first', () => {
+    const prompt = promptWithBrowserSelection(promptWithBrowserScreenshots('look', [shot]), page)
+    const selection = parseSentBrowserSelection(prompt)
+    expect(parseSentBrowserScreenshots(selection!.text)).toEqual({ shots: [shot], text: 'look' })
+  })
+
+  it('is null for words that only start the same way', () => {
+    expect(parseSentBrowserScreenshots('Screenshot of the login page please')).toBeNull()
+    expect(parseSentBrowserScreenshots('Screenshot of X — https://x.test/\nand more on the next line')).toBeNull()
+  })
+})
+
+describe('parseToolScreenshotPage', () => {
+  it('reads the page off the tool result, untitled and URL-less pages included', () => {
+    expect(parseToolScreenshotPage('The active tab: Issue #1288 — acme/web — https://github.com/acme/web/issues/1288')).toEqual({
+      title: 'Issue #1288 — acme/web',
+      url: 'https://github.com/acme/web/issues/1288',
+    })
+    expect(parseToolScreenshotPage('The active tab: (untitled) — (no URL)')).toEqual({ title: '', url: '' })
+    expect(parseToolScreenshotPage('No browser is connected to Orbital.')).toBeNull()
   })
 })
 

@@ -14,6 +14,7 @@ import {
 } from '../lib/attachments'
 import type { AttachmentSource, FileEntry, ImageRefEntry } from '../lib/types'
 import type { SentAttachment } from '../store/store'
+import type { BrowserShot } from '../lib/browserBridge'
 
 /**
  * The composer's attachment state machine (spec: 2026-09-20-composer-design
@@ -104,7 +105,7 @@ export interface AttachmentsHandle {
    * Nothing to upload, nothing to retry; it counts toward `MAX_ATTACHMENTS`
    * like any chip, and a full row takes nothing.
    */
-  adoptStored(image: { entry: ImageRefEntry; name: string; previewUrl: string }): boolean
+  adoptStored(image: { entry: ImageRefEntry; name: string; previewUrl: string; browser?: BrowserShot }): boolean
   remove(id: string): void
   retry(id: string): void
   /**
@@ -353,11 +354,13 @@ export function useAttachments(
   )
 
   const adoptStored = useCallback(
-    (image: { entry: ImageRefEntry; name: string; previewUrl: string }) => {
+    (image: { entry: ImageRefEntry; name: string; previewUrl: string; browser?: BrowserShot }) => {
       if (listRef.current.length >= MAX_ATTACHMENTS) return false
       chipCounter += 1
       const id = `chip:${chipCounter}`
-      work.current.set(id, { result: { entry: image.entry, name: image.name, source: 'file' } })
+      work.current.set(id, {
+        result: { entry: image.entry, name: image.name, source: 'file', ...(image.browser ? { browser: image.browser } : {}) },
+      })
       listRef.current = [
         ...listRef.current,
         {
@@ -371,6 +374,7 @@ export function useAttachments(
           entry: image.entry,
           progress: null,
           retries: 0,
+          ...(image.browser ? { browser: image.browser } : {}),
         },
       ]
       sync()

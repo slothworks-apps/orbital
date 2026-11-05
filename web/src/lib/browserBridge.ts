@@ -33,13 +33,9 @@ export type BrowserHubEvent =
       url: string
       title: string
       at: number
-      /**
-       * The stored image's size, for the chip's second line. Not in
-       * protocol.ts yet: until the server sends them the chip reads
-       * without them.
-       */
-      w?: number | null
-      h?: number | null
+      /** The stored image's pixel size and byte length, for the chip's second line; absent when unread. */
+      w?: number
+      h?: number
       bytes?: number
     }
   /**
@@ -57,10 +53,14 @@ export interface BrowserPairing {
   browser: string
   pairedAt: number
   connected: boolean
+  /** When its extension was last connected, null if never since pairing was recorded. */
+  lastSeenAt: number | null
 }
 
 export interface BrowserStatus {
   enabled: boolean
+  /** The port Orbital listens on, which the extension's Advanced field takes. */
+  port: number
   pairings: BrowserPairing[]
 }
 
@@ -85,6 +85,16 @@ export function browserBridgeEnabled(settings: Record<string, string | undefined
  */
 export function browserBridgeOffered(opts: { desktop: boolean; dev: boolean }): boolean {
   return opts.desktop || opts.dev
+}
+
+/**
+ * A pairing code as Settings shows it, 3 + 3 (canvas 64f, The code). The
+ * server makes it from letters and digits that do not read alike and takes it
+ * back in either case, with or without the space.
+ */
+export function pairingCodeHalves(code: string): [string, string] {
+  const half = Math.ceil(code.length / 2)
+  return [code.slice(0, half), code.slice(half)]
 }
 
 // ── Which window acts ──────────────────────────────────────────────────────
@@ -250,18 +260,99 @@ export function linkableUrl(url: string): boolean {
   return /^https?:\/\//i.test(url)
 }
 
-/** How much of the selected text the lip shows after the page title. */
-export const BROWSER_LIP_TEXT_CHARS = 80
+/** How much of the selected text the lip quotes (canvas 64b-3: "the quote is capped at 24 characters"). */
+export const BROWSER_LIP_QUOTE_CHARS = 24
 
-/** The start of the selected text, on one line, for the lip. */
-export function lipExcerpt(text: string, cap = BROWSER_LIP_TEXT_CHARS): string {
+/**
+ * The start of the selected text as the lip quotes it: on one line, in curly
+ * quotes, cut at `BROWSER_LIP_QUOTE_CHARS` with an ellipsis inside the
+ * closing quote. A short selection is quoted whole (64b-4).
+ */
+export function lipQuote(text: string, cap = BROWSER_LIP_QUOTE_CHARS): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  return flat.length > cap ? `${flat.slice(0, cap)}…` : flat
+  return `“${flat.length > cap ? `${flat.slice(0, cap).trimEnd()}…` : flat}”`
 }
 
-/** What a screenshot's chip is called. */
+/** A page's host, as the lip, the chip and the tool row name it: `github.com`, `localhost:5173`. Empty when the URL has none. */
+export function pageHost(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return ''
+  }
+}
+
+/** A URL without its scheme, as the tool row prints its link (canvas 64d-4). */
+export function bareUrl(url: string): string {
+  return url.replace(/^https?:\/\//i, '')
+}
+
+/** What a screenshot's chip is called: the page's title (canvas 64c-B), or its URL for a page with none. */
 export function screenshotName(title: string, url: string): string {
-  return `Screenshot — ${headTitle(title, url)}`
+  return headTitle(title, url)
+}
+
+/** A screenshot from the browser, as its chip and the sent prompt know it. */
+export interface BrowserShot {
+  title: string
+  url: string
+  /** When the extension took it, for the chip's hover. */
+  at: number
+}
+
+const SHOT_HEAD = 'Screenshot of'
+const SHOT_LINE_RE = /^Screenshot of (.*) — (\S+)$/
+
+/**
+ * The prompt with a line for each screenshot from the browser it carries,
+ * naming the page the agent is looking at (canvas 64c-D: "Screenshot of
+ * <title> — <URL>"). The lines go in front of the typed words, after any
+ * selection block, and are read back by `parseSentBrowserScreenshots` and
+ * stripped by `cleanTitle` in `server/src/transcript/parser.ts` — a parsing
+ * contract like the selection's head.
+ */
+export function promptWithBrowserScreenshots(text: string, shots: readonly Pick<BrowserShot, 'title' | 'url'>[]): string {
+  if (shots.length === 0) return text
+  const lines = shots.map((shot) => `${SHOT_HEAD} ${headTitle(shot.title, shot.url)} — ${headUrl(shot.url)}`).join('\n')
+  return text ? `${lines}\n\n${text}` : lines
+}
+
+/** The pages a sent turn's screenshots came from, and the typed words after their lines. */
+export function parseSentBrowserScreenshots(text: string | undefined | null): { shots: { title: string; url: string }[]; text: string } | null {
+  if (!text || !text.startsWith(SHOT_HEAD)) return null
+  const lines = text.split('\n')
+  const shots: { title: string; url: string }[] = []
+  let i = 0
+  for (; i < lines.length; i++) {
+    const match = SHOT_LINE_RE.exec(lines[i])
+    if (!match) break
+    shots.push({ title: match[1], url: match[2] })
+  }
+  if (shots.length === 0) return null
+  // What follows the lines is a blank line and the typed words, or nothing.
+  const rest = lines.slice(i)
+  if (rest.length > 0 && rest[0] !== '') return null
+  return { shots, text: rest.join('\n').replace(/^\n+/, '') }
+}
+
+/** The page `browser_screenshot` captured, read out of its result's text line (`server/src/browser/tool.ts`). */
+export function parseToolScreenshotPage(text: string | undefined | null): { title: string; url: string } | null {
+  const match = /^The active tab: (.*) — (\(no URL\)|\S+)$/m.exec(text ?? '')
+  if (!match) return null
+  return { title: match[1] === '(untitled)' ? '' : match[1], url: match[2] === '(no URL)' ? '' : match[2] }
+}
+
+/** The tool's text when no browser could answer: the row says "no browser" (canvas 64d-3). */
+export function isNoBrowserResult(text: string | undefined | null): boolean {
+  return (text ?? '').startsWith('No browser is connected to Orbital.')
+}
+
+/** The agent's tool, as the transcript records its name. */
+export const BROWSER_SCREENSHOT_TOOL_NAME = 'mcp__orbital__browser_screenshot'
+
+/** A tool's name as a run of tool rows lists it: the browser tool in its row's words (canvas 64d-3), any other as recorded. */
+export function runToolName(name: string): string {
+  return name === BROWSER_SCREENSHOT_TOOL_NAME ? 'Browser: screenshot' : name
 }
 
 /** A fresh id for this window, written into `LAST_FOCUSED_KEY`. */

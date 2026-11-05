@@ -65,9 +65,28 @@ export const IDE_SLOT_CARD_CLASS = [
   'font-mono fs-10.5',
 ].join(' ')
 
+/**
+ * 64b-2: the editor's tab as the lower of two rows — one outline for the
+ * stack, so no top radius of its own and a .08 hairline under the browser row.
+ */
+const UNDER_CARD_CLASS = IDE_SLOT_CARD_CLASS.replace('rounded-t-[8px] ', '').replace(
+  'border-line/14',
+  'border-line/14 border-t-line/8',
+)
+
+/**
+ * 64b-5: the cursor read-out above the browser row, with no tab — it sends
+ * nothing — on a band of the panel ground that fades out at both ends.
+ */
+const BARE_ROW_CLASS = [
+  'absolute inset-x-0 bottom-0 box-border',
+  'bg-[linear-gradient(90deg,transparent,var(--color-panel)_14px,var(--color-panel)_calc(100%_-_14px),transparent)]',
+  'font-mono fs-10.5',
+].join(' ')
+
 /** The lip's × (20b-3 / 20f), shared with the browser's lip. */
 export const IDE_SLOT_DISMISS_CLASS =
-  'grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-transparent fs-11 leading-none text-ink-500/70 hover:border-line/30 focus-visible:border-line/30 focus-visible:outline-none'
+  'grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-transparent fs-11 leading-none text-ink-500/70 transition-[border-color,color] duration-[120ms] ease-[ease] hover:border-line/30 hover:text-ink-50 focus-visible:border-line/30 focus-visible:outline-none'
 
 /** 20b-2: hovering the file name shows the whole path after a beat. */
 const TOOLTIP_DELAY_MS = 350
@@ -86,9 +105,18 @@ export interface IdeSlotProps {
   standing: boolean
   /** The lip's ×. Per session, never per workspace (spec § Behaviour). */
   onDismiss: (selectionId: string) => void
+  /**
+   * The browser selection's row stacks with this one (canvas `Feature -
+   * Browser bridge` 64b, `lipStack` in `BrowserLip`): how far above the
+   * well's edge the slot sits, whether its selection tab is the lower row of
+   * two, and whether its cursor read-out stands bare above the browser row.
+   */
+  liftPx?: number
+  under?: boolean
+  bare?: boolean
 }
 
-export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps) {
+export function IdeSlot({ ideName, readout, standing, onDismiss, liftPx = 0, under = false, bare = false }: IdeSlotProps) {
   const { cursor, lip } = readout
   const [hovered, setHovered] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -151,11 +179,16 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
       // root, would have been.
       // z-[3]: the slot rises above the composer into the transcript's bottom
       // edge, where the jump-to-bottom scrim (z-[2]) would otherwise cover it.
+      //
+      // Lifted above the browser row (64b-5), the box is the row's own height
+      // and sits on that row; it moves there on the panel curve when the
+      // browser row comes or goes.
       style={{
-        height: `${SLOT_HEIGHT_PX + SLOT_OVERLAP_PX}px`,
-        bottom: '100%',
+        height: `${SLOT_HEIGHT_PX + (liftPx ? 0 : SLOT_OVERLAP_PX)}px`,
+        bottom: liftPx ? `calc(100% + ${liftPx - SLOT_OVERLAP_PX}px)` : '100%',
+        transition: `bottom ${SLIDE_MS}ms cubic-bezier(.2,.8,.2,1)`,
       }}
-      className="pointer-events-none absolute left-0 right-0 z-[3] overflow-hidden"
+      className="pointer-events-none absolute left-0 right-0 z-[3] overflow-hidden motion-reduce:!transition-none"
     >
       <div
         // 20f: translateY 100% → 0, .26s cubic-bezier(.2,.8,.2,1) — the
@@ -187,9 +220,9 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
         <div
           style={{
             height: `${SLOT_HEIGHT_PX}px`,
-            marginBottom: `-${SLOT_OVERLAP_PX}px`,
+            marginBottom: liftPx ? 0 : `-${SLOT_OVERLAP_PX}px`,
           }}
-          className={IDE_SLOT_CARD_CLASS}
+          className={bare ? BARE_ROW_CLASS : under ? UNDER_CARD_CLASS : IDE_SLOT_CARD_CLASS}
         >
           <div
             aria-hidden={standing}
@@ -199,7 +232,11 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
             }}
             // 20b-2 / 20f: ink rgba(160,190,225,.55), nothing to refuse. The
             // right padding matches the left, there being no × to make room for.
-            className="motion-reduce:!transition-none absolute inset-0 flex items-center gap-2 whitespace-nowrap px-[10px] text-ink-900/55"
+            className={[
+              'motion-reduce:!transition-none absolute inset-0 flex items-center gap-2 whitespace-nowrap text-ink-900/55',
+              // 64b-5: the bare read-out's 0 11px 2px.
+              bare ? 'px-[11px] pb-[2px]' : 'px-[10px]',
+            ].join(' ')}
           >
             {/* 20f: the caret glyph, 1.4×11px at .55 — the same bar the active
                 tab wears in the completion list, so one glyph means "the cursor

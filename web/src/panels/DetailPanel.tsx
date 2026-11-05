@@ -330,12 +330,13 @@ export function DetailPanel({
     return registerBrowserIntake({
       sessionId: intakeSession,
       attachmentCount: () => attachmentsRef.current.items.length,
-      adoptImage: ({ ref, name, w, h, bytes }) => {
+      adoptImage: ({ ref, name, w, h, bytes, browser }) => {
         const url = resolveImage(ref)
         attachmentsRef.current.adoptStored({
           entry: { ref, w, h, bytes },
           name,
           previewUrl: typeof url === 'string' ? url : apiImagePath(ref),
+          browser,
         })
       },
     })

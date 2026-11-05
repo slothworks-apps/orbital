@@ -274,6 +274,9 @@ export function mediaClock(ts: string): string {
  * it. A built-in tool (`Read`) is its own name.
  */
 export function mediaToolLabel(tool: string): string {
+  // Orbital's own browser tool reads as its tool row does (canvas `Feature -
+  // Browser bridge` 64d-6).
+  if (tool === 'mcp__orbital__browser_screenshot') return 'Browser: screenshot'
   const mcp = /^mcp__(.+?)__(.+)$/.exec(tool)
   if (!mcp) return tool
   const server = mcp[1].split('_').filter(Boolean).pop() ?? mcp[1]

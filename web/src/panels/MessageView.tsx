@@ -12,7 +12,8 @@ import { ImageThumb } from './ImageThumb'
 import { PathButton, PlainPath } from './PathButton'
 import { ReplyMedia } from './ReplyMedia'
 import { parseSentSelection, stripSentOpenFile } from '../lib/ideSelection'
-import { linkableUrl, parseSentBrowserSelection } from '../lib/browserBridge'
+import { parseSentBrowserScreenshots, parseSentBrowserSelection } from '../lib/browserBridge'
+import { BrowserCaption } from './BrowserCaption'
 import { parseSentFiles } from '../lib/attachedFiles'
 import { FileGlyph } from './AttachmentChip'
 import { useOrbital } from '../store/store'
@@ -349,7 +350,11 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
   // A browser selection rides after the editor's block (spec
   // 2026-11-05-browser-bridge-design), and gets a caption the same way.
   const sentBrowser = isUser ? parseSentBrowserSelection(afterIde) : null
-  const typedText = sentBrowser ? sentBrowser.text : afterIde
+  const afterBrowser = sentBrowser ? sentBrowser.text : afterIde
+  // A screenshot from the browser names its page in a line of its own, after
+  // the selection blocks (canvas 64c-D); the caption says it instead.
+  const sentShots = isUser ? parseSentBrowserScreenshots(afterBrowser) : null
+  const typedText = sentShots ? sentShots.text : afterBrowser
   // The files the turn carried ride as a list at the end of its text (spec
   // 2026-10-01-file-attachments-design § Transcript): read back here, shown as
   // receipts under the bubble.
@@ -374,7 +379,7 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
    * A turn that has both keeps its right alignment: the human did speak, and
    * the chip trails what they said.
    */
-  const authored = hasText || hasImages || files.length > 0
+  const authored = hasText || hasImages || files.length > 0 || sentShots !== null
   // The phone's seam (`lib/fileOpen.ts`): its presses say which message they
   // came from, so its viewer can page through this message's images, and a
   // path it cannot open is still wrapped, for the long-press. The desktop
@@ -388,7 +393,7 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
 
   // 1g: a waiting turn with an image is one dashed box, the image over the text.
   const boxed = waiting && isUser && hasImages
-  const textBubble = (hasText || (!command && !hasImages && files.length === 0)) && (
+  const textBubble = (hasText || (!command && !hasImages && files.length === 0 && !sentShots)) && (
     <div
       data-waiting-text={boxed || undefined}
       className={[
@@ -461,7 +466,9 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
         // replacement that supersedes it — and on nothing that came back
         // from a reload (spec § The transcript side). ImageThumb's geometry
         // is untouched; only the caption line below is new.
-        const provenance = message.imageProvenance?.[image.ref]
+        // A screenshot from the browser has its own caption (64c-D), which
+        // the page title would only repeat.
+        const provenance = sentShots ? undefined : message.imageProvenance?.[image.ref]
         const thumb = (
           <ImageThumb
             image={image}
@@ -513,6 +520,10 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
       {!boxed && textBubble}
       {/* 24f A: the images and PDFs the reply names, under its text. */}
       {!isUser && <ReplyMedia message={message} />}
+      {sentBrowser && (
+        // 64d-1: above the editor's caption, the order of the lip stack.
+        <BrowserCaption kind="selection" title={sentBrowser.title} url={sentBrowser.url} chars={sentBrowser.chars} />
+      )}
       {sentSelection && (
         // 20a / 20f: a 9.5px caption 6px under the bubble — the lines glyph,
         // the count, and the file as a pressable path to the lines. It is a
@@ -539,38 +550,6 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
           </span>
         </button>
       )}
-      {sentBrowser && (
-        // Provisional: the editor caption's type and glyph, the page title
-        // in the place of the file, a link to the page when it is a web page.
-        <div
-          data-sent-browser-selection
-          className="mt-[2px] flex max-w-[86%] items-center gap-1.5 font-mono fs-9.5 tracking-[0.04em] text-ink-900/55"
-        >
-          <span aria-hidden className="relative block h-[7px] w-2 flex-none">
-            <span className="absolute left-0 top-0 block h-[1.3px] w-2 bg-ink-900/50" />
-            <span className="absolute left-0 top-[2.9px] block h-[1.3px] w-[5.5px] bg-ink-900/50" />
-            <span className="absolute left-0 top-[5.8px] block h-[1.3px] w-[7px] bg-ink-900/50" />
-          </span>
-          <span className="flex-none">
-            {sentBrowser.chars} char{sentBrowser.chars === 1 ? '' : 's'} from
-          </span>
-          {linkableUrl(sentBrowser.url) ? (
-            <a
-              href={sentBrowser.url}
-              target="_blank"
-              rel="noreferrer"
-              title={sentBrowser.url}
-              className="min-w-0 truncate border-b border-dashed border-line/30 text-ink-300"
-            >
-              {sentBrowser.title}
-            </a>
-          ) : (
-            <span title={sentBrowser.url} className="min-w-0 truncate text-ink-300">
-              {sentBrowser.title}
-            </span>
-          )}
-        </div>
-      )}
       {files.length > 0 && (
         <div data-sent-files className="flex max-w-[86%] flex-wrap justify-end gap-1.5">
           {files.map((path, i) => {
@@ -589,6 +568,10 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
         </div>
       )}
       {!boxed && imageRow}
+      {sentShots?.shots.map((shot, i) => (
+        // 64c-D: under the image, in the selection caption's family.
+        <BrowserCaption key={`${i}:${shot.url}`} kind="screenshot" title={shot.title} url={shot.url} />
+      ))}
       {command && (
         <>
           {/* The expansion chip (canvas 6c): resting chip convention —
