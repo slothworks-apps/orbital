@@ -46,6 +46,7 @@ const SLOT_OVERLAP_PX = 1
  * the well, so the popup clears both").
  */
 export const IDE_SLOT_HEIGHT_PX = SLOT_HEIGHT_PX
+export const IDE_SLOT_OVERLAP_PX = SLOT_OVERLAP_PX
 
 /**
  * 20f: the slot slides up from behind the well's edge in .26s on the export's
@@ -53,7 +54,20 @@ export const IDE_SLOT_HEIGHT_PX = SLOT_HEIGHT_PX
  * the cursor line in .22s, and the two read-outs cross-fade in 120ms (20b-5).
  */
 const SLIDE_MS = 260
+export const IDE_SLOT_SLIDE_MS = SLIDE_MS
 const CROSSFADE_MS = 120
+
+/** The tab-shaped card (20b-3 / 20f), shared with the browser's lip. */
+export const IDE_SLOT_CARD_CLASS = [
+  'absolute inset-x-0 bottom-0 box-border mx-[10px]',
+  'rounded-t-[8px] border border-b-0 border-line/14',
+  'bg-space-deep bg-[image:linear-gradient(color-mix(in_oklab,_var(--color-line)_5%,_transparent),color-mix(in_oklab,_var(--color-line)_5%,_transparent))]',
+  'font-mono fs-10.5',
+].join(' ')
+
+/** The lip's × (20b-3 / 20f), shared with the browser's lip. */
+export const IDE_SLOT_DISMISS_CLASS =
+  'grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-transparent fs-11 leading-none text-ink-500/70 hover:border-line/30 focus-visible:border-line/30 focus-visible:outline-none'
 
 /** 20b-2: hovering the file name shows the whole path after a beat. */
 const TOOLTIP_DELAY_MS = 350
@@ -175,12 +189,7 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
             height: `${SLOT_HEIGHT_PX}px`,
             marginBottom: `-${SLOT_OVERLAP_PX}px`,
           }}
-          className={[
-            'absolute inset-x-0 bottom-0 box-border mx-[10px]',
-            'rounded-t-[8px] border border-b-0 border-line/14',
-            'bg-space-deep bg-[image:linear-gradient(color-mix(in_oklab,_var(--color-line)_5%,_transparent),color-mix(in_oklab,_var(--color-line)_5%,_transparent))]',
-            'font-mono fs-10.5',
-          ].join(' ')}
+          className={IDE_SLOT_CARD_CLASS}
         >
           <div
             aria-hidden={standing}
@@ -250,7 +259,7 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
                 onClick={() => onDismiss(selectionId(lip))}
                 // 20b-3 / 20f: 18px, no border at rest — the lip already has
                 // one — gaining the .3 hairline on hover, the only hover here.
-                className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-transparent fs-11 leading-none text-ink-500/70 hover:border-line/30 focus-visible:border-line/30 focus-visible:outline-none"
+                className={IDE_SLOT_DISMISS_CLASS}
               >
                 ×
               </button>

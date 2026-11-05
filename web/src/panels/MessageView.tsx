@@ -12,6 +12,7 @@ import { ImageThumb } from './ImageThumb'
 import { PathButton, PlainPath } from './PathButton'
 import { ReplyMedia } from './ReplyMedia'
 import { parseSentSelection, stripSentOpenFile } from '../lib/ideSelection'
+import { linkableUrl, parseSentBrowserSelection } from '../lib/browserBridge'
 import { parseSentFiles } from '../lib/attachedFiles'
 import { FileGlyph } from './AttachmentChip'
 import { useOrbital } from '../store/store'
@@ -344,7 +345,11 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
    */
   const sentSelection = isUser ? parseSentSelection(message.text) : null
   const openFile = useOrbital((s) => s.openFile)
-  const typedText = sentSelection ? sentSelection.text : (stripSentOpenFile(message.text) ?? message.text ?? '')
+  const afterIde = sentSelection ? sentSelection.text : (stripSentOpenFile(message.text) ?? message.text ?? '')
+  // A browser selection rides after the editor's block (spec
+  // 2026-11-05-browser-bridge-design), and gets a caption the same way.
+  const sentBrowser = isUser ? parseSentBrowserSelection(afterIde) : null
+  const typedText = sentBrowser ? sentBrowser.text : afterIde
   // The files the turn carried ride as a list at the end of its text (spec
   // 2026-10-01-file-attachments-design § Transcript): read back here, shown as
   // receipts under the bubble.
@@ -533,6 +538,38 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
             </span>
           </span>
         </button>
+      )}
+      {sentBrowser && (
+        // Provisional: the editor caption's type and glyph, the page title
+        // in the place of the file, a link to the page when it is a web page.
+        <div
+          data-sent-browser-selection
+          className="mt-[2px] flex max-w-[86%] items-center gap-1.5 font-mono fs-9.5 tracking-[0.04em] text-ink-900/55"
+        >
+          <span aria-hidden className="relative block h-[7px] w-2 flex-none">
+            <span className="absolute left-0 top-0 block h-[1.3px] w-2 bg-ink-900/50" />
+            <span className="absolute left-0 top-[2.9px] block h-[1.3px] w-[5.5px] bg-ink-900/50" />
+            <span className="absolute left-0 top-[5.8px] block h-[1.3px] w-[7px] bg-ink-900/50" />
+          </span>
+          <span className="flex-none">
+            {sentBrowser.chars} char{sentBrowser.chars === 1 ? '' : 's'} from
+          </span>
+          {linkableUrl(sentBrowser.url) ? (
+            <a
+              href={sentBrowser.url}
+              target="_blank"
+              rel="noreferrer"
+              title={sentBrowser.url}
+              className="min-w-0 truncate border-b border-dashed border-line/30 text-ink-300"
+            >
+              {sentBrowser.title}
+            </a>
+          ) : (
+            <span title={sentBrowser.url} className="min-w-0 truncate text-ink-300">
+              {sentBrowser.title}
+            </span>
+          )}
+        </div>
       )}
       {files.length > 0 && (
         <div data-sent-files className="flex max-w-[86%] flex-wrap justify-end gap-1.5">

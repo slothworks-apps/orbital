@@ -216,8 +216,12 @@ export function attachmentMeta(
   if (chip.original && entry && 'w' in entry && entry.w && entry.h) {
     return `${chip.original.w}×${chip.original.h} → sent at ${Math.max(entry.w, entry.h)} px`
   }
-  const dims = entry && 'w' in entry && entry.w && entry.h ? `${entry.w}×${entry.h} · ` : ''
-  return `${dims}${formatBytes(entry?.bytes ?? chip.size)}`
+  const dims = entry && 'w' in entry && entry.w && entry.h ? `${entry.w}×${entry.h}` : ''
+  const bytes = entry?.bytes ?? chip.size
+  // An image adopted already stored (a browser screenshot) may come without
+  // its size: say nothing rather than "0 B".
+  if (!bytes) return dims
+  return dims ? `${dims} · ${formatBytes(bytes)}` : formatBytes(bytes)
 }
 
 /**

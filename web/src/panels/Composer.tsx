@@ -36,6 +36,8 @@ import { AttachmentChip } from './AttachmentChip'
 import { ATTACHMENT_TYPES_LINE, MAX_ATTACHMENTS, filesFrom } from '../lib/attachments'
 import type { AttachmentsHandle } from './useAttachments'
 import { IdeSlot, IDE_SLOT_HEIGHT_PX } from './IdeSlot'
+import { BrowserLip } from './BrowserLip'
+import type { BrowserSelection } from '../lib/browserBridge'
 import { lineCountLabel, selectionId } from '../lib/ideSelection'
 import { useIdeReadout } from '../lib/useIdeReadout'
 import type { CompletionKey, IdeContext, SlashCommand } from '../lib/types'
@@ -232,6 +234,14 @@ export interface ComposerProps {
   /** Called with the dropped selection's id. Per session (spec § Behaviour). */
   onIdeDismiss?: (selectionId: string) => void
   /**
+   * The browser selection standing in this session, drawn as a second lip
+   * above the editor's (spec 2026-11-05-browser-bridge-design § A selection
+   * in the composer). Absent on every mount but the desktop's detail panel.
+   */
+  browserSelection?: BrowserSelection | null
+  /** The browser lip's ×. */
+  onBrowserDismiss?: () => void
+  /**
    * The mount's attachment state (`useAttachments`). Absent means this mount
    * has nowhere to upload to, and then there is no chip row, no paste intake
    * and no refusal line — see the note in `NewSessionDialog`.
@@ -280,6 +290,8 @@ export function Composer({
   ide = null,
   ideDismissedId,
   onIdeDismiss,
+  browserSelection = null,
+  onBrowserDismiss,
   attachments,
   dropArmed = false,
   className,
@@ -788,6 +800,13 @@ export function Composer({
           standing={ideStanding}
           onDismiss={(selection) => onIdeDismiss?.(selection)}
         />
+        {/* Stacked above the editor slot while that one is up — the same
+            condition `IdeSlot` rides on. */}
+        <BrowserLip
+          selection={browserSelection}
+          liftPx={ide && ideReadout.cursor !== null ? IDE_SLOT_HEIGHT_PX : 0}
+          onDismiss={() => onBrowserDismiss?.()}
+        />
 
         {/* Canvas 27a: -2px above, a .1 hairline 10px under it; the 10px
             beneath the rule is the well's own gap. */}
@@ -976,7 +995,12 @@ export function Composer({
           // The slot belongs to the well, so the popup clears both (canvas
           // `Feature - IDE bridge` 20c). Only above: the slot sits on the top
           // edge, and the dialog's list opens below it.
-          anchorInsetPx={ide && placement === 'above' ? IDE_SLOT_HEIGHT_PX : 0}
+          // The browser lip stacks on top, so it counts once more.
+          anchorInsetPx={
+            placement === 'above'
+              ? (ide ? IDE_SLOT_HEIGHT_PX : 0) + (browserSelection ? IDE_SLOT_HEIGHT_PX : 0)
+              : 0
+          }
           listboxId={listboxId}
           onAccept={handleAccept}
           onClose={() => setDismissed(true)}

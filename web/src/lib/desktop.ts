@@ -9,6 +9,7 @@ type DesktopBridge = {
   requestNotificationPermission?: () => Promise<unknown>
   openNotificationSettings?: () => void
   showInFolder?: (path: string) => void
+  showBrowserExtension?: () => void
   edit?: (command: EditCommand) => void
   detachSession?: (id: string) => void
   focusSession?: (id: string) => void
@@ -348,6 +349,19 @@ export function canShowInFolder(): boolean {
 /** Reveals an absolute path in Finder; main ignores anything else. */
 export function showInFolder(path: string): void {
   bridge()?.showInFolder?.(path)
+}
+
+/**
+ * Whether Settings → Labs → Browser bridge can open the extension's folder:
+ * the desktop app, in a build that ships the extension.
+ */
+export function canShowBrowserExtension(): boolean {
+  return typeof bridge()?.showBrowserExtension === 'function'
+}
+
+/** Reveals the bundled browser extension's folder in Finder, for Load unpacked. */
+export function showBrowserExtension(): void {
+  bridge()?.showBrowserExtension?.()
 }
 
 /** The window's own edit commands, as their shortcuts run them (spec 2026-11-02-text-context-menu-design). */
