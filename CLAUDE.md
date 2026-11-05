@@ -12,7 +12,7 @@ to your subscription the same way the CLI is).
 it before you design anything the user sees or hears — states, motion,
 notifications, sound — and do not build what it rules out.
 
-Seven npm workspaces:
+Eight npm workspaces:
 
 - `shared/` — what the Mac, the relay and the phone agree on: keys,
   frames, the handshake, message shapes, and the notification rules.
@@ -28,6 +28,9 @@ Seven npm workspaces:
   attaches to a running dev server, and every decision lives in pure
   functions under `desktop/src/lib` that vitest exercises without launching
   Electron.
+- `browser-extension/` — the browser bridge's Manifest V3 extension for
+  Chromium browsers: sends a selection or a screenshot to the session open
+  in Orbital over `/ws/browser`. Ships inside the desktop app.
 - `relay/` — the blind relay between a Mac running Orbital and its paired
   phones. It is deployed on its own as a Docker image and sees only
   encrypted frames.
@@ -42,7 +45,7 @@ Three things ship, and each carries its own version; the phone carries two:
 
 | what ships | its version | changed by |
 |---|---|---|
-| the desktop DMG | `version` in `desktop/package.json` | `desktop/`, `server/`, `web/`, `shared/` |
+| the desktop DMG | `version` in `desktop/package.json` | `desktop/`, `server/`, `web/`, `shared/`, `browser-extension/` |
 | the relay image | `version` in `relay/package.json` | `relay/`, `shared/` |
 | the phone app, over the air (Android and iOS) | `version` in `mobile/package.json` | `mobile/`, `web/src/mobile` and what it imports, `shared/` |
 | the phone's native shell, through the stores | `versionName` in `mobile/android/app/build.gradle` | a native plugin, a permission, an `Info.plist` or manifest change, a Capacitor upgrade |
