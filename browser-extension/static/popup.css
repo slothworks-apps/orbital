@@ -1,0 +1,57 @@
+/* Placeholder look; the real one comes from Claude Design and replaces this file. */
+:root {
+  color-scheme: light dark;
+  font:
+    13px/1.4 system-ui,
+    sans-serif;
+}
+body {
+  width: 280px;
+  margin: 0;
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+h1 {
+  margin: 0;
+  font-size: 14px;
+}
+p {
+  margin: 0;
+}
+.row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.row input {
+  flex: 1;
+  min-width: 0;
+}
+.hint,
+.outcome {
+  opacity: 0.75;
+}
+.error,
+.status[data-status='disabled'],
+.status[data-status='offline'] {
+  color: #b33;
+}
+.status[data-status='connected'] {
+  color: #2f855a;
+}
+.actions {
+  display: grid;
+  gap: 6px;
+}
+.advanced {
+  display: grid;
+  gap: 6px;
+}
+.advanced summary {
+  cursor: pointer;
+  opacity: 0.75;
+}
+.advanced > * + * {
+  margin-top: 6px;
+}

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Orbital</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Orbital</h1>
+      <p id="status" class="status" data-status="connecting">Connecting…</p>
+    </header>
+
+    <form id="pair" class="pair" hidden>
+      <label for="code">Pairing code</label>
+      <p class="hint">
+        Turn on Browser bridge in Orbital's Settings → Labs and type the code it shows.
+      </p>
+      <div class="row">
+        <input id="code" name="code" autocomplete="off" spellcheck="false" required />
+        <button type="submit">Pair</button>
+      </div>
+      <p id="pair-error" class="error" hidden></p>
+    </form>
+
+    <section class="actions">
+      <button id="screenshot" type="button">Screenshot</button>
+      <p id="outcome" class="outcome" hidden></p>
+    </section>
+
+    <details class="advanced">
+      <summary>Advanced</summary>
+      <form id="port-form" class="row">
+        <label for="port">Orbital port</label>
+        <input id="port" name="port" type="number" min="1" max="65535" required />
+        <button type="submit">Save</button>
+      </form>
+      <button id="unpair" type="button" hidden>Unpair</button>
+    </details>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
