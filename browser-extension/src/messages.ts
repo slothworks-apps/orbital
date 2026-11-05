@@ -20,8 +20,18 @@ export interface BridgeState {
   status: ConnectionStatus
   /** The server's reason the last pairing code was refused. */
   pairError?: string
-  /** The last event's fate, one line. */
-  lastOutcome?: { text: string; at: number }
+  /** When the last check found nothing on the port ("checked just now"). */
+  checkedAt?: number
+  /**
+   * The last screenshot the user took and its fate. It stays until the
+   * next one; selections leave no line (canvas 64g).
+   */
+  lastShot?: { delivered: boolean; text: string; at: number }
+  /**
+   * The agent's last `browser_screenshot` this extension served. The
+   * server's `capture` frame names no session, so neither does the popup.
+   */
+  agentShot?: { at: number }
 }
 
 export function parsePort(value: unknown, fallback: number): number {

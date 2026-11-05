@@ -23,19 +23,27 @@ both files in the same change.
 
 - `src/worker.ts` — the service worker: the one WebSocket to
   `ws://127.0.0.1:<port>/ws/browser`, pairing, the ping that keeps MV3 from
-  stopping it, outcomes and the badge, screenshots.
+  stopping it, screenshot outcomes and the badge, screenshots.
 - `src/content.ts` — on every page except Orbital's own: the end of a
   selection, sent to the worker.
-- `src/popup.ts`, `static/popup.html`, `static/popup.css` — the popup.
-  `popup.css` is a placeholder; the look comes from Claude Design and
-  replaces that file.
-- `src/selection.ts`, `src/connection.ts`, `src/browserName.ts` — the pure
+- `src/popup.ts`, `static/popup.html`, `static/popup.css` — the popup,
+  canvas 64g: one state at a time, Deep Field or Infrared by
+  `prefers-color-scheme`. Manrope and JetBrains Mono are bundled in
+  `static/fonts` (latin subset, OFL); an extension loads nothing remote.
+- `src/icon.ts` — the toolbar icon, canvas 64h, drawn from the app icon's
+  A · front mark. `scripts/render-icons.mjs` renders `static/icons/*.png`
+  from it (run it after changing the drawing and commit the PNGs); the
+  worker draws the outcome badge's frames with the same code into
+  `chrome.action.setIcon`. The badge is only for screenshots the user
+  takes, never a number, never red; there is no `setBadgeText`.
+- `src/selection.ts`, `src/connection.ts`, `src/browserName.ts`,
+  `src/pairingCode.ts`, `src/badge.ts`, `src/popupText.ts` — the pure
   decisions, which the tests exercise without a browser.
 - `static/manifest.json` — its `key` fixes the extension's ID, and so the
   `chrome-extension://` origin the server accepts (`BROWSER_EXTENSION_ID`).
   Changing the key changes the ID and breaks every install.
-- `scripts/build.mjs` — bundles into `dist/` with esbuild and draws the
-  placeholder icons.
+- `scripts/build.mjs` — bundles into `dist/` with esbuild and copies the
+  popup, the icons and the fonts.
 
 ## Working on it
 
@@ -49,13 +57,15 @@ npm run typecheck -w @orbital/browser-extension
 2. Turn on *Browser bridge* in the dev web app's Settings → Labs.
 3. `chrome://extensions` → *Developer mode* → *Load unpacked* →
    `browser-extension/dist`.
-4. In the extension's popup, *Advanced* → port `4838` → *Save*, then type
-   the pairing code Settings shows.
+4. In the extension's popup, *Advanced* → port `4838` (it saves on Enter),
+   then type the pairing code Settings shows.
 
 After a rebuild, press the extension's reload button in
 `chrome://extensions`; pages already open keep the old content script
 until they are reloaded.
 
-The screenshot shortcut is suggested as ⌘⇧S (Ctrl+Shift+S elsewhere); the
-browser assigns it only when nothing else holds it, and the user changes it
-at `chrome://extensions/shortcuts`.
+The screenshot shortcut is suggested as ⌘⇧S (Ctrl+Shift+S elsewhere), not
+an ⌥ chord: on a Czech keyboard ⌥+letter types a character. The browser
+assigns it only when nothing else holds it, and the user changes it at
+`chrome://extensions/shortcuts`; the popup's key cap shows what
+`chrome.commands` reports, and no key cap when none is assigned.

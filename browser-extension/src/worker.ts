@@ -4,8 +4,11 @@
  * asks for.
  */
 
+import { badgeFrames } from './badge'
 import { browserNameFromBrands } from './browserName'
 import {
+  CAPTURE_FAILED_TEXT,
+  CONNECT_TIMEOUT_MS,
   decideOnClose,
   notSentText,
   OUTCOME_TIMEOUT_MS,
@@ -13,8 +16,8 @@ import {
   PING_INTERVAL_MS,
   reconnectDelay,
   type ConnectionStatus,
-  type EventKind,
 } from './connection'
+import { drawIcon, type IconBadge, type IconSize } from './icon'
 import {
   LOCAL_KEYS,
   parsePort,
@@ -30,24 +33,25 @@ type EventFrame = Extract<ExtensionFrame, { type: 'selection' | 'screenshot' }>
 /** Events made while the socket was not ready; sent once it is, if still fresh. */
 const OUTBOX_MAX = 5
 const OUTBOX_TTL_MS = 10_000
-const BADGE_MS = 4_000
 
 let socket: WebSocket | null = null
 let ready = false
 let attempt = 0
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 let pingTimer: ReturnType<typeof setInterval> | null = null
-let badgeTimer: ReturnType<typeof setTimeout> | null = null
+let connectTimer: ReturnType<typeof setTimeout> | null = null
+let badgeTimers: ReturnType<typeof setTimeout>[] = []
 let opening = false
 const outbox: { frame: EventFrame; at: number }[] = []
-const pending = new Map<string, { kind: EventKind; timer: ReturnType<typeof setTimeout> }>()
+/** Screenshots sent and waiting for their outcome; selections leave no line. */
+const pending = new Map<string, ReturnType<typeof setTimeout>>()
 
 // ── state the popup reads ──────────────────────────────────────────────────
 
 let state: BridgeState = { status: 'connecting' }
 const stateLoaded = chrome.storage.session.get(SESSION_KEY).then((stored) => {
   const saved = stored[SESSION_KEY] as BridgeState | undefined
-  if (saved?.lastOutcome) state = { ...state, lastOutcome: saved.lastOutcome }
+  if (saved) state = { ...state, lastShot: saved.lastShot, agentShot: saved.agentShot }
 })
 
 async function setState(patch: Partial<BridgeState>): Promise<void> {
@@ -59,7 +63,7 @@ async function setState(patch: Partial<BridgeState>): Promise<void> {
 }
 
 function setStatus(status: ConnectionStatus, pairError?: string): void {
-  void setState({ status, pairError })
+  void setState({ status, pairError, checkedAt: status === 'offline' ? Date.now() : undefined })
 }
 
 async function settings(): Promise<{ token?: string; port: number }> {
@@ -78,23 +82,44 @@ function browserName(): string {
 }
 
 // ── the badge ──────────────────────────────────────────────────────────────
+// Only for screenshots the user takes (canvas 64h), drawn into the icon
+// image so it can fade; a new screenshot replaces the one showing.
 
-function flashBadge(ok: boolean): void {
-  if (badgeTimer) clearTimeout(badgeTimer)
-  void chrome.action.setBadgeBackgroundColor({ color: ok ? '#2f855a' : '#9b2c2c' })
-  void chrome.action.setBadgeText({ text: ok ? '✓' : '×' })
-  badgeTimer = setTimeout(() => void chrome.action.setBadgeText({ text: '' }), BADGE_MS)
+const TOOLBAR_SIZES: IconSize[] = [16, 32]
+
+function setIconFrame(badge?: IconBadge): void {
+  const imageData: Record<string, ImageData> = {}
+  for (const size of TOOLBAR_SIZES) {
+    const canvas = new OffscreenCanvas(size, size)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    drawIcon(ctx, size, badge)
+    imageData[size] = ctx.getImageData(0, 0, size, size)
+  }
+  void chrome.action.setIcon({ imageData }).catch(() => {})
 }
 
-function report(text: string, ok: boolean): void {
-  flashBadge(ok)
-  void setState({ lastOutcome: { text, at: Date.now() } })
+function flashBadge(ok: boolean): void {
+  for (const timer of badgeTimers) clearTimeout(timer)
+  badgeTimers = badgeFrames().map(({ at, opacity }) =>
+    setTimeout(() => setIconFrame(opacity > 0 ? { ok, opacity } : undefined), at),
+  )
+}
+
+function reportShot(delivered: boolean, text: string): void {
+  flashBadge(delivered)
+  void setState({ lastShot: { delivered, text, at: Date.now() } })
 }
 
 // ── the socket ─────────────────────────────────────────────────────────────
 
 function send(frame: ExtensionFrame): void {
   socket?.send(JSON.stringify(frame))
+}
+
+function clearConnectTimer(): void {
+  if (connectTimer) clearTimeout(connectTimer)
+  connectTimer = null
 }
 
 function clearRetry(): void {
@@ -130,6 +155,12 @@ async function connect(pairCode?: string): Promise<void> {
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}${BROWSER_WS_PATH}`)
     socket = ws
+    // One bounded check: a port that neither answers nor refuses reads as
+    // not running once this runs out, and onclose takes it from there.
+    clearConnectTimer()
+    connectTimer = setTimeout(() => {
+      if (ws === socket && !ready) ws.close()
+    }, CONNECT_TIMEOUT_MS)
     ws.onopen = () => {
       const browser = browserName()
       send(
@@ -170,11 +201,11 @@ async function onFrame(ws: WebSocket, frame: ServerFrame): Promise<void> {
     case 'pong':
       return
     case 'outcome': {
-      const entry = pending.get(frame.eventId)
-      if (!entry) return
-      clearTimeout(entry.timer)
+      const timer = pending.get(frame.eventId)
+      if (!timer) return
+      clearTimeout(timer)
       pending.delete(frame.eventId)
-      report(outcomeText(entry.kind, frame), frame.delivered)
+      reportShot(frame.delivered, outcomeText(frame))
       return
     }
     case 'capture':
@@ -184,6 +215,7 @@ async function onFrame(ws: WebSocket, frame: ServerFrame): Promise<void> {
 }
 
 function onReady(): void {
+  clearConnectTimer()
   ready = true
   attempt = 0
   setStatus('connected')
@@ -199,12 +231,13 @@ async function onClose(ws: WebSocket, code: number): Promise<void> {
   socket = null
   ready = false
   stopPing()
+  clearConnectTimer()
   const { token } = await settings()
   const decision = decideOnClose(code, Boolean(token))
   if (decision.forgetToken) await chrome.storage.local.remove(LOCAL_KEYS.token)
   // A refused pairing code already set `unpaired` with its reason; keep it.
   if (!(state.pairError && !token)) setStatus(decision.status)
-  for (const { frame } of outbox.splice(0)) report(notSentText(frame.type, decision.status), false)
+  failOutbox(decision.status)
   if (decision.retry) {
     retryTimer = setTimeout(() => void connect(), reconnectDelay(attempt++, decision.status))
   }
@@ -224,11 +257,18 @@ function stopPing(): void {
 
 function dispatch(frame: EventFrame): void {
   send(frame)
+  if (frame.type !== 'screenshot') return
   const timer = setTimeout(() => {
     pending.delete(frame.eventId)
-    report(outcomeText(frame.type, { delivered: false, reason: 'no-window' }), false)
+    reportShot(false, outcomeText({ delivered: false, reason: 'no-window' }))
   }, OUTCOME_TIMEOUT_MS)
-  pending.set(frame.eventId, { kind: frame.type, timer })
+  pending.set(frame.eventId, timer)
+}
+
+/** Events that could not wait for the socket: a screenshot says so, a selection just lapses. */
+function failOutbox(status: ConnectionStatus): void {
+  const lost = outbox.splice(0)
+  if (lost.some(({ frame }) => frame.type === 'screenshot')) reportShot(false, notSentText(status))
 }
 
 function emit(frame: EventFrame): void {
@@ -240,9 +280,7 @@ function emit(frame: EventFrame): void {
   outbox.push({ frame, at: Date.now() })
   if (outbox.length > OUTBOX_MAX) outbox.shift()
   void connect().then(() => {
-    if (!socket && outbox.length) {
-      for (const { frame: f } of outbox.splice(0)) report(notSentText(f.type, state.status), false)
-    }
+    if (!socket && outbox.length) failOutbox(state.status)
   })
 }
 
@@ -266,6 +304,7 @@ async function answerCapture(requestId: string): Promise<void> {
   try {
     const shot = await captureActiveTab()
     send({ type: 'captured', requestId, ...shot })
+    void setState({ agentShot: { at: Date.now() } })
   } catch (error) {
     // chrome:// pages, the Web Store and other extensions' pages cannot be captured.
     send({ type: 'capture_failed', requestId, reason: errorText(error) })
@@ -276,8 +315,8 @@ async function takeScreenshot(): Promise<void> {
   try {
     const shot = await captureActiveTab()
     emit({ type: 'screenshot', eventId: crypto.randomUUID(), ...shot })
-  } catch (error) {
-    report(`Screenshot failed: ${errorText(error)}`, false)
+  } catch {
+    reportShot(false, CAPTURE_FAILED_TEXT)
   }
 }
 

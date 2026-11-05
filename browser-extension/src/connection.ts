@@ -56,35 +56,42 @@ export const PING_INTERVAL_MS = 20_000
 /** No outcome within this reads as "no Orbital window" (spec). */
 export const OUTCOME_TIMEOUT_MS = 5_000
 
-export type EventKind = 'selection' | 'screenshot'
+/**
+ * How long one connection check may take before it counts as "not
+ * running" (canvas 64g): the popup shows one bounded check, not a spinner.
+ */
+export const CONNECT_TIMEOUT_MS = 5_000
+
+const NOT_SENT = ' — not sent'
 
 const DROP_TEXT: Record<BrowserDropReason, string> = {
-  'no-session': 'no session is open in Orbital',
-  'no-window': 'no Orbital window is open',
-  foreign: 'the open session runs on another Mac',
-  'composer-full': 'the composer is full',
+  'no-session': 'Nothing open in Orbital',
+  'no-window': 'Nothing open in Orbital',
+  foreign: 'The open session runs on another Mac',
+  'composer-full': 'The composer is full',
 }
 
-export function outcomeText(
-  kind: EventKind,
-  outcome: { delivered: boolean; sessionTitle?: string; reason?: BrowserDropReason },
-): string {
-  const what = kind === 'selection' ? 'Selection' : 'Screenshot'
-  if (outcome.delivered) {
-    return outcome.sessionTitle ? `${what} sent to “${outcome.sessionTitle}”` : `${what} sent`
-  }
-  return `${what} dropped: ${DROP_TEXT[outcome.reason ?? 'no-window']}`
+/** The popup's outcome line for a screenshot the user took. */
+export function outcomeText(outcome: {
+  delivered: boolean
+  sessionTitle?: string
+  reason?: BrowserDropReason
+}): string {
+  if (outcome.delivered) return `Sent to ${outcome.sessionTitle || 'Orbital'}`
+  return DROP_TEXT[outcome.reason ?? 'no-window'] + NOT_SENT
 }
 
-/** Why an event never left the extension. */
-export function notSentText(kind: EventKind, status: ConnectionStatus): string {
-  const what = kind === 'selection' ? 'Selection' : 'Screenshot'
+/** Why a screenshot never left the extension. */
+export function notSentText(status: ConnectionStatus): string {
   switch (status) {
     case 'unpaired':
-      return `${what} not sent: not paired with Orbital`
+      return 'Not paired with Orbital' + NOT_SENT
     case 'disabled':
-      return `${what} not sent: the browser bridge is switched off in Orbital`
+      return 'Browser bridge is off in Orbital' + NOT_SENT
     default:
-      return `${what} not sent: Orbital is not reachable`
+      return 'Orbital isn’t running' + NOT_SENT
   }
 }
+
+/** A tab the browser will not capture: chrome:// pages, the Web Store. */
+export const CAPTURE_FAILED_TEXT = 'This tab can’t be captured' + NOT_SENT

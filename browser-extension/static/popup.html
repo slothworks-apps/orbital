@@ -6,37 +6,106 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <header>
-      <h1>Orbital</h1>
-      <p id="status" class="status" data-status="connecting">Connecting…</p>
+    <header class="head">
+      <canvas id="mark" class="mark" aria-hidden="true"></canvas>
+      <span class="name">Orbital</span>
+      <span class="sub">browser bridge</span>
+      <span class="grow"></span>
+      <span id="tag" class="tag"></span>
     </header>
 
-    <form id="pair" class="pair" hidden>
-      <label for="code">Pairing code</label>
-      <p class="hint">
-        Turn on Browser bridge in Orbital's Settings → Labs and type the code it shows.
-      </p>
-      <div class="row">
-        <input id="code" name="code" autocomplete="off" spellcheck="false" required />
-        <button type="submit">Pair</button>
-      </div>
-      <p id="pair-error" class="error" hidden></p>
-    </form>
+    <main class="body">
+      <section id="state-unpaired" class="state" hidden>
+        <div>
+          <h1 class="title">Pair with Orbital</h1>
+          <p class="copy">
+            In Orbital: Settings → Labs → Browser bridge → Pair a browser. Type the code it shows.
+          </p>
+        </div>
+        <form id="pair" class="pair">
+          <label class="code" for="code">
+            <input
+              id="code"
+              class="code-input"
+              autocomplete="off"
+              autocapitalize="characters"
+              spellcheck="false"
+              aria-label="Pairing code"
+            />
+            <span class="box"></span><span class="box"></span><span class="box"></span>
+            <span class="dash" aria-hidden="true"></span>
+            <span class="box"></span><span class="box"></span><span class="box"></span>
+          </label>
+          <button id="pair-button" class="button primary" type="submit" disabled>Pair</button>
+        </form>
+        <p id="pair-error" class="error" hidden></p>
+        <details id="advanced" class="advanced">
+          <summary>Advanced <span class="caret"></span></summary>
+          <div class="port-row">
+            <label for="port">
+              <span class="port-label">Orbital port</span>
+              <span class="port-hint">Only if you changed it in Orbital.</span>
+            </label>
+            <input id="port" class="port" inputmode="numeric" autocomplete="off" spellcheck="false" />
+          </div>
+        </details>
+      </section>
 
-    <section class="actions">
-      <button id="screenshot" type="button">Screenshot</button>
-      <p id="outcome" class="outcome" hidden></p>
-    </section>
+      <section id="state-connecting" class="state" hidden>
+        <div>
+          <h1 class="title">Connecting to Orbital…</h1>
+          <p class="copy">
+            Looking on port <span data-port></span> on this Mac. One check, at most 5 seconds.
+          </p>
+        </div>
+        <button class="button secondary" type="button" disabled>Connecting…</button>
+      </section>
 
-    <details class="advanced">
-      <summary>Advanced</summary>
-      <form id="port-form" class="row">
-        <label for="port">Orbital port</label>
-        <input id="port" name="port" type="number" min="1" max="65535" required />
-        <button type="submit">Save</button>
-      </form>
-      <button id="unpair" type="button" hidden>Unpair</button>
-    </details>
+      <section id="state-offline" class="state" hidden>
+        <div>
+          <h1 class="title">Orbital isn’t running</h1>
+          <p class="copy">
+            Nothing answered on port <span data-port></span>. Open Orbital; the extension connects
+            by itself.
+          </p>
+        </div>
+        <button id="retry" class="button secondary" type="button">Try again</button>
+        <p id="checked" class="meta"></p>
+      </section>
+
+      <section id="state-disabled" class="state" hidden>
+        <div>
+          <h1 class="title">Browser bridge is off in Orbital</h1>
+          <p class="copy">Turn it on in Orbital → Settings → Labs. This browser stays paired.</p>
+        </div>
+      </section>
+
+      <section id="state-connected" class="state" hidden>
+        <div>
+          <h1 class="title"><span class="dot"></span>Connected to Orbital</h1>
+          <p class="copy">Selections show in the open session as you make them.</p>
+        </div>
+        <button id="screenshot" class="button primary" type="button">
+          Take screenshot<kbd id="keycap" class="keycap" hidden></kbd>
+        </button>
+        <div id="log" class="log" hidden>
+          <p id="shot" class="line" hidden>
+            <span id="shot-glyph" class="glyph"></span><span id="shot-text" class="text"></span
+            ><time id="shot-time"></time>
+          </p>
+          <p id="agent" class="line agent" hidden>
+            <span class="glyph"></span><span class="text">agent took a screenshot</span
+            ><time id="agent-time"></time>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer id="foot" class="foot" hidden>
+      <button id="unpair" class="unpair" type="button">Unpair</button>
+      <span class="grow"></span>
+      <span id="where" class="meta"></span>
+    </footer>
 
     <script src="popup.js"></script>
   </body>

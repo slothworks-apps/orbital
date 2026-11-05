@@ -61,12 +61,17 @@ describe('reconnectDelay', () => {
 })
 
 describe('outcomeText', () => {
-  it('names the session it went to, or why it was dropped', () => {
-    expect(outcomeText('selection', { delivered: true, sessionTitle: 'Billing' })).toBe(
-      'Selection sent to “Billing”',
+  it('names the session a screenshot went to, or why it was not sent', () => {
+    expect(outcomeText({ delivered: true, sessionTitle: 'web-onboarding' })).toBe(
+      'Sent to web-onboarding',
     )
-    expect(outcomeText('screenshot', { delivered: false, reason: 'composer-full' })).toBe(
-      'Screenshot dropped: the composer is full',
+    expect(outcomeText({ delivered: true })).toBe('Sent to Orbital')
+    expect(outcomeText({ delivered: false, reason: 'no-session' })).toBe(
+      'Nothing open in Orbital — not sent',
+    )
+    expect(outcomeText({ delivered: false })).toBe('Nothing open in Orbital — not sent')
+    expect(outcomeText({ delivered: false, reason: 'composer-full' })).toBe(
+      'The composer is full — not sent',
     )
   })
 })
