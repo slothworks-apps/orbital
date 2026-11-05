@@ -233,6 +233,13 @@ export function truncateTitle(text: string): string {
  */
 const IDE_SELECTION_BLOCK = /^Selected in the editor — @\S+ lines \d+–\d+:\n\n(`{3,})\n[\s\S]*?\n\1(?:\n|$)/;
 const IDE_OPEN_FILE_LINE = /^The user opened the file .+? in the IDE\. This may or may not be related to the current task\.(?:\n|$)/;
+/**
+ * The browser bridge's selection (`promptWithBrowserSelection` in
+ * `web/src/lib/browserBridge.ts`, the same contract): page title and URL on
+ * the head line, then the fenced text. It rides after the editor's block, so
+ * it is taken off after it, past the blank line between them.
+ */
+const BROWSER_SELECTION_BLOCK = /^\n*Selected in the browser — [^\n]* \(\S+\):\n\n(`{3,})\n[\s\S]*?\n\1(?:\n|$)/;
 
 /**
  * The list of attached files the composer appends after a prompt
@@ -247,7 +254,8 @@ export function cleanTitle(text: string): string {
     .trimEnd()
     .replace(ATTACHED_FILES_BLOCK, '')
     .replace(IDE_SELECTION_BLOCK, '')
-    .replace(IDE_OPEN_FILE_LINE, '');
+    .replace(IDE_OPEN_FILE_LINE, '')
+    .replace(BROWSER_SELECTION_BLOCK, '');
   const commandName = /<command-name>([^<\n]+)<\/command-name>/.exec(text)?.[1]?.trim();
   const commandArgs = /<command-args>([^<\n]*)/.exec(text)?.[1]?.trim();
   const stripped = text.replace(NOISE_BLOCK, ' ').replace(/\s+/g, ' ').trim();

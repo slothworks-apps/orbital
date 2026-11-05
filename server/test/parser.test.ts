@@ -348,6 +348,15 @@ describe('cleanTitle', () => {
     expect(cleanTitle(open)).toBe('Fix the login bug');
   });
 
+  // Written by `promptWithBrowserSelection` in the web app, alone or after the editor's block.
+  it('drops the browser selection Orbital puts in front of a prompt', () => {
+    const browser = 'Selected in the browser — Spec (draft) (https://app.clickup.com/t/1):\n\n````\nsee ``` here\n````\n\nis this consistent';
+    expect(cleanTitle(browser)).toBe('is this consistent');
+    const both = 'Selected in the editor — @src/a.ts lines 3–4:\n\n```\nx++\n```\n\n' + browser;
+    expect(cleanTitle(both)).toBe('is this consistent');
+    expect(cleanTitle('Selected in the browser — the left tab')).toBe('Selected in the browser — the left tab');
+  });
+
   it('keeps a prompt that only mentions the editor in passing', () => {
     expect(cleanTitle('Selected in the editor — the left one')).toBe('Selected in the editor — the left one');
   });
