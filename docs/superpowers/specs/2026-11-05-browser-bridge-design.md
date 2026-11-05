@@ -308,8 +308,11 @@ In order:
 
 ## Settled while building
 
-- **Pairing codes** are 6 digits, single-use, valid for 5 minutes, and
-  cancelled after 5 wrong tries; a new code replaces the old one. After
+- **Pairing codes** are 6 characters from an alphabet without 0/O and 1/I,
+  shown 3 + 3 and taken back in either case, with or without the space;
+  single-use, valid for 5 minutes, and cancelled after 5 wrong tries; a new
+  code replaces the old one. Settings shows no countdown: the validity line
+  stands still and reads "expired" in place when the code lapses. After
   `paired` the same socket is authenticated, with no `hello` and no
   `welcome`.
 - **`/ws/browser` with the switch off** accepts the upgrade and closes at
@@ -334,3 +337,19 @@ In order:
   has it free. Its content script runs in the top frame only, so a
   selection inside an iframe is not sent. Unpair in its popup forgets the
   local token; the pairing itself is revoked in Settings.
+- **A screenshot from the browser names its page for the agent**: a line
+  `Screenshot of <title> — <URL>` per screenshot, after any selection block
+  and before the typed words. It is a parsing contract like the selection's
+  head: the transcript draws "Screenshot from the browser — <title>" from it,
+  and `cleanTitle` strips it. A transcript read back from the CLI holds the
+  text and the image as two messages, so there the caption stands above the
+  image rather than under it.
+- **The lip stack** (canvas 64b): what will be sent touches the well,
+  browser above editor; the editor's cursor read-out, which sends nothing,
+  stands bare above the browser row. × fades the row in 120 ms, then the
+  stack closes.
+- **"No browser connected"** is not an error result: the transcript says "no
+  browser" in muted ink, and a run of tool calls does not count it as failed.
+- **Settings** shows the port Orbital listens on, and for a browser not
+  connected now when it was last seen (`lastSeenAt`, kept in the pairings
+  file).
