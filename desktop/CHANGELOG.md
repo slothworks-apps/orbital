@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Settings → Labs → Browser bridge: an extension for Chrome, Arc and other Chromium browsers sends what you select in a page, or a screenshot you take, to the session open in Orbital, and a session can take a screenshot of the browser when it needs to see the page.
 
 ## [0.47.2] — 2026-11-05
 ### Fixed

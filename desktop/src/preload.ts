@@ -45,6 +45,11 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   showInFolder(path: string) {
     ipcRenderer.send('show-in-folder', path);
   },
+  // Settings → Labs → Browser bridge (spec 2026-11-05-browser-bridge-design
+  // § Installing it): main opens the bundled extension's folder.
+  showBrowserExtension() {
+    ipcRenderer.send('show-browser-extension');
+  },
   // The text context menu's Cut, Copy, Paste and Select All (spec
   // 2026-11-02-text-context-menu-design): main runs the window's own edit
   // command, the one the shortcut runs.
