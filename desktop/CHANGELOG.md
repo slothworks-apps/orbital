@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.47.2] — 2026-11-05
 ### Fixed
 - End session: “Also remove worktree” no longer unticks itself after you press End; while the session ends and the worktree is removed, the button says “Ending…” and the rest of the dialog waits.
 - End session: the session's name sits on its own line, so a long one no longer breaks up the sentence.

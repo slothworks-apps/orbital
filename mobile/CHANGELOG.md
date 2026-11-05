@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.24.2] — 2026-11-05
 ### Fixed
 - End session: “Also remove worktree” no longer unticks itself after you press End; while the session ends and the worktree is removed, the button says “Ending…” and the rest of the dialog waits.
 - End session: the session's name sits on its own line, so a long one no longer breaks up the sentence.
