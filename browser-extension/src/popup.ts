@@ -57,7 +57,7 @@ function tell(message: WorkerMessage): void {
 }
 
 const clock = (at: number) =>
-  new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
 
 // ── the mark, drawn from the toolbar icon's 16 px geometry at the screen's density
 
