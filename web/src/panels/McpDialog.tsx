@@ -72,6 +72,7 @@ interface DialogParts {
   headerMeta?: ReactNode
   aboveFooter?: ReactNode
   footerLead?: ReactNode
+  footerCaption?: ReactNode
   footer?: ReactNode
   body: ReactNode
 }
@@ -507,7 +508,13 @@ function McpPanel({
         ) : undefined,
       footerLead: ready ? (
         <>
-          <Button variant="primary" size="sm" disabled={cliMissing} onClick={openAdd}>
+          <Button
+            variant="primary"
+            size="sm"
+            className="shrink-0 whitespace-nowrap"
+            disabled={cliMissing}
+            onClick={openAdd}
+          >
             + Add server
           </Button>
           {cliMissing && (
@@ -518,9 +525,11 @@ function McpPanel({
           )}
         </>
       ) : undefined,
-      footer:
+      // The caption slot truncates; `footer` does not shrink, and a long session
+      // title there squeezed the button into two lines and ran over it.
+      footerCaption:
         ready && !cliMissing ? (
-          <span className="font-mono fs-10 tracking-[0.06em] text-ink-900/60">
+          <span className="fs-10 text-ink-900/60">
             via claude mcp · session {title}
           </span>
         ) : undefined,
@@ -625,6 +634,7 @@ function McpPanel({
       headerMeta={parts.headerMeta}
       aboveFooter={parts.aboveFooter}
       footerLead={parts.footerLead}
+      footerCaption={parts.footerCaption}
       footer={parts.footer}
     >
       {parts.body}
