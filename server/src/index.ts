@@ -44,7 +44,12 @@ import { WorkingTrees } from './git/workingTrees.js';
 import { BranchStatusStore } from './git/branchStatusStore.js';
 import { IdeStore } from './ide/store.js';
 import { ideApprovals } from './ide/approvals.js';
-import { registerRoutes, settingsChangedEffects, type RouteClaudeDirContext } from './api/routes.js';
+import { ATTACHMENT_MAX_BYTES, registerRoutes, settingsChangedEffects, type RouteClaudeDirContext } from './api/routes.js';
+import { BrowserBridge } from './browser/bridge.js';
+import { BROWSER_BRIDGE_SETTING, BROWSER_EXTENSION_ORIGIN, BROWSER_TOPIC, BROWSER_WS_PATH } from './browser/protocol.js';
+import { registerBrowserRoutes } from './browser/routes.js';
+import { browserSessionTools } from './browser/tool.js';
+import { mergeSessionTools } from './runner/spawnTool.js';
 import { listedBackgroundTasks, listedSubagents, statusOf, toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
@@ -573,6 +578,18 @@ export async function buildServer(overrides: {
   const dataDir = overrides.dataDir ?? CONFIG.dataDir;
   const imagesDir = join(dataDir, 'images');
   const images = createImageStore(imagesDir);
+  // The browser extension's socket, its pairings and the agent's screenshots
+  // (spec 2026-11-05-browser-bridge-design). Off by default, a Labs switch.
+  const browser = new BrowserBridge({
+    dataDir,
+    publish: (topic, payload) => hub.publish(topic, payload),
+    windowsListening: () => hub.subscriberCount(BROWSER_TOPIC) > 0,
+    images,
+    isEnabled: () => settingsStore.get(BROWSER_BRIDGE_SETTING) === 'true',
+    titleOf: (sessionId) =>
+      db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, sessionId)).get()?.title || null,
+    maxImageBytes: ATTACHMENT_MAX_BYTES,
+  });
   const files = createFileStore(join(CONFIG.dataDir, 'files'));
 
   // Names a session from its own contents when someone clicks ⟳ —
@@ -937,8 +954,8 @@ export async function buildServer(overrides: {
     // background tasks still running is working, not waiting for the human
     // (fix: `a-turn-that-launched-an-agent-reads-as-needs-input`; spec
     // 2026-09-28-background-tasks-design § 2 "Working while a task runs").
-    // The harness's checklist tools, for as long as the feature is on.
-    sessionTools: (sessionId) => harness.tools(sessionId),
+    // The harness's checklist tools and `browser_screenshot`, each for as long as its feature is on.
+    sessionTools: (sessionId) => mergeSessionTools(harness.tools(sessionId), browserSessionTools(browser)),
     // The step commits the harness asks for, while commit-per-step is on.
     autoAllow: (sessionId, toolName, input) => harness.allowsWithoutAsking(sessionId, toolName, input),
     hasLiveBackgroundWork: (sessionId) => holdsWorking(sessionId),
@@ -1474,6 +1491,10 @@ export async function buildServer(overrides: {
     // `/ws` and every socket under it: a terminal's socket is a shell.
     const isWs = (p: string | undefined) => p !== undefined && (p === '/ws' || p.startsWith('/ws/'));
     if (!api && !isWs(route) && !isWs(path)) return; // the public bundle and the SPA fallback
+    // The browser extension's one socket authenticates with its own browser
+    // token, in its first frame: it never holds the API token. The route
+    // Fastify matched, exactly, so the exemption names one handler and no other.
+    if (route === BROWSER_WS_PATH) return;
     const read = req.method === 'GET' || req.method === 'HEAD';
     if (read && (route === '/api/auth' || route === '/api/health')) return;
     if (!authenticated(req)) return reply.code(401).send({ error: 'unauthorized' });
@@ -1523,6 +1544,24 @@ export async function buildServer(overrides: {
       const { id } = req.params as { id: string };
       if (!terminals.attach(id, socket)) socket.close(4404, 'no such terminal');
     },
+  );
+  // The browser extension's socket (spec 2026-11-05-browser-bridge-design):
+  // the extension's origin only, never one of Orbital's own pages or anyone
+  // else's. No Origin at all is a process on this Mac, not a page — a page's
+  // handshake always carries one — and it still needs a browser token or the
+  // pairing code Settings shows. With the switch off it closes at once.
+  app.get(
+    BROWSER_WS_PATH,
+    {
+      websocket: true,
+      preValidation: async (req, reply) => {
+        const origin = req.headers.origin;
+        if (origin !== undefined && origin !== BROWSER_EXTENSION_ORIGIN) {
+          return reply.code(403).send({ error: 'origin not allowed' });
+        }
+      },
+    },
+    (socket) => browser.handleSocket(socket),
   );
   // The packaged app's window loads this server's origin, so the frontend has
   // to come from here too (spec § 1). `wildcard: false` leaves unmatched GETs
@@ -1639,10 +1678,11 @@ export async function buildServer(overrides: {
     sessions: () => runner.busyCount(),
   });
   registerServerUpdateRoutes(app, updates, remote);
+  registerBrowserRoutes(app, browser);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
-    foreign,
+    foreign, browser,
     // About no session: the default directory's account, as the harness drafter.
     // Bounded: a stuck call would otherwise keep its `claude` process and the
     // rail's "Checking…" for as long as the dialog stays open.
@@ -1746,6 +1786,7 @@ export async function buildServer(overrides: {
     branchStatus.close();
     git.close();
     ide.close();
+    browser.dispose();
     // After the registry and the editors are closed, so stopping the
     // contexts announces nothing on the way out.
     claudeDirs.close();
