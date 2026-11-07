@@ -1564,6 +1564,11 @@ export const api = {
     return request<{ code: string; expiresAt: number }>('POST', '/api/browser/pairing-code')
   },
 
+  /** Cancels the open pairing code, so it pairs nothing after; nothing open is no error. */
+  async cancelBrowserPairingCode(): Promise<void> {
+    return request<void>('DELETE', '/api/browser/pairing-code')
+  },
+
   /** Revokes one extension's browser token. */
   async unpairBrowser(id: string): Promise<void> {
     return request<void>('DELETE', apiPath`/api/browser/pairings/${id}`)

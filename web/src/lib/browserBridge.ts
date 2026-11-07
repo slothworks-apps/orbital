@@ -62,6 +62,12 @@ export interface BrowserStatus {
   /** The port Orbital listens on, which the extension's Advanced field takes. */
   port: number
   pairings: BrowserPairing[]
+  /**
+   * When the open pairing code lapses, or null when none is open. A code
+   * Settings shows whose `expiresAt` this is not has ended: spent, cancelled,
+   * replaced, or worn out by wrong tries.
+   */
+  codeExpiresAt: number | null
 }
 
 export interface BrowserOutcome {

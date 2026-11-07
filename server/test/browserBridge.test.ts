@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { BrowserBridge, type BridgeSocket } from '../src/browser/bridge.js';
+import { BrowserBridge, OUTCOME_TIMEOUT_MS, SCREENSHOT_OUTCOME_MAX_MS, type BridgeSocket } from '../src/browser/bridge.js';
 import {
   BROWSER_PAIRINGS_FILE,
   PAIRING_CODE_ALPHABET,
@@ -45,7 +45,9 @@ function fakeSocket(): Fake {
   };
 }
 
-function makeBridge(opts: { dir?: string; enabled?: { on: boolean }; now?: () => number; listening?: boolean } = {}) {
+function makeBridge(opts: {
+  dir?: string; enabled?: { on: boolean }; now?: () => number; listening?: boolean; fit?: typeof fitScreenshot;
+} = {}) {
   const dir = opts.dir ?? makeTmpDir('browser');
   const enabled = opts.enabled ?? { on: true };
   const published: Record<string, any>[] = [];
@@ -59,6 +61,7 @@ function makeBridge(opts: { dir?: string; enabled?: { on: boolean }; now?: () =>
     maxImageBytes: 5 * 1024 * 1024,
     port: 47823,
     now: opts.now,
+    fit: opts.fit,
   });
   return { bridge, dir, enabled, published, events: () => published.filter((p) => p.type !== 'browser_status') };
 }
@@ -146,12 +149,41 @@ describe('pairing', () => {
     expect(bridge.status().pairings).toEqual([]);
   });
 
+  it('tells Settings when wrong tries end the code', () => {
+    const { bridge, published } = makeBridge();
+    const { expiresAt } = bridge.newPairingCode()!;
+    expect(published.at(-1)).toMatchObject({ type: 'browser_status', status: { codeExpiresAt: expiresAt } });
+    const fake = fakeSocket();
+    bridge.handleSocket(fake.socket);
+    for (let i = 0; i < PAIRING_CODE_MAX_FAILURES - 1; i++) fake.frame({ type: 'pair', code: '000000', browser: 'Chrome' });
+    const before = published.length;
+    fake.frame({ type: 'pair', code: '000000', browser: 'Chrome' });
+    expect(published.slice(before)).toEqual([{ type: 'browser_status', status: expect.objectContaining({ codeExpiresAt: null }) }]);
+    // With no code open, a wrong try changes nothing Settings shows.
+    fake.frame({ type: 'pair', code: '000000', browser: 'Chrome' });
+    expect(published).toHaveLength(before + 1);
+  });
+
+  it('cancels the open code, so it pairs nothing after', () => {
+    const { bridge, published } = makeBridge();
+    const { code } = bridge.newPairingCode()!;
+    bridge.cancelPairingCode();
+    expect(bridge.status().codeExpiresAt).toBeNull();
+    expect(published.at(-1)).toMatchObject({ type: 'browser_status', status: { codeExpiresAt: null } });
+    const fake = fakeSocket();
+    bridge.handleSocket(fake.socket);
+    fake.frame({ type: 'pair', code, browser: 'Chrome' });
+    expect(fake.sent[0]).toMatchObject({ type: 'pair_failed' });
+  });
+
   it('refuses a code past its lifetime', () => {
     let now = 1_000;
     const { bridge } = makeBridge({ now: () => now });
     const { code, expiresAt } = bridge.newPairingCode()!;
     expect(expiresAt).toBe(1_000 + PAIRING_CODE_TTL_MS);
+    expect(bridge.status().codeExpiresAt).toBe(expiresAt);
     now = expiresAt;
+    expect(bridge.status().codeExpiresAt).toBeNull();
     const fake = fakeSocket();
     bridge.handleSocket(fake.socket);
     fake.frame({ type: 'pair', code, browser: 'Chrome' });
@@ -276,8 +308,54 @@ describe('events and their outcome', () => {
     const { bridge, events } = makeBridge();
     const { fake } = paired(bridge);
     fake.frame({ type: 'screenshot', eventId: 'e3', dataUrl: 'data:text/html;base64,PGI+', url: '', title: '' });
-    await vi.waitFor(() => expect(fake.sent.at(-1)).toEqual({ type: 'outcome', eventId: 'e3', delivered: false }));
+    await vi.waitFor(() => expect(fake.sent.at(-1)).toEqual({ type: 'outcome', eventId: 'e3', delivered: false, reason: 'unreadable' }));
     expect(events()).toEqual([]);
+  });
+
+  /** A shrink that takes as long as the test says. */
+  function slowFit() {
+    let finish: () => void = () => {};
+    const fit: typeof fitScreenshot = (shot) => new Promise((resolve) => { finish = () => resolve(shot); });
+    return { fit, finish: () => finish() };
+  }
+
+  it('counts a screenshot\'s wait from its arrival, the shrink included, up to the cap', async () => {
+    vi.useFakeTimers();
+    const slow = slowFit();
+    const { bridge, events } = makeBridge({ fit: slow.fit });
+    const { fake } = paired(bridge);
+    const outcomes = () => fake.sent.filter((f) => f.type === 'outcome');
+    fake.frame({ type: 'screenshot', eventId: 'e4', dataUrl: await png(), url: '', title: '' });
+    // A long shrink: once it is done, a window still has its full wait.
+    await vi.advanceTimersByTimeAsync(SCREENSHOT_OUTCOME_MAX_MS - OUTCOME_TIMEOUT_MS - 1_000);
+    slow.finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(events()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(OUTCOME_TIMEOUT_MS - 1);
+    expect(outcomes()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcomes()).toEqual([{ type: 'outcome', eventId: 'e4', delivered: false, reason: 'no-window' }]);
+
+    // Published late, a window gets what is left of the cap, not a full wait.
+    fake.frame({ type: 'screenshot', eventId: 'e5', dataUrl: await png(), url: '', title: '' });
+    await vi.advanceTimersByTimeAsync(SCREENSHOT_OUTCOME_MAX_MS - 1_000);
+    slow.finish();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(outcomes().at(-1)).toEqual({ type: 'outcome', eventId: 'e5', delivered: false, reason: 'no-window' });
+  });
+
+  it('answers a screenshot still shrinking at the cap as unreadable, and never publishes it', async () => {
+    vi.useFakeTimers();
+    const slow = slowFit();
+    const { bridge, events } = makeBridge({ fit: slow.fit });
+    const { fake } = paired(bridge);
+    fake.frame({ type: 'screenshot', eventId: 'e6', dataUrl: await png(), url: '', title: '' });
+    await vi.advanceTimersByTimeAsync(SCREENSHOT_OUTCOME_MAX_MS);
+    expect(fake.sent.at(-1)).toEqual({ type: 'outcome', eventId: 'e6', delivered: false, reason: 'unreadable' });
+    slow.finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(events()).toEqual([]);
+    expect(fake.sent.filter((f) => f.type === 'outcome')).toHaveLength(1);
   });
 });
 
@@ -324,6 +402,7 @@ describe('parseOutcome', () => {
   it('takes a well-formed outcome and refuses the rest', () => {
     expect(parseOutcome({ eventId: 'e', delivered: true, sessionId: 's1' })).toEqual({ eventId: 'e', delivered: true, sessionId: 's1' });
     expect(parseOutcome({ eventId: 'e', delivered: false, reason: 'composer-full' })).toEqual({ eventId: 'e', delivered: false, reason: 'composer-full' });
+    expect(parseOutcome({ eventId: 'e', delivered: false, reason: 'read-only' })).toEqual({ eventId: 'e', delivered: false, reason: 'read-only' });
     for (const bad of [null, 'x', {}, { eventId: '', delivered: true }, { eventId: 'e', delivered: 'yes' }, { eventId: 'e', delivered: false, reason: 'bored' }, { eventId: 'e', delivered: true, sessionId: 1 }]) {
       expect(parseOutcome(bad)).toBeNull();
     }

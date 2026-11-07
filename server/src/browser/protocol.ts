@@ -92,8 +92,9 @@ export type BrowserHubEvent =
     }
   /**
    * What `GET /api/browser` would answer now, sent whenever it changes (a
-   * pairing made or revoked, an extension connecting or leaving, the switch
-   * moving), so Settings follows it without asking again.
+   * pairing made or revoked, a pairing code made, cancelled or worn out by
+   * wrong tries, an extension connecting or leaving, the switch moving), so
+   * Settings follows it without asking again.
    */
   | { type: 'browser_status'; status: BrowserStatus };
 
@@ -101,6 +102,7 @@ export type BrowserHubEvent =
 //
 // GET    /api/browser                → BrowserStatus
 // POST   /api/browser/pairing-code   → { code: string; expiresAt: number }
+// DELETE /api/browser/pairing-code   → 204
 // DELETE /api/browser/pairings/:id   → 204
 // POST   /api/browser/outcome        ← BrowserOutcome → 204
 
@@ -119,6 +121,12 @@ export interface BrowserStatus {
   /** The port Orbital listens on, which the extension's Advanced field takes. */
   port: number;
   pairings: BrowserPairing[];
+  /**
+   * When the open pairing code lapses, or null when none is open. A code
+   * Settings shows whose `expiresAt` this is not has ended: spent, cancelled,
+   * replaced, or worn out by wrong tries.
+   */
+  codeExpiresAt: number | null;
 }
 
 export interface BrowserOutcome {

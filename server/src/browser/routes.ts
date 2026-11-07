@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { BrowserBridge } from './bridge.js';
 import type { BrowserDropReason, BrowserOutcome } from './protocol.js';
 
-const DROP_REASONS: ReadonlySet<string> = new Set<BrowserDropReason>(['no-session', 'no-window', 'foreign', 'composer-full']);
+/** The reasons a window gives; `unreadable` is the server's own. */
+const DROP_REASONS: ReadonlySet<string> = new Set<BrowserDropReason>(['no-session', 'no-window', 'foreign', 'composer-full', 'read-only']);
 
 /** The outcome a window posts, or null when it is malformed. */
 export function parseOutcome(body: unknown): BrowserOutcome | null {
@@ -31,6 +32,12 @@ export function registerBrowserRoutes(app: FastifyInstance, bridge: BrowserBridg
     const code = bridge.newPairingCode();
     if (!code) return reply.code(409).send({ error: 'disabled' });
     return code;
+  });
+
+  // Cancel in Settings: the code stops pairing now. Nothing open is no error.
+  app.delete('/api/browser/pairing-code', (_req, reply) => {
+    bridge.cancelPairingCode();
+    return reply.code(204).send();
   });
 
   app.delete('/api/browser/pairings/:id', (req, reply) => {

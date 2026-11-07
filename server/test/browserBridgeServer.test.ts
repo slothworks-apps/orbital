@@ -75,7 +75,7 @@ describe('the browser bridge through the server', () => {
     for (const url of ['/ws', '/ws/browserx', '/ws/browser/x', '/ws/terminal/x', '/api/browser']) {
       expect((await upgrade(url)).statusCode).toBe(401);
     }
-    for (const [method, url] of [['GET', '/api/browser'], ['POST', '/api/browser/pairing-code'], ['DELETE', '/api/browser/pairings/x'], ['POST', '/api/browser/outcome']] as const) {
+    for (const [method, url] of [['GET', '/api/browser'], ['POST', '/api/browser/pairing-code'], ['DELETE', '/api/browser/pairing-code'], ['DELETE', '/api/browser/pairings/x'], ['POST', '/api/browser/outcome']] as const) {
       expect((await app!.inject({ method, url, payload: method === 'POST' ? {} : undefined })).statusCode).toBe(401);
     }
     // Not an upgrade: the socket route answers nothing a page could read.
@@ -108,6 +108,21 @@ describe('the browser bridge through the server', () => {
     const again = await open(port);
     again.ws.send(JSON.stringify({ type: 'hello', token, browser: 'Chrome' }));
     await vi.waitFor(() => expect(again.closed()).toBe(BROWSER_CLOSE.unauthorized));
+  });
+
+  it('cancels the open code from Settings', async () => {
+    const port = await start(true);
+    await setSwitch(true);
+    const { code } = (await app!.inject({ method: 'POST', url: '/api/browser/pairing-code', headers: auth })).json();
+    expect((await app!.inject({ method: 'GET', url: '/api/browser', headers: auth })).json().codeExpiresAt).toEqual(expect.any(Number));
+    expect((await app!.inject({ method: 'DELETE', url: '/api/browser/pairing-code', headers: auth })).statusCode).toBe(204);
+    expect((await app!.inject({ method: 'GET', url: '/api/browser', headers: auth })).json()).toMatchObject({ codeExpiresAt: null });
+    // Nothing open: still no error.
+    expect((await app!.inject({ method: 'DELETE', url: '/api/browser/pairing-code', headers: auth })).statusCode).toBe(204);
+
+    const ext = await open(port);
+    ext.ws.send(JSON.stringify({ type: 'pair', code, browser: 'Chrome' }));
+    await vi.waitFor(() => expect(ext.frames[0]).toMatchObject({ type: 'pair_failed' }));
   });
 
   it('closes with disabled while the switch is off, and turning it off drops the extension', async () => {

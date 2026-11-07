@@ -167,6 +167,16 @@ function BrowserPairings({
     }
   }
 
+  // Cancel ends the code on the server too, not only on screen.
+  async function cancelCode() {
+    setCode(null)
+    try {
+      await api.cancelBrowserPairingCode()
+    } catch (err) {
+      reportError(err, 'Failed to cancel the pairing code')
+    }
+  }
+
   // 64f: Unpair is immediate, without a confirm — pairing again takes a minute.
   async function unpair(pairing: BrowserPairing) {
     try {
@@ -231,7 +241,7 @@ function BrowserPairings({
               )}
             </span>
           </div>
-          <Button variant="hairline" size="labs" onClick={() => setCode(null)}>
+          <Button variant="hairline" size="labs" onClick={() => void cancelCode()}>
             Cancel
           </Button>
         </div>

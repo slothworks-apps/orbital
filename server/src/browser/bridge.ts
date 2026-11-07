@@ -28,6 +28,15 @@ export const FIRST_FRAME_TIMEOUT_MS = 5_000;
 /** How long an event waits for a window to say what became of it; silence reads as no window. */
 export const OUTCOME_TIMEOUT_MS = 3_000;
 
+/**
+ * The longest a screenshot waits for its outcome, counted from the frame's
+ * arrival: reading and shrinking it comes first, and `OUTCOME_TIMEOUT_MS`
+ * after it is published, but never past this. The extension waits longer
+ * than this for a screenshot's outcome. A shrink that runs past it answers
+ * `unreadable`, and the screenshot is not published.
+ */
+export const SCREENSHOT_OUTCOME_MAX_MS = 8_000;
+
 /** How long `browser_screenshot` waits for the extension's capture. */
 export const CAPTURE_TIMEOUT_MS = 10_000;
 
@@ -65,7 +74,9 @@ export interface BrowserBridgeOptions {
   /** The port Orbital listens on, for Settings' status line. */
   port: number;
   now?: () => number;
-  timeouts?: { firstFrameMs?: number; outcomeMs?: number; captureMs?: number };
+  timeouts?: { firstFrameMs?: number; outcomeMs?: number; screenshotOutcomeMs?: number; captureMs?: number };
+  /** Fits a screenshot under `maxImageBytes`; tests hand in a slow one. */
+  fit?: typeof fitScreenshot;
 }
 
 interface Connection {
@@ -73,6 +84,14 @@ interface Connection {
   pairingId: string;
   /** When it connected or last sent an event: the latest answers the agent's capture. */
   activeAt: number;
+}
+
+/** An event that has not been told its outcome yet: who sent it, and the timers that answer for silence. */
+interface PendingOutcome {
+  connection: Connection;
+  timers: ReturnType<typeof setTimeout>[];
+  /** Marks it published, arming the wait for a window's answer. */
+  publish: () => void;
 }
 
 interface PendingCapture {
@@ -94,20 +113,24 @@ function str(value: unknown, max: number): string | null {
 export class BrowserBridge {
   readonly pairings: BrowserPairings;
   private readonly connections = new Set<Connection>();
-  /** eventId → who sent it and the timer that answers "no window" for it. */
-  private readonly outcomes = new Map<string, { connection: Connection; timer: ReturnType<typeof setTimeout> }>();
+  /** eventId → who sent it and the timers that answer for it when no window does. */
+  private readonly outcomes = new Map<string, PendingOutcome>();
   private readonly captures = new Map<string, PendingCapture>();
   private readonly now: () => number;
   private readonly firstFrameMs: number;
   private readonly outcomeMs: number;
+  private readonly screenshotOutcomeMs: number;
   private readonly captureMs: number;
+  private readonly fit: typeof fitScreenshot;
 
   constructor(private readonly opts: BrowserBridgeOptions) {
     this.now = opts.now ?? Date.now;
     this.pairings = new BrowserPairings(opts.dataDir, this.now);
     this.firstFrameMs = opts.timeouts?.firstFrameMs ?? FIRST_FRAME_TIMEOUT_MS;
     this.outcomeMs = opts.timeouts?.outcomeMs ?? OUTCOME_TIMEOUT_MS;
+    this.screenshotOutcomeMs = opts.timeouts?.screenshotOutcomeMs ?? SCREENSHOT_OUTCOME_MAX_MS;
     this.captureMs = opts.timeouts?.captureMs ?? CAPTURE_TIMEOUT_MS;
+    this.fit = opts.fit ?? fitScreenshot;
   }
 
   enabled(): boolean {
@@ -122,13 +145,22 @@ export class BrowserBridge {
       pairings: this.pairings.list().map((p) => ({
         id: p.id, browser: p.browser, pairedAt: p.pairedAt, connected: live.has(p.id), lastSeenAt: p.lastSeenAt ?? null,
       })),
+      codeExpiresAt: this.pairings.codeExpiresAt(),
     };
   }
 
   /** A pairing code for Settings, or null while the switch is off. */
   newPairingCode(): { code: string; expiresAt: number } | null {
     if (!this.enabled()) return null;
-    return this.pairings.newCode();
+    const code = this.pairings.newCode();
+    this.publishStatus();
+    return code;
+  }
+
+  /** Settings' Cancel: the code stops pairing at once, not when it lapses. */
+  cancelPairingCode(): void {
+    this.pairings.clearCode();
+    this.publishStatus();
   }
 
   /** Unpair: the token stops opening the socket, and a socket open on it now closes. */
@@ -154,8 +186,7 @@ export class BrowserBridge {
   outcome(o: BrowserOutcome): void {
     const pending = this.outcomes.get(o.eventId);
     if (!pending) return; // answered already, or timed out
-    this.outcomes.delete(o.eventId);
-    clearTimeout(pending.timer);
+    this.settle(o.eventId, pending);
     const title = o.delivered && o.sessionId ? this.opts.titleOf(o.sessionId) : null;
     send(pending.connection.socket, {
       type: 'outcome',
@@ -229,6 +260,7 @@ export class BrowserBridge {
           authenticate(pairing.id);
           send(socket, { type: 'welcome' });
         } else if (frame.type === 'pair') {
+          const codeWasOpen = this.pairings.codeExpiresAt() !== null;
           const result = this.pairings.pair(
             typeof frame.code === 'string' ? frame.code : '',
             typeof frame.browser === 'string' ? frame.browser : '',
@@ -237,6 +269,8 @@ export class BrowserBridge {
             // Left open for another try, on the same first-frame deadline.
             send(socket, { type: 'pair_failed', reason: PAIR_FAILURE_TEXT[result.failure] });
             armFirstFrame();
+            // The last wrong try ends the code: Settings stops showing it as open.
+            if (codeWasOpen && this.pairings.codeExpiresAt() === null) this.publishStatus();
             return;
           }
           authenticate(result.pairing.id);
@@ -256,9 +290,7 @@ export class BrowserBridge {
       this.connections.delete(connection);
       this.pairings.seen(connection.pairingId);
       for (const [eventId, pending] of this.outcomes) {
-        if (pending.connection !== connection) continue;
-        clearTimeout(pending.timer);
-        this.outcomes.delete(eventId);
+        if (pending.connection === connection) this.settle(eventId, pending);
       }
       for (const [requestId, pending] of this.captures) {
         if (pending.connection !== connection) continue;
@@ -272,8 +304,7 @@ export class BrowserBridge {
 
   /** Clears every timer; the sockets close with the server. */
   dispose(): void {
-    for (const pending of this.outcomes.values()) clearTimeout(pending.timer);
-    this.outcomes.clear();
+    for (const [eventId, pending] of this.outcomes) this.settle(eventId, pending);
     for (const pending of this.captures.values()) {
       clearTimeout(pending.timer);
       pending.resolve({ ok: false, reason: 'failed', detail: 'Orbital is shutting down.' });
@@ -291,7 +322,9 @@ export class BrowserBridge {
         const text = str(frame.text, SELECTION_MAX_CHARS);
         if (!eventId || !text) return;
         connection.activeAt = this.now();
-        this.event(connection, {
+        const pending = this.expect(connection, eventId);
+        if (!pending) return;
+        this.publishEvent(pending, {
           type: 'browser_selection', eventId, text,
           url: str(frame.url, URL_MAX_CHARS) ?? '', title: str(frame.title, TITLE_MAX_CHARS) ?? '', at: this.now(),
         });
@@ -301,14 +334,21 @@ export class BrowserBridge {
         const eventId = str(frame.eventId, 200);
         if (!eventId) return;
         connection.activeAt = this.now();
+        // The wait starts now, not once the shrink is done: the extension's
+        // own wait started when it sent the frame.
+        const pending = this.expect(connection, eventId, this.screenshotOutcomeMs);
+        if (!pending) return;
         const decoded = decodeDataUrl(frame.dataUrl);
-        const shot = decoded && await fitScreenshot(decoded, { maxBytes: this.opts.maxImageBytes });
+        const shot = decoded && await this.fit(decoded, { maxBytes: this.opts.maxImageBytes });
+        // Answered while it shrank: past the cap, resent, or the socket left.
+        if (this.outcomes.get(eventId) !== pending) return;
         const entry = shot && this.opts.images.putBytes(shot.mediaType, shot.bytes);
         if (!entry) {
-          send(connection.socket, { type: 'outcome', eventId, delivered: false });
+          this.settle(eventId, pending);
+          this.dropped(connection, eventId, 'unreadable');
           return;
         }
-        this.event(connection, {
+        this.publishEvent(pending, {
           type: 'browser_screenshot', eventId, ref: entry.ref,
           url: str(frame.url, URL_MAX_CHARS) ?? '', title: str(frame.title, TITLE_MAX_CHARS) ?? '', at: this.now(),
           ...(entry.w && entry.h ? { w: entry.w, h: entry.h } : {}),
@@ -340,21 +380,51 @@ export class BrowserBridge {
     }
   }
 
-  /** Publishes an event and waits for the outcome a window gives it. */
-  private event(connection: Connection, event: Exclude<BrowserHubEvent, { type: 'browser_status' }>): void {
+  /**
+   * An event just arrived: from now on it waits for its outcome. A selection
+   * is published at once and waits `outcomeMs`; a screenshot is read and
+   * shrunk first, and `capMs` bounds the whole wait, the shrink included —
+   * running out before it is published answers `unreadable`. Null when no
+   * window listens: answered `no-window` at once.
+   */
+  private expect(connection: Connection, eventId: string, capMs?: number): PendingOutcome | null {
     if (!this.opts.windowsListening()) {
-      this.dropped(connection, event.eventId, 'no-window');
-      return;
+      this.dropped(connection, eventId, 'no-window');
+      return null;
     }
-    const timer = setTimeout(() => {
-      this.outcomes.delete(event.eventId);
-      this.dropped(connection, event.eventId, 'no-window');
-    }, this.outcomeMs);
     // An extension resending an id gets one answer, for the latest.
-    const earlier = this.outcomes.get(event.eventId);
-    if (earlier) clearTimeout(earlier.timer);
-    this.outcomes.set(event.eventId, { connection, timer });
+    const earlier = this.outcomes.get(eventId);
+    if (earlier) this.settle(eventId, earlier);
+    let published = false;
+    const silence = (ms: number) => setTimeout(() => {
+      if (this.outcomes.get(eventId) !== pending) return;
+      this.settle(eventId, pending);
+      this.dropped(connection, eventId, published ? 'no-window' : 'unreadable');
+    }, ms);
+    const pending: PendingOutcome = {
+      connection,
+      timers: [],
+      publish: () => {
+        published = true;
+        // The cap's timer stays: whichever runs out first answers.
+        if (capMs !== undefined) pending.timers.push(silence(this.outcomeMs));
+      },
+    };
+    pending.timers.push(silence(capMs ?? this.outcomeMs));
+    this.outcomes.set(eventId, pending);
+    return pending;
+  }
+
+  /** Publishes an event already waiting for its outcome; the windows decide it from here. */
+  private publishEvent(pending: PendingOutcome, event: Exclude<BrowserHubEvent, { type: 'browser_status' }>): void {
+    pending.publish();
     this.opts.publish(BROWSER_TOPIC, event);
+  }
+
+  /** The event is answered or forgotten: its timers stop. */
+  private settle(eventId: string, pending: PendingOutcome): void {
+    for (const timer of pending.timers) clearTimeout(timer);
+    if (this.outcomes.get(eventId) === pending) this.outcomes.delete(eventId);
   }
 
   private dropped(connection: Connection, eventId: string, reason: BrowserDropReason): void {

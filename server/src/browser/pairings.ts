@@ -86,6 +86,12 @@ export class BrowserPairings {
     this.code = null;
   }
 
+  /** When the open code lapses, or null when none is open: never made, spent, cancelled, worn out or expired. */
+  codeExpiresAt(): number | null {
+    const open = this.code;
+    return open && this.now() < open.expiresAt ? open.expiresAt : null;
+  }
+
   /** Spends the code on a new pairing and answers its token, or says why not. */
   pair(code: string, browser: string): { pairing: StoredPairing; token: string } | { failure: PairFailure } {
     const open = this.code;
