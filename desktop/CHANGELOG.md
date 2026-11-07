@@ -3,6 +3,9 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Sessions started in Orbital can open your private claude.ai artifacts (a migrated Claude Design project, say) from a link, without sharing them publicly.
+
 ### Fixed
 - In a session's MCP servers dialog, + Add server stays on one line; a long session title in the footer is cut short instead of squeezing the button.
 

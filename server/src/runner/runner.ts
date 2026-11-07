@@ -1669,7 +1669,10 @@ export class Runner {
       includeHookEvents: true,
       // `session_state_changed` is sent only when asked for (`cliState`).
       // A whole environment, not an addition: `env` replaces the child's.
-      env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' },
+      // `CLAUDE_CODE_ARTIFACT` gives the session the Artifact tool, which
+      // reads the account's private claude.ai artifacts (adr
+      // orbital-sessions-get-the-artifact-tool).
+      env: { ...process.env, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1', CLAUDE_CODE_ARTIFACT: '1' },
       // Without this the SDK treats every "ask" decision as terminal and
       // auto-denies it, which is what used to push `AskUserQuestion` into
       // plain prose (spec 2026-09-20-interactive-decisions-design).
