@@ -243,9 +243,11 @@ const BROWSER_SELECTION_BLOCK = /^\n*Selected in the browser — [^\n]* \(\S+\):
 /**
  * The line each screenshot from the browser adds, naming its page
  * (`promptWithBrowserScreenshots` in `web/src/lib/browserBridge.ts`, the same
- * contract): after the selection blocks, before the typed words.
+ * contract): after the selection blocks, before the typed words. The line
+ * always ends in the page's absolute URL (or `about:blank` for a tab without
+ * one), so a first line someone typed in that shape stays.
  */
-const BROWSER_SCREENSHOT_LINES = /^\n*(?:Screenshot of [^\n]* — \S+(?:\n|$))+/;
+const BROWSER_SCREENSHOT_LINES = /^\n*(?:Screenshot of [^\n]* — (?:(?:https?|file):\/\/\S*|about:blank)(?:\n|$))+/;
 
 /**
  * The list of attached files the composer appends after a prompt

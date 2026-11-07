@@ -365,6 +365,10 @@ describe('cleanTitle', () => {
     expect(cleanTitle(browser + shots)).toBe('same on the summary step');
     expect(cleanTitle('Screenshot of Docs — https://x.test/')).toBe('');
     expect(cleanTitle('Screenshot of the login page please')).toBe('Screenshot of the login page please');
+    // Typed in the same shape, but it does not end in a page's URL.
+    expect(cleanTitle('Screenshot of the login page — broken')).toBe('Screenshot of the login page — broken');
+    expect(cleanTitle('Screenshot of the login page — broken\n\nwhy')).toBe('Screenshot of the login page — broken why');
+    expect(cleanTitle('Screenshot of Notes — file:///Users/me/a.html\n\nread it')).toBe('read it');
   });
 
   it('keeps a prompt that only mentions the editor in passing', () => {
