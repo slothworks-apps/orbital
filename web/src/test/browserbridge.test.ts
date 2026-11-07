@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  composerSendable,
   deliverTarget,
-  isLastFocusedWindow,
+  needsRecordAlive,
   outcomeFor,
   parseLastFocused,
   parseSentBrowserScreenshots,
+  windowActs,
   parseSentBrowserSelection,
   parseToolScreenshotPage,
   promptWithBrowserScreenshots,
@@ -141,6 +143,15 @@ describe('promptWithBrowserScreenshots', () => {
   })
 })
 
+describe('composerSendable', () => {
+  it('sends typed words, an armed chip, or a browser selection on its own', () => {
+    expect(composerSendable({ text: '  ', armed: false, browserSelection: false })).toBe(false)
+    expect(composerSendable({ text: 'hi', armed: false, browserSelection: false })).toBe(true)
+    expect(composerSendable({ text: '', armed: true, browserSelection: false })).toBe(true)
+    expect(composerSendable({ text: '', armed: false, browserSelection: true })).toBe(true)
+  })
+})
+
 describe('parseToolScreenshotPage', () => {
   it('reads the page off the tool result, untitled and URL-less pages included', () => {
     expect(parseToolScreenshotPage('The active tab: Issue #1288 — acme/web — https://github.com/acme/web/issues/1288')).toEqual({
@@ -152,17 +163,40 @@ describe('parseToolScreenshotPage', () => {
   })
 })
 
-describe('the last-focused window', () => {
-  const self = { windowId: 'w1', isMainWindow: false }
+describe('the window that answers', () => {
+  const detached = { windowId: 'w1', isMainWindow: false, shown: true }
+  const main = { windowId: 'm', isMainWindow: true, shown: true }
+  const mine = { windowId: 'w1', at: 1 }
+  const other = { windowId: 'w2', at: 1 }
 
   it('answers when it wrote the record, and only then', () => {
-    expect(isLastFocusedWindow({ windowId: 'w1', at: 1 }, self)).toBe(true)
-    expect(isLastFocusedWindow({ windowId: 'w2', at: 1 }, self)).toBe(false)
+    expect(windowActs({ record: mine, self: detached, recordAlive: true })).toBe(true)
+    expect(windowActs({ record: other, self: detached, recordAlive: true })).toBe(false)
+    expect(windowActs({ record: other, self: main, recordAlive: true })).toBe(false)
   })
 
   it('falls to the main window when no window holds the record', () => {
-    expect(isLastFocusedWindow(null, self)).toBe(false)
-    expect(isLastFocusedWindow(null, { ...self, isMainWindow: true })).toBe(true)
+    expect(windowActs({ record: null, self: detached, recordAlive: true })).toBe(false)
+    expect(windowActs({ record: null, self: main, recordAlive: true })).toBe(true)
+  })
+
+  it('falls to the main window when the record was left by a window that is gone', () => {
+    expect(windowActs({ record: other, self: main, recordAlive: false })).toBe(true)
+    expect(windowActs({ record: other, self: detached, recordAlive: false })).toBe(false)
+  })
+
+  it('never answers while hidden or minimised, its own record or the fallback', () => {
+    expect(windowActs({ record: mine, self: { ...detached, shown: false }, recordAlive: true })).toBe(false)
+    expect(windowActs({ record: null, self: { ...main, shown: false }, recordAlive: true })).toBe(false)
+    expect(windowActs({ record: other, self: { ...main, shown: false }, recordAlive: false })).toBe(false)
+  })
+
+  it('asks whether the record is alive only where the answer can change it', () => {
+    expect(needsRecordAlive(other, main)).toBe(true)
+    expect(needsRecordAlive({ windowId: 'm', at: 1 }, main)).toBe(false)
+    expect(needsRecordAlive(null, main)).toBe(false)
+    expect(needsRecordAlive(other, detached)).toBe(false)
+    expect(needsRecordAlive(other, { ...main, shown: false })).toBe(false)
   })
 
   it('reads a malformed record as none', () => {
@@ -175,15 +209,16 @@ describe('the last-focused window', () => {
 
 describe('deliverTarget', () => {
   const base = {
-    isLastFocusedWindow: true,
+    windowActs: true,
     openSessionId: 's1',
     sessionIsForeign: false,
+    readOnly: false,
     kind: 'browser_selection' as const,
     attachmentCount: 0,
   }
 
   it('stays silent in a window that was not focused last', () => {
-    expect(deliverTarget({ ...base, isLastFocusedWindow: false })).toBeNull()
+    expect(deliverTarget({ ...base, windowActs: false })).toBeNull()
   })
 
   it('reaches the open session', () => {
@@ -193,6 +228,13 @@ describe('deliverTarget', () => {
   it('drops with no session open, and for a session on another Mac', () => {
     expect(deliverTarget({ ...base, openSessionId: null })).toEqual({ drop: 'no-session' })
     expect(deliverTarget({ ...base, sessionIsForeign: true })).toEqual({ drop: 'foreign' })
+  })
+
+  it('drops for a session shown without a composer, selection and screenshot alike', () => {
+    expect(deliverTarget({ ...base, readOnly: true })).toEqual({ drop: 'read-only' })
+    expect(deliverTarget({ ...base, readOnly: true, kind: 'browser_screenshot' })).toEqual({ drop: 'read-only' })
+    // A session on another Mac says so first: that is why it cannot be driven.
+    expect(deliverTarget({ ...base, readOnly: true, sessionIsForeign: true })).toEqual({ drop: 'foreign' })
   })
 
   it('drops a screenshot on a full composer, never a selection', () => {

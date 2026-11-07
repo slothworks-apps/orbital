@@ -11,6 +11,8 @@ type DesktopBridge = {
   showInFolder?: (path: string) => void
   showBrowserExtension?: () => void
   browserExtensionPath?: () => Promise<string | null>
+  isWindowShown?: () => boolean
+  onWindowShownChanged?: (cb: (shown: boolean) => void) => () => void
   edit?: (command: EditCommand) => void
   detachSession?: (id: string) => void
   focusSession?: (id: string) => void
@@ -165,6 +167,20 @@ function bridge(): DesktopBridge | undefined {
  */
 export function hasDesktopBridge(): boolean {
   return bridge() !== undefined
+}
+
+/**
+ * Whether this window is shown — not hidden by its close button, not
+ * minimised — as the desktop app says. A browser tab, or a desktop app older
+ * than the signal, counts as shown: its page goes away when it closes.
+ */
+export function isWindowShown(): boolean {
+  return bridge()?.isWindowShown?.() ?? true
+}
+
+/** Follows `isWindowShown`; returns the unsubscribe. A no-op outside the desktop app. */
+export function onWindowShownChanged(cb: (shown: boolean) => void): () => void {
+  return bridge()?.onWindowShownChanged?.(cb) ?? (() => {})
 }
 
 /**

@@ -109,7 +109,9 @@ export function pairingCodeHalves(code: string): [string, string] {
  * The `localStorage` key every Orbital window of the origin writes when it
  * gains focus. While you are in the browser no Orbital window has focus, so
  * the one written last is the one you were in (spec § Which session gets an
- * event).
+ * event). A window that is hidden or minimised takes its record back, and so
+ * does one that closes; a record left by a window that crashed is told apart
+ * by `windowLockName`.
  */
 export const LAST_FOCUSED_KEY = 'orbital.browserBridge.lastFocused'
 
@@ -130,16 +132,51 @@ export function parseLastFocused(raw: string | null): LastFocused | null {
 }
 
 /**
- * Whether this window is the one that answers. Before any window has written
- * the key — or after the window that wrote it closed and cleared it — the
- * main window answers, so an event is never lost to a record nobody holds.
+ * The Web Lock every Orbital window holds for as long as its page lives. The
+ * browser lets it go when the page goes — closed, reloaded or crashed — so a
+ * record whose window holds no lock was left behind, and nobody answers for
+ * it. A lock rather than a heartbeat: a window covered by the browser counts
+ * as hidden to the page, and its timers are throttled to a minute, which a
+ * heartbeat would read as a window gone.
  */
-export function isLastFocusedWindow(
-  record: LastFocused | null,
-  self: { windowId: string; isMainWindow: boolean },
-): boolean {
+export function windowLockName(windowId: string): string {
+  return `orbital.browserBridge.window.${windowId}`
+}
+
+/**
+ * Whether this window is the one that answers.
+ *
+ * - A window that is not shown — hidden by its close button, which on macOS
+ *   only hides the main window, or minimised — never answers.
+ * - The window the record names answers.
+ * - With no record — none written yet, or taken back by a window that was
+ *   hidden or closed — or with one left by a window that no longer exists,
+ *   the main window answers, so an event is not lost to a record nobody
+ *   holds.
+ *
+ * With no Orbital window shown, nobody answers, and the server's silence
+ * timeout says "no window". `recordAlive` is whether the record's window
+ * still exists; it is only asked about another window's record.
+ */
+export function windowActs(input: {
+  record: LastFocused | null
+  self: { windowId: string; isMainWindow: boolean; shown: boolean }
+  recordAlive: boolean
+}): boolean {
+  const { record, self } = input
+  if (!self.shown) return false
   if (!record) return self.isMainWindow
-  return record.windowId === self.windowId
+  if (record.windowId === self.windowId) return true
+  return self.isMainWindow && !input.recordAlive
+}
+
+/**
+ * Whether `windowActs` needs to know if the record's window still exists:
+ * only for a shown main window, about another window's record. Every other
+ * case is decided without it, and so without waiting for the browser.
+ */
+export function needsRecordAlive(record: LastFocused | null, self: { windowId: string; isMainWindow: boolean; shown: boolean }): boolean {
+  return self.shown && self.isMainWindow && record !== null && record.windowId !== self.windowId
 }
 
 // ── Which session it reaches ───────────────────────────────────────────────
@@ -150,20 +187,24 @@ export type DeliverTarget = { sessionId: string } | { drop: BrowserDropReason }
  * Where one event goes, decided by the window that received it. Null: not
  * this window's to answer — another window acts, and this one stays silent.
  *
+ * `readOnly` is a session shown without a composer — live in a terminal, or
+ * behind the device lock — where nothing could send what the event carries.
  * `attachmentCount` is the open composer's chips; it only matters to a
  * screenshot, which is one more chip.
  */
 export function deliverTarget(input: {
-  isLastFocusedWindow: boolean
+  windowActs: boolean
   openSessionId: string | null
   sessionIsForeign: boolean
+  readOnly: boolean
   kind: BrowserDelivery['type']
   attachmentCount: number
 }): DeliverTarget | null {
-  if (!input.isLastFocusedWindow) return null
+  if (!input.windowActs) return null
   if (!input.openSessionId) return { drop: 'no-session' }
   // Nothing from the extension leaves this Mac.
   if (input.sessionIsForeign) return { drop: 'foreign' }
+  if (input.readOnly) return { drop: 'read-only' }
   if (input.kind === 'browser_screenshot' && input.attachmentCount >= MAX_ATTACHMENTS) {
     return { drop: 'composer-full' }
   }
@@ -223,6 +264,16 @@ export function promptWithBrowserSelection(text: string, selection: Pick<Browser
     fence,
   ].join('\n')
   return text ? `${block}\n\n${text}` : block
+}
+
+/**
+ * Whether the session's composer has a turn to send: typed words, an armed
+ * chip, or a browser selection standing on its own — the selection IS the
+ * message, and the hint says ⏎ sends it. The editor's selection does not
+ * count: it rides with every prompt and is not one by itself.
+ */
+export function composerSendable(input: { text: string; armed: boolean; browserSelection: boolean }): boolean {
+  return Boolean(input.text.trim()) || input.armed || input.browserSelection
 }
 
 /** What a sent turn carried from the browser, read back out of its own text. */

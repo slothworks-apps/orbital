@@ -50,6 +50,7 @@ import { Button } from '../ui/Button'
 import { Composer } from './Composer'
 import { useAttachments } from './useAttachments'
 import { registerBrowserIntake } from '../lib/useBrowserBridge'
+import { composerSendable } from '../lib/browserBridge'
 import { apiImagePath, resolveImage } from '../lib/images'
 import { useImageDrop } from './useImageDrop'
 import { promptWithFiles } from '../lib/attachedFiles'
@@ -325,14 +326,19 @@ export function DetailPanel({
   const attachmentsRef = useRef(attachments)
   attachmentsRef.current = attachments
   const intakeSession = selectedId != null && !hidden && session !== undefined ? selectedId : null
+  // A session live in a terminal, or behind the device lock, shows no
+  // composer: an event for it is refused as read-only, not put where nothing
+  // can send it.
+  const intakeReadOnly = terminalHeld || lock !== null
   useEffect(() => {
     if (!intakeSession) return
     return registerBrowserIntake({
       sessionId: intakeSession,
+      readOnly: intakeReadOnly,
       attachmentCount: () => attachmentsRef.current.items.length,
       adoptImage: ({ ref, name, w, h, bytes, browser }) => {
         const url = resolveImage(ref)
-        attachmentsRef.current.adoptStored({
+        return attachmentsRef.current.adoptStored({
           entry: { ref, w, h, bytes },
           name,
           previewUrl: typeof url === 'string' ? url : apiImagePath(ref),
@@ -340,7 +346,7 @@ export function DetailPanel({
         })
       },
     })
-  }, [intakeSession])
+  }, [intakeSession, intakeReadOnly])
 
   // Resizable width (docs/ideas/resizable-detail-panel.md). The store value
   // moves LIVE during the drag — the panel and the map's follow inset track
@@ -627,7 +633,7 @@ export function DetailPanel({
     const sessionId = id
     if (!sessionId) return
     if (composerLocked || lock) return
-    if (!text && !attachments.armed) return
+    if (!composerSendable({ text, armed: attachments.armed, browserSelection: browserSelection !== undefined })) return
     if (reviewHeld) return
     // `/rewind` is Orbital's, never the agent's: sent, it opens pick mode
     // (spec 2026-09-29-rewind-design § Behaviour 1). While a rewind is
@@ -1501,7 +1507,11 @@ export function DetailPanel({
                   // uploading; a failed chip alone arms nothing (spec § Send).
                   // Held while a question card's review shows (canvas 9f D;
                   // the phone's Send does the same, 9i).
-                  disabled={composerLocked || reviewHeld || (!prompt.trim() && !attachments.armed)}
+                  disabled={
+                    composerLocked ||
+                    reviewHeld ||
+                    !composerSendable({ text: prompt, armed: attachments.armed, browserSelection: browserSelection !== undefined })
+                  }
                 >
                   <span>
                     <span className="hidden @min-[440px]:inline">Send </span>↑

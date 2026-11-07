@@ -37,9 +37,9 @@ import { ATTACHMENT_TYPES_LINE, MAX_ATTACHMENTS, filesFrom } from '../lib/attach
 import type { AttachmentsHandle } from './useAttachments'
 import { IdeSlot, IDE_SLOT_HEIGHT_PX, IDE_SLOT_SLIDE_MS } from './IdeSlot'
 import { BrowserLip, BROWSER_LIP_FADE_MS, lipStack } from './BrowserLip'
-import { usePresence } from '../ui/usePresence'
-import type { BrowserSelection } from '../lib/browserBridge'
-import { lineCountLabel, selectionId } from '../lib/ideSelection'
+import { usePresence, type Presence } from '../ui/usePresence'
+import { composerSendable, type BrowserSelection } from '../lib/browserBridge'
+import { isSlashCommand, lineCountLabel, selectionId } from '../lib/ideSelection'
 import { useIdeReadout } from '../lib/useIdeReadout'
 import type { CompletionKey, IdeContext, SlashCommand } from '../lib/types'
 import { completionKeyId } from '../lib/completionKey'
@@ -267,6 +267,9 @@ export interface ComposerControl {
    */
   startCommand(): void
 }
+
+/** The browser row of a session the composer has switched away from. */
+const BROWSER_LIP_GONE: Presence = { mounted: false, state: 'exiting' }
 
 export function Composer({
   sessionKey,
@@ -690,7 +693,15 @@ export function Composer({
   // The lip family's stack (canvas `Feature - Browser bridge` 64b). The
   // browser row's presence is held here so the rows above it move only once
   // it has faded out.
-  const browserPresence = usePresence(browserSelection !== null, IDE_SLOT_SLIDE_MS, BROWSER_LIP_FADE_MS)
+  //
+  // The row belongs to the session it stands in. The composer outlives a
+  // switch to another session, so the presence is keyed: switched away from,
+  // the row is gone at once rather than fading out over the other session's
+  // composer. Its × and a send still fade it.
+  const browserOpenKey = useRef<string | null>(null)
+  if (browserSelection !== null) browserOpenKey.current = keyId
+  const browserPresenceHeld = usePresence(browserSelection !== null, IDE_SLOT_SLIDE_MS, BROWSER_LIP_FADE_MS)
+  const browserPresence = browserOpenKey.current === keyId ? browserPresenceHeld : BROWSER_LIP_GONE
   const stack = lipStack({
     browserUp: browserPresence.mounted,
     ideUp: ide !== null && ideReadout.cursor !== null,
@@ -703,13 +714,18 @@ export function Composer({
    * browser's first as the stack has it, and the images alongside. It replaces
    * the mount's RESTING copy only — an open question's hint is about the
    * question and outranks it.
+   *
+   * A slash command carries neither selection (the store sends it as typed),
+   * so a slash draft in the session's composer names neither.
    */
+  const slashDraft = enter === 'send' && isSlashCommand(value.trim())
   const ideHint = useMemo(() => {
-    const editorCarries = ideStanding && ideLip !== null
-    if (!editorCarries && !browserSelection) return null
+    const editorCarries = ideStanding && ideLip !== null && !slashDraft
+    const browserCarries = browserSelection !== null && !slashDraft
+    if (!editorCarries && !browserCarries) return null
     const armed = chips.filter((chip) => chip.state !== 'failed').length
     const carries = [
-      browserSelection ? 'browser selection' : '',
+      browserCarries ? 'browser selection' : '',
       editorCarries ? lineCountLabel(ideLip) : '',
       armed > 0 ? `${armed} image${armed === 1 ? '' : 's'}` : '',
     ]
@@ -721,7 +737,7 @@ export function Composer({
     return enter === 'send'
       ? `${bare} send with ${carries} · ${chordLabel(command('composer.newline').chords[0])} newline`
       : `${bare} newline · ${chordLabel(command('composer.start').chords[0])} start session with ${carries}`
-  }, [ideStanding, ideLip, browserSelection, chips, enter])
+  }, [ideStanding, ideLip, browserSelection, chips, enter, slashDraft])
 
   /**
    * The keys (spec § 2). The list gets first refusal on every key — it owns
@@ -739,8 +755,12 @@ export function Composer({
       if (enter !== 'send') return false
       const text = composerMarkdown(editor).trim()
       // An armed chip is a sendable turn on its own — an image with no words is
-      // a whole message (spec § Send). Empty and unarmed still sends nothing.
-      if (text || attachments?.armed) onSend?.(text)
+      // a whole message (spec § Send) — and so is a browser selection, which
+      // the hint already offers to send. Nothing else makes an empty field
+      // sendable.
+      if (composerSendable({ text, armed: Boolean(attachments?.armed), browserSelection: browserSelection !== null })) {
+        onSend?.(text)
+      }
       return true
     }
     if (matches(command('composer.newline').chords[0], e)) {

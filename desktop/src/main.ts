@@ -639,6 +639,27 @@ function watchTerminalKeys(contents: WebContents): void {
 }
 
 /**
+ * Tell a window whether it is shown — not hidden (the main window's close
+ * button only hides it) and not minimised — on every change and on every
+ * load. The browser bridge hands its events only to a shown window (spec
+ * 2026-11-05-browser-bridge-design § Which session gets an event). The page's
+ * own `visibilityState` cannot say this: on macOS it reads hidden for a window
+ * merely covered by another, which is where Orbital is while you work in the
+ * browser.
+ */
+function watchWindowShown(w: BrowserWindow): void {
+  const send = () => {
+    if (w.isDestroyed()) return;
+    w.webContents.send('window-shown', w.isVisible() && !w.isMinimized());
+  };
+  w.on('show', send);
+  w.on('hide', send);
+  w.on('minimize', send);
+  w.on('restore', send);
+  w.webContents.on('did-finish-load', send);
+}
+
+/**
  * Every Orbital window is Orbital and nothing else. A link in a transcript
  * opens in the user's browser instead of replacing the page — there is no
  * Back here, and a remote page would be loaded with the preload attached.
@@ -678,6 +699,7 @@ function openWindow(url: string, page: string = url): void {
   });
   win = main;
   confineToOrbital(main.webContents);
+  watchWindowShown(main);
   main.on('page-title-updated', (event) => event.preventDefault());
   // A renderer rebuilt after a crash starts with an empty list, and one that
   // reloaded has lost its own — so every finished load hears it again
@@ -819,6 +841,7 @@ function openSessionWindow(sessionId: string): void {
     webPreferences,
   });
   confineToOrbital(detached.webContents);
+  watchWindowShown(detached);
   sessionWindows.set(sessionId, detached);
   // Whatever the user moves or resizes it to is where the next detached
   // window opens; `sessionFrameToRemember` leaves out the subagent panel's

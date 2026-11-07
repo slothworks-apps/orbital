@@ -5,17 +5,20 @@ import {
   LAST_FOCUSED_KEY,
   browserBridgeOffered,
   deliverTarget,
-  isLastFocusedWindow,
+  needsRecordAlive,
   newWindowId,
   outcomeFor,
   parseLastFocused,
   screenshotName,
+  windowActs,
+  windowLockName,
   type BrowserDelivery,
   type BrowserHubEvent,
   type BrowserStatus,
+  type DeliverTarget,
 } from './browserBridge'
 import { getSocket } from './socket'
-import { hasDesktopBridge } from './desktop'
+import { hasDesktopBridge, isWindowShown, onWindowShownChanged } from './desktop'
 import { useOrbital } from '../store/store'
 
 /**
@@ -33,13 +36,43 @@ import { useOrbital } from '../store/store'
 const windowId = newWindowId()
 
 /**
- * What a screenshot event needs from the open composer: how full it is, and
- * a way to put a stored image in it as a chip. The detail panel registers one
- * while it shows a session; a window holds one panel, so one intake.
+ * The lock that says this window still exists, held until the page goes
+ * (`windowLockName`). Taken on the first mount of the bridge, never given back.
+ */
+let lockTaken = false
+function holdWindowLock(): void {
+  if (lockTaken || typeof navigator === 'undefined' || !navigator.locks) return
+  lockTaken = true
+  void navigator.locks.request(windowLockName(windowId), () => new Promise<never>(() => {})).catch(() => {})
+}
+
+/**
+ * Whether the window `id` names still exists: it holds its lock. Where the
+ * browser has no Web Locks, every window counts as existing, which is how it
+ * was before the check.
+ */
+async function windowAlive(id: string): Promise<boolean> {
+  if (typeof navigator === 'undefined' || !navigator.locks) return true
+  try {
+    const { held = [] } = await navigator.locks.query()
+    return held.some((lock) => lock.name === windowLockName(id))
+  } catch {
+    return true
+  }
+}
+
+/**
+ * What an event needs from the open composer: whether it shows one at all,
+ * how full it is, and a way to put a stored image in it as a chip. The detail
+ * panel registers one while it shows a session; a window holds one panel, so
+ * one intake.
  */
 export interface BrowserIntake {
   sessionId: string
+  /** The session is shown without a composer: live in a terminal, or behind the device lock. */
+  readOnly: boolean
   attachmentCount(): number
+  /** False when the composer refused the chip (it filled meanwhile). */
   adoptImage(image: {
     ref: string
     name: string
@@ -47,7 +80,7 @@ export interface BrowserIntake {
     h: number | null
     bytes: number
     browser: { title: string; url: string; at: number }
-  }): void
+  }): boolean
 }
 
 let intake: BrowserIntake | null = null
@@ -68,8 +101,20 @@ function storage(): Storage | null {
   }
 }
 
+function readRecord() {
+  return parseLastFocused(storage()?.getItem(LAST_FOCUSED_KEY) ?? null)
+}
+
 function markFocused(): void {
+  // A window that is not shown cannot be the one you were in.
+  if (!isWindowShown()) return
   storage()?.setItem(LAST_FOCUSED_KEY, JSON.stringify({ windowId, at: Date.now() }))
+}
+
+/** Takes the record back while it still names `owner`: this window, or one found gone. */
+function releaseRecord(owner: string = windowId): void {
+  const store = storage()
+  if (readRecord()?.windowId === owner) store?.removeItem(LAST_FOCUSED_KEY)
 }
 
 /**
@@ -84,13 +129,19 @@ function openSessionId(): string | null {
   return intake?.sessionId ?? null
 }
 
-function deliver(event: BrowserDelivery, isMainWindow: boolean): void {
-  const record = parseLastFocused(storage()?.getItem(LAST_FOCUSED_KEY) ?? null)
+async function deliver(event: BrowserDelivery, isMainWindow: boolean): Promise<void> {
+  const self = { windowId, isMainWindow, shown: isWindowShown() }
+  const record = readRecord()
+  // Only the main window asks, and only about another window's record: a
+  // window that crashed left it behind, and the main window answers for it.
+  const recordAlive = needsRecordAlive(record, self) ? await windowAlive(record!.windowId) : true
+  if (!recordAlive) releaseRecord(record!.windowId)
   const sessionId = openSessionId()
-  const target = deliverTarget({
-    isLastFocusedWindow: isLastFocusedWindow(record, { windowId, isMainWindow }),
+  let target: DeliverTarget | null = deliverTarget({
+    windowActs: windowActs({ record, self, recordAlive }),
     openSessionId: sessionId,
     sessionIsForeign: sessionId ? useOrbital.getState().sessions[sessionId]?.machine !== undefined : false,
+    readOnly: intake?.readOnly ?? false,
     kind: event.type,
     attachmentCount: intake?.attachmentCount() ?? 0,
   })
@@ -105,7 +156,7 @@ function deliver(event: BrowserDelivery, isMainWindow: boolean): void {
         at: event.at,
       })
     } else {
-      intake?.adoptImage({
+      const adopted = intake?.adoptImage({
         ref: event.ref,
         name: screenshotName(event.title, event.url),
         w: event.w ?? null,
@@ -113,6 +164,8 @@ function deliver(event: BrowserDelivery, isMainWindow: boolean): void {
         bytes: event.bytes ?? 0,
         browser: { title: event.title, url: event.url, at: event.at },
       })
+      // The count said there was room, the composer said otherwise.
+      if (!adopted) target = { drop: 'composer-full' }
     }
   }
   // Nothing waits for this: an answer that never comes reads as no window.
@@ -136,7 +189,7 @@ function handle(event: BrowserHubEvent, isMainWindow: boolean): void {
     for (const listener of statusListeners) listener(event.status)
     return
   }
-  if (event?.type === 'browser_selection' || event?.type === 'browser_screenshot') deliver(event, isMainWindow)
+  if (event?.type === 'browser_selection' || event?.type === 'browser_screenshot') void deliver(event, isMainWindow)
 }
 
 /** Whether this page offers the bridge: the desktop app, or `npm run dev`. */
@@ -147,22 +200,26 @@ export function browserBridgeOfferedHere(): boolean {
 export function useBrowserBridge({ isMainWindow }: { isMainWindow: boolean }): void {
   useEffect(() => {
     if (!browserBridgeOfferedHere()) return
+    holdWindowLock()
     if (document.hasFocus()) markFocused()
     const onFocus = () => markFocused()
     // A closing window that holds the record lets it go, so the main window
     // answers instead of nobody.
-    const onPageHide = () => {
-      const store = storage()
-      if (parseLastFocused(store?.getItem(LAST_FOCUSED_KEY) ?? null)?.windowId === windowId) {
-        store?.removeItem(LAST_FOCUSED_KEY)
-      }
-    }
+    const onPageHide = () => releaseRecord()
+    // So does one hidden by its close button (on macOS the main window only
+    // hides) or minimised: it is not where you were. Shown again, it takes the
+    // record back once it has focus.
+    const stopShown = onWindowShownChanged((shown) => {
+      if (!shown) releaseRecord()
+      else if (document.hasFocus()) markFocused()
+    })
     window.addEventListener('focus', onFocus)
     window.addEventListener('pagehide', onPageHide)
     const unsubscribe = getSocket().subscribe(BROWSER_TOPIC, (msg: BrowserHubEvent) => handle(msg, isMainWindow))
     return () => {
       window.removeEventListener('focus', onFocus)
       window.removeEventListener('pagehide', onPageHide)
+      stopShown()
       unsubscribe()
     }
   }, [isMainWindow])
