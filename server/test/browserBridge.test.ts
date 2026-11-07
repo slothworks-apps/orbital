@@ -13,7 +13,7 @@ import {
 } from '../src/browser/pairings.js';
 import { parseOutcome } from '../src/browser/routes.js';
 import { decodeDataUrl, fitScreenshot } from '../src/browser/image.js';
-import { browserScreenshotTool, browserSessionTools } from '../src/browser/tool.js';
+import { TOOL_IMAGE_MAX_BYTES, browserScreenshotTool, browserSessionTools } from '../src/browser/tool.js';
 import { BROWSER_CLOSE, BROWSER_TOPIC } from '../src/browser/protocol.js';
 import { createImageStore } from '../src/images/store.js';
 import { makeTmpDir } from './tmp.js';
@@ -464,7 +464,34 @@ describe('browser_screenshot', () => {
     // Not a failure: nothing went wrong, there is just no browser to look at.
     expect(none.isError).toBeUndefined();
     expect(none.content).toEqual([{ type: 'text', text: 'No browser is connected to Orbital. The user can open the Orbital extension in their browser, or pair one in Settings → Labs → Browser bridge.' }]);
-    const failed = await browserScreenshotTool({ capture: async () => ({ ok: false, reason: 'failed', detail: 'chrome:// page' }) }).handler({}, {});
-    expect(failed.isError).toBe(true);
+  });
+
+  // Spec § browser_screenshot: a tab that cannot be captured is said in words, not an error that ends the turn.
+  it('says in plain words when the tab cannot be captured or the browser is slow', async () => {
+    const failed = await browserScreenshotTool({ capture: async () => ({ ok: false, reason: 'failed', detail: 'Cannot access a chrome:// URL' }) }).handler({}, {});
+    expect(failed.isError).toBeUndefined();
+    expect(failed.content).toEqual([{ type: 'text', text: 'The browser could not take the screenshot: Cannot access a chrome:// URL. Pages such as chrome:// and the extension store cannot be captured.' }]);
+    const stopped = await browserScreenshotTool({ capture: async () => ({ ok: false, reason: 'failed', detail: 'Tab closed.' }) }).handler({}, {});
+    expect(stopped.content[0]).toMatchObject({ text: expect.stringContaining('Tab closed. Pages') });
+    const late = await browserScreenshotTool({ capture: async () => ({ ok: false, reason: 'timeout' }) }).handler({}, {});
+    expect(late.isError).toBeUndefined();
+  });
+
+  it('keeps the image under the API\'s ceiling once it is base64', async () => {
+    // Noise at the tool's edge compresses worst: the PNG is over the budget.
+    const width = 1568;
+    const height = 1000;
+    const raw = Buffer.alloc(width * height * 3);
+    let x = 88172645;
+    for (let i = 0; i < raw.length; i++) {
+      x ^= x << 13; x ^= x >>> 17; x ^= x << 5;
+      raw[i] = x & 0xff;
+    }
+    const bytes = await sharp(raw, { raw: { width, height, channels: 3 } }).png().toBuffer();
+    expect(bytes.length).toBeGreaterThan(TOOL_IMAGE_MAX_BYTES);
+    const result = await browserScreenshotTool({ capture: async () => ({ ok: true, shot: { mediaType: 'image/png', bytes }, url: '', title: '' }) })
+      .handler({}, {});
+    const image = result.content[0] as { data: string };
+    expect(image.data.length).toBeLessThanOrEqual(5 * 1024 * 1024);
   });
 });

@@ -17,8 +17,11 @@ export const BROWSER_SCREENSHOT_TOOL = 'browser_screenshot';
  */
 const TOOL_IMAGE_MAX_EDGE = 1568;
 
-/** Under the API's ceiling on one image. */
-const TOOL_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+/** The API's ceiling on one image, which it applies to the base64 the image travels as. */
+const TOOL_IMAGE_MAX_BASE64 = 5 * 1024 * 1024;
+
+/** The image's own bytes that stay under `TOOL_IMAGE_MAX_BASE64` once encoded: base64 spends 4 characters on every 3 bytes. */
+export const TOOL_IMAGE_MAX_BYTES = Math.floor(TOOL_IMAGE_MAX_BASE64 / 4) * 3;
 
 const DESCRIPTION = [
   'Take a screenshot of the active tab in the user\'s web browser (the Chromium browser with Orbital\'s browser extension, used last), and see it as an image together with its URL and title.',
@@ -33,8 +36,19 @@ const FAILURE_TEXT: Record<Exclude<CaptureResult, { ok: true }>['reason'], strin
   failed: 'The browser could not take the screenshot',
 };
 
-function text(t: string, isError = false) {
-  return { content: [{ type: 'text' as const, text: t }], ...(isError ? { isError: true } : {}) };
+/** A browser's reason as a sentence of the result: it ends in a full stop before the next one starts. */
+function sentence(detail: string): string {
+  const trimmed = detail.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+/**
+ * A result in words. Never an error: a screenshot that could not be taken
+ * leaves nothing to retry, and the agent says so (spec § `browser_screenshot`);
+ * the transcript does not count it as a failed call.
+ */
+function text(t: string) {
+  return { content: [{ type: 'text' as const, text: t }] };
 }
 
 export function browserScreenshotTool(bridge: Pick<BrowserBridge, 'capture'>) {
@@ -42,17 +56,12 @@ export function browserScreenshotTool(bridge: Pick<BrowserBridge, 'capture'>) {
     const result = await bridge.capture();
     if (!result.ok) {
       const why = FAILURE_TEXT[result.reason];
+      if (result.reason !== 'failed') return text(why);
       // A chrome:// page or the Web Store is the usual reason the browser gives.
-      if (result.reason === 'no-extension' || result.reason === 'disabled') {
-        // Nothing failed: there is no browser to look at, and the agent can say
-        // so. Not an error, so the transcript does not count it as a failure
-        // (canvas 64d.3: "no browser" in muted ink, not the failure amber).
-        return text(why);
-      }
-      return text(result.reason === 'failed' ? `${why}${result.detail ? `: ${result.detail}` : '.'} Pages such as chrome:// and the extension store cannot be captured.` : why, true);
+      return text(`${why}${result.detail ? `: ${sentence(result.detail)}` : '.'} Pages such as chrome:// and the extension store cannot be captured.`);
     }
     const shot = await fitScreenshot(result.shot, { maxBytes: TOOL_IMAGE_MAX_BYTES, maxEdge: TOOL_IMAGE_MAX_EDGE });
-    if (!shot) return text('The screenshot could not be made small enough to send.', true);
+    if (!shot) return text('The screenshot could not be made small enough to send.');
     return {
       content: [
         { type: 'image' as const, data: shot.bytes.toString('base64'), mimeType: shot.mediaType },
