@@ -177,6 +177,15 @@ describe('the control tools against the server', () => {
 });
 
 describe('the operation catalog', () => {
+  // A session in bypass mode must not hand itself the user's browser, nor the phone's relay.
+  it('keeps the settings that reach past this Mac for the user', () => {
+    const settings = (params: Record<string, unknown>) => controlRequest('caller', 'update_settings', params, 'act');
+    for (const key of ['browser_bridge_enabled', 'remote_enabled', 'remote_relay_secret', 'claude_executable_path']) {
+      expect(settings({ map_theme: 'desk', [key]: 'true' }).ok, key).toBe(false);
+    }
+    expect(settings({ map_theme: 'desk' }).ok).toBe(true);
+  });
+
   it('names every operation once', () => {
     const names = CONTROL_OPERATIONS.map((o) => o.name);
     expect(new Set(names).size).toBe(names.length);
