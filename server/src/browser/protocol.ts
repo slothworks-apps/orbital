@@ -21,8 +21,18 @@ export const BROWSER_EXTENSION_ORIGIN = `chrome-extension://${BROWSER_EXTENSION_
 /** The hub topic every Orbital window subscribes to. */
 export const BROWSER_TOPIC = 'browser';
 
-/** Why an event reached no session. */
-export type BrowserDropReason = 'no-session' | 'no-window' | 'foreign' | 'composer-full';
+/**
+ * Why an event reached no session. `read-only`: the open session has no
+ * composer (live in a terminal, or locked). `unreadable`: the server could not
+ * read the screenshot or fit it under the attachment limit.
+ */
+export type BrowserDropReason =
+  | 'no-session'
+  | 'no-window'
+  | 'foreign'
+  | 'composer-full'
+  | 'read-only'
+  | 'unreadable';
 
 // ── /ws/browser, extension → server ────────────────────────────────────────
 // The socket's first frame is `pair` or `hello`; anything else closes it.

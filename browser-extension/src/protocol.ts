@@ -8,7 +8,7 @@
 export const BROWSER_WS_PATH = '/ws/browser'
 
 /** Why an event reached no session. */
-export type BrowserDropReason = 'no-session' | 'no-window' | 'foreign' | 'composer-full'
+export type BrowserDropReason = 'no-session' | 'no-window' | 'foreign' | 'composer-full' | 'read-only' | 'unreadable'
 
 // ── /ws/browser, extension → server ────────────────────────────────────────
 // The socket's first frame is `pair` or `hello`; anything else closes it.

@@ -21,7 +21,7 @@ export const BROWSER_BRIDGE_SETTING = 'browser_bridge_enabled'
 export const BROWSER_TOPIC = 'browser'
 
 /** Why an event reached no session. */
-export type BrowserDropReason = 'no-session' | 'no-window' | 'foreign' | 'composer-full'
+export type BrowserDropReason = 'no-session' | 'no-window' | 'foreign' | 'composer-full' | 'read-only' | 'unreadable'
 
 export type BrowserHubEvent =
   | { type: 'browser_selection'; eventId: string; text: string; url: string; title: string; at: number }
