@@ -1,5 +1,6 @@
 import { MAX_ATTACHMENTS } from './attachments'
 import { quoteSelection } from './ideSelection'
+import type { ChatMessage } from './types'
 
 /**
  * The web's half of the browser bridge (spec 2026-11-05-browser-bridge-design):
@@ -374,13 +375,22 @@ export function promptWithBrowserScreenshots(text: string, shots: readonly Pick<
   return text ? `${lines}\n\n${text}` : lines
 }
 
-/** The pages a sent turn's screenshots came from, and the typed words after their lines. */
-export function parseSentBrowserScreenshots(text: string | undefined | null): { shots: { title: string; url: string }[]; text: string } | null {
-  if (!text || !text.startsWith(SHOT_HEAD)) return null
+/**
+ * The pages a sent turn's screenshots came from, and the typed words after
+ * their lines. `budget` is how many screenshots the turn carried
+ * (`screenshotLineBudget`): only that many leading lines are captions, so a
+ * line typed in the same words is read as typed — and with no screenshot,
+ * nothing is.
+ */
+export function parseSentBrowserScreenshots(
+  text: string | undefined | null,
+  budget: number,
+): { shots: { title: string; url: string }[]; text: string } | null {
+  if (!text || budget <= 0 || !text.startsWith(SHOT_HEAD)) return null
   const lines = text.split('\n')
   const shots: { title: string; url: string }[] = []
   let i = 0
-  for (; i < lines.length; i++) {
+  for (; i < lines.length && shots.length < budget; i++) {
     const match = SHOT_LINE_RE.exec(lines[i])
     if (!match) break
     shots.push({ title: match[1], url: match[2] })
@@ -390,6 +400,38 @@ export function parseSentBrowserScreenshots(text: string | undefined | null): { 
   const rest = lines.slice(i)
   if (rest.length > 0 && rest[0] !== '') return null
   return { shots, text: rest.join('\n').replace(/^\n+/, '') }
+}
+
+/**
+ * How many images each user turn carried, by the transcript entry it was
+ * written under. A turn read back from the CLI's transcript is split into a
+ * message for its text and one for each image, all with the entry's uuid.
+ */
+export function userTurnImageCounts(messages: readonly Pick<ChatMessage, 'role' | 'uuid' | 'images'>[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const message of messages) {
+    if (message.role !== 'user' || !message.uuid || !message.images?.length) continue
+    counts.set(message.uuid, (counts.get(message.uuid) ?? 0) + message.images.length)
+  }
+  return counts
+}
+
+/**
+ * How many screenshots from the browser a user turn carried, which is how many
+ * of its leading lines can be their captions. A turn this tab sent knows its
+ * images' provenance and counts the browser's alone; one read back knows only
+ * how many images its entry held (`turnImages`, from `userTurnImageCounts`),
+ * or, without an entry, how many it holds itself.
+ */
+export function screenshotLineBudget(
+  message: Pick<ChatMessage, 'images' | 'imageProvenance'>,
+  turnImages: number | undefined,
+): number {
+  const provenance = message.imageProvenance
+  if (provenance && message.images?.length) {
+    return message.images.filter((image) => provenance[image.ref]?.fromBrowser).length
+  }
+  return turnImages ?? message.images?.length ?? 0
 }
 
 /** The page `browser_screenshot` captured, read out of its result's text line (`server/src/browser/tool.ts`). */

@@ -1031,6 +1031,8 @@ export interface FileEntry {
 export interface ImageProvenance {
   name: string
   source: AttachmentSource
+  /** A screenshot from the browser, whose line in the text is its caption. */
+  fromBrowser?: true
 }
 
 /**

@@ -911,7 +911,10 @@ function optimisticTurn(text: string, attachments?: readonly SentAttachment[]): 
       ? {
           images,
           imageProvenance: Object.fromEntries(
-            attachments!.map((a) => [a.entry.ref, { name: a.name, source: a.source }]),
+            attachments!.map((a) => [
+              a.entry.ref,
+              { name: a.name, source: a.source, ...(a.browser ? { fromBrowser: true as const } : {}) },
+            ]),
           ),
         }
       : {}),

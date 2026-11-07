@@ -6,6 +6,8 @@ import {
   outcomeFor,
   parseLastFocused,
   parseSentBrowserScreenshots,
+  screenshotLineBudget,
+  userTurnImageCounts,
   windowActs,
   parseSentBrowserSelection,
   parseToolScreenshotPage,
@@ -117,7 +119,7 @@ describe('promptWithBrowserScreenshots', () => {
       'Screenshot of Onboarding — Summary — http://localhost:5173/onboarding/summary\n' +
         'Screenshot of https://x.test/a b — https://x.test/ab\n\nsame on the summary step',
     )
-    expect(parseSentBrowserScreenshots(prompt)).toEqual({
+    expect(parseSentBrowserScreenshots(prompt, 2)).toEqual({
       shots: [
         { title: 'Onboarding — Summary', url: 'http://localhost:5173/onboarding/summary' },
         { title: 'https://x.test/a b', url: 'https://x.test/ab' },
@@ -127,19 +129,64 @@ describe('promptWithBrowserScreenshots', () => {
   })
 
   it('reads an image-only turn, and leaves a prompt with no screenshot as it is', () => {
-    expect(parseSentBrowserScreenshots(promptWithBrowserScreenshots('', [shot]))).toEqual({ shots: [shot], text: '' })
+    expect(parseSentBrowserScreenshots(promptWithBrowserScreenshots('', [shot]), 1)).toEqual({ shots: [shot], text: '' })
     expect(promptWithBrowserScreenshots('hello', [])).toBe('hello')
   })
 
   it('reads behind a browser selection, which rides first', () => {
     const prompt = promptWithBrowserSelection(promptWithBrowserScreenshots('look', [shot]), page)
     const selection = parseSentBrowserSelection(prompt)
-    expect(parseSentBrowserScreenshots(selection!.text)).toEqual({ shots: [shot], text: 'look' })
+    expect(parseSentBrowserScreenshots(selection!.text, 1)).toEqual({ shots: [shot], text: 'look' })
   })
 
   it('is null for words that only start the same way', () => {
-    expect(parseSentBrowserScreenshots('Screenshot of the login page please')).toBeNull()
-    expect(parseSentBrowserScreenshots('Screenshot of X — https://x.test/\nand more on the next line')).toBeNull()
+    expect(parseSentBrowserScreenshots('Screenshot of the login page please', 1)).toBeNull()
+    expect(parseSentBrowserScreenshots('Screenshot of X — https://x.test/\nand more on the next line', 1)).toBeNull()
+  })
+
+  it('reads the line as typed in a turn that carried no screenshot', () => {
+    expect(parseSentBrowserScreenshots('Screenshot of X — https://x.test/', 0)).toBeNull()
+  })
+
+  it('reads only as many lines as the turn carried screenshots', () => {
+    const typed = 'Screenshot of Y — https://y.test/'
+    const prompt = promptWithBrowserScreenshots(typed, [shot])
+    expect(parseSentBrowserScreenshots(prompt, 1)).toEqual({ shots: [shot], text: typed })
+    // Two lines in a row, one screenshot: the second is not a blank line, so
+    // the first cannot be the caption block either.
+    expect(parseSentBrowserScreenshots(`${prompt.split('\n')[0]}\n${typed}`, 1)).toBeNull()
+  })
+})
+
+describe('screenshotLineBudget', () => {
+  const image = (ref: string) => ({ ref, w: 1, h: 1, bytes: 1 })
+
+  it('counts the browser screenshots of a turn this tab sent, not a pasted image beside them', () => {
+    const message = {
+      images: [image('a'), image('b')],
+      imageProvenance: {
+        a: { name: 'Spec', source: 'file' as const, fromBrowser: true as const },
+        b: { name: 'paste.png', source: 'clipboard' as const },
+      },
+    }
+    expect(screenshotLineBudget(message, undefined)).toBe(1)
+  })
+
+  it('counts the images of the entry for a turn read back, its own when it has no entry', () => {
+    expect(screenshotLineBudget({}, 2)).toBe(2)
+    expect(screenshotLineBudget({ images: [image('a')] }, undefined)).toBe(1)
+    expect(screenshotLineBudget({}, undefined)).toBe(0)
+  })
+
+  it('adds up the images the CLI split off a turn, by its uuid', () => {
+    const counts = userTurnImageCounts([
+      { role: 'user', uuid: 'u1', images: [] },
+      { role: 'user', uuid: 'u1', images: [image('a')] },
+      { role: 'user', uuid: 'u1', images: [image('b')] },
+      { role: 'assistant', uuid: 'u2', images: [image('c')] },
+      { role: 'user', images: [image('d')] },
+    ])
+    expect([...counts]).toEqual([['u1', 2]])
   })
 })
 

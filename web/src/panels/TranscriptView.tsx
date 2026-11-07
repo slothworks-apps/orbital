@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { runToolName } from '../lib/browserBridge'
+import { runToolName, userTurnImageCounts } from '../lib/browserBridge'
 import type { BackgroundTask, ChatMessage, OrbitalModel, Subagent } from '../lib/types'
 import { modelNameForId } from '../lib/models'
 import { formatToolDuration } from '../lib/format'
@@ -764,6 +764,9 @@ export function TranscriptView({
   // Which lost-login notices a later row answers, and which one is live (spec
   // 2026-10-21-log-in-from-orbital-design § 3).
   const loginPlaces = useMemo(() => loginNoticePlaces(messages), [messages])
+  // How many images each user turn carried, over the FULL array: a turn read
+  // back from the CLI holds its text and its images as messages of their own.
+  const turnImages = useMemo(() => userTurnImageCounts(messages), [messages])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const scrollerRef = useRef<Scroller | null>(null)
@@ -1304,6 +1307,7 @@ export function TranscriptView({
             }
             rewindMark={target ? (previewed ? 'active' : 'target') : undefined}
             waiting={waiting}
+            turnImageCount={group.item.message.uuid ? turnImages.get(group.item.message.uuid) : undefined}
           />
         )}
         </div>

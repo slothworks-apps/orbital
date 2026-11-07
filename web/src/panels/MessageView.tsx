@@ -12,7 +12,7 @@ import { ImageThumb } from './ImageThumb'
 import { PathButton, PlainPath } from './PathButton'
 import { ReplyMedia } from './ReplyMedia'
 import { parseSentSelection, stripSentOpenFile } from '../lib/ideSelection'
-import { parseSentBrowserScreenshots, parseSentBrowserSelection } from '../lib/browserBridge'
+import { parseSentBrowserScreenshots, parseSentBrowserSelection, screenshotLineBudget } from '../lib/browserBridge'
 import { BrowserCaption } from './BrowserCaption'
 import { parseSentFiles } from '../lib/attachedFiles'
 import { FileGlyph } from './AttachmentChip'
@@ -321,6 +321,12 @@ export interface MessageViewProps {
    * it goes out.
    */
   waiting?: boolean
+  /**
+   * How many images this turn's transcript entry carried, its own and those
+   * read back as messages of their own (`userTurnImageCounts`). Absent: only
+   * its own count.
+   */
+  turnImageCount?: number
 }
 
 /**
@@ -328,7 +334,7 @@ export interface MessageViewProps {
  * fenced code blocks, etc). `tool_use`/`tool_result` messages are not
  * handled here — `Transcript` pairs those and renders them via `ToolRow`.
  */
-export function MessageView({ message, streaming = false, rewindMark, waiting = false }: MessageViewProps) {
+export function MessageView({ message, streaming = false, rewindMark, waiting = false, turnImageCount }: MessageViewProps) {
   const isUser = message.role === 'user'
   // The command-expansion fold (canvas 6c, spec:
   // 2026-09-18-transcript-folding-design). Only user turns carry `command`.
@@ -352,8 +358,12 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
   const sentBrowser = isUser ? parseSentBrowserSelection(afterIde) : null
   const afterBrowser = sentBrowser ? sentBrowser.text : afterIde
   // A screenshot from the browser names its page in a line of its own, after
-  // the selection blocks (canvas 64c-D); the caption says it instead.
-  const sentShots = isUser ? parseSentBrowserScreenshots(afterBrowser) : null
+  // the selection blocks (canvas 64c-D); the caption says it instead. Only as
+  // many lines as the turn carried screenshots: the same words typed by hand
+  // stay words.
+  const sentShots = isUser
+    ? parseSentBrowserScreenshots(afterBrowser, screenshotLineBudget(message, turnImageCount))
+    : null
   const typedText = sentShots ? sentShots.text : afterBrowser
   // The files the turn carried ride as a list at the end of its text (spec
   // 2026-10-01-file-attachments-design § Transcript): read back here, shown as
@@ -467,8 +477,10 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
         // from a reload (spec § The transcript side). ImageThumb's geometry
         // is untouched; only the caption line below is new.
         // A screenshot from the browser has its own caption (64c-D), which
-        // the page title would only repeat.
-        const provenance = sentShots ? undefined : message.imageProvenance?.[image.ref]
+        // the page title would only repeat; a pasted image beside it keeps
+        // its own.
+        const known = message.imageProvenance?.[image.ref]
+        const provenance = sentShots && known?.fromBrowser ? undefined : known
         const thumb = (
           <ImageThumb
             image={image}
