@@ -11,10 +11,10 @@ import {
   CONNECT_TIMEOUT_MS,
   decideOnClose,
   notSentText,
-  OUTCOME_TIMEOUT_MS,
   outcomeText,
   PING_INTERVAL_MS,
   reconnectDelay,
+  SCREENSHOT_OUTCOME_TIMEOUT_MS,
   type ConnectionStatus,
 } from './connection'
 import { drawIcon, type IconBadge, type IconSize } from './icon'
@@ -106,15 +106,26 @@ function flashBadge(ok: boolean): void {
   )
 }
 
-function reportShot(delivered: boolean, text: string): void {
+function reportShot(delivered: boolean, text: string, eventId?: string): void {
   flashBadge(delivered)
-  void setState({ lastShot: { delivered, text, at: Date.now() } })
+  void setState({ lastShot: { delivered, text, at: Date.now(), eventId } })
 }
 
 // ── the socket ─────────────────────────────────────────────────────────────
 
-function send(frame: ExtensionFrame): void {
-  socket?.send(JSON.stringify(frame))
+/**
+ * Sends on `ws` when it is the current socket and open; anything else drops
+ * the frame instead of throwing. A frame meant for a socket that closed
+ * (a capture's answer) must not reach its successor either.
+ */
+function send(frame: ExtensionFrame, ws: WebSocket | null = socket): boolean {
+  if (!ws || ws !== socket || ws.readyState !== WebSocket.OPEN) return false
+  try {
+    ws.send(JSON.stringify(frame))
+    return true
+  } catch {
+    return false
+  }
 }
 
 function clearConnectTimer(): void {
@@ -167,6 +178,7 @@ async function connect(pairCode?: string): Promise<void> {
         pairCode
           ? { type: 'pair', code: pairCode, browser }
           : { type: 'hello', token: token!, browser },
+        ws,
       )
     }
     ws.onmessage = (ev) => {
@@ -202,14 +214,23 @@ async function onFrame(ws: WebSocket, frame: ServerFrame): Promise<void> {
       return
     case 'outcome': {
       const timer = pending.get(frame.eventId)
-      if (!timer) return
-      clearTimeout(timer)
-      pending.delete(frame.eventId)
-      reportShot(frame.delivered, outcomeText(frame))
+      if (timer) {
+        clearTimeout(timer)
+        pending.delete(frame.eventId)
+        reportShot(frame.delivered, outcomeText(frame), frame.eventId)
+        return
+      }
+      // Later than the wait: the line said "no window"; say what happened,
+      // without a second badge, if no newer screenshot took the line since.
+      if (state.lastShot?.eventId === frame.eventId) {
+        void setState({
+          lastShot: { ...state.lastShot, delivered: frame.delivered, text: outcomeText(frame) },
+        })
+      }
       return
     }
     case 'capture':
-      await answerCapture(frame.requestId)
+      await answerCapture(ws, frame.requestId)
       return
   }
 }
@@ -232,7 +253,12 @@ async function onClose(ws: WebSocket, code: number): Promise<void> {
   ready = false
   stopPing()
   clearConnectTimer()
+  // Their outcome would have come on this socket; it will not come now.
+  failPending(decideOnClose(code, false).status)
   const { token } = await settings()
+  // A connect() started while the token was read owns the status and the
+  // outbox now.
+  if (socket || opening) return
   const decision = decideOnClose(code, Boolean(token))
   if (decision.forgetToken) await chrome.storage.local.remove(LOCAL_KEYS.token)
   // A refused pairing code already set `unpaired` with its reason; keep it.
@@ -256,13 +282,25 @@ function stopPing(): void {
 // ── events ─────────────────────────────────────────────────────────────────
 
 function dispatch(frame: EventFrame): void {
-  send(frame)
+  const sent = send(frame)
   if (frame.type !== 'screenshot') return
+  if (!sent) {
+    reportShot(false, notSentText(state.status))
+    return
+  }
   const timer = setTimeout(() => {
     pending.delete(frame.eventId)
-    reportShot(false, outcomeText({ delivered: false, reason: 'no-window' }))
-  }, OUTCOME_TIMEOUT_MS)
+    reportShot(false, outcomeText({ delivered: false, reason: 'no-window' }), frame.eventId)
+  }, SCREENSHOT_OUTCOME_TIMEOUT_MS)
   pending.set(frame.eventId, timer)
+}
+
+/** Screenshots sent on a socket that went away: settled now, with why. */
+function failPending(status: ConnectionStatus): void {
+  if (!pending.size) return
+  for (const timer of pending.values()) clearTimeout(timer)
+  pending.clear()
+  reportShot(false, notSentText(status))
 }
 
 /** Events that could not wait for the socket: a screenshot says so, a selection just lapses. */
@@ -300,15 +338,19 @@ function errorText(error: unknown): string {
   return message || 'The browser refused the capture.'
 }
 
-async function answerCapture(requestId: string): Promise<void> {
+/**
+ * Answers on the socket that asked. If that one closed meanwhile, the
+ * answer is dropped and the server's request runs out on its own.
+ */
+async function answerCapture(ws: WebSocket, requestId: string): Promise<void> {
+  let frame: ExtensionFrame
   try {
-    const shot = await captureActiveTab()
-    send({ type: 'captured', requestId, ...shot })
-    void setState({ agentShot: { at: Date.now() } })
+    frame = { type: 'captured', requestId, ...(await captureActiveTab()) }
   } catch (error) {
     // chrome:// pages, the Web Store and other extensions' pages cannot be captured.
-    send({ type: 'capture_failed', requestId, reason: errorText(error) })
+    frame = { type: 'capture_failed', requestId, reason: errorText(error) }
   }
+  if (send(frame, ws) && frame.type === 'captured') void setState({ agentShot: { at: Date.now() } })
 }
 
 async function takeScreenshot(): Promise<void> {
@@ -347,6 +389,7 @@ chrome.runtime.onMessage.addListener((message: WorkerMessage) => {
         socket = null
         ready = false
         stopPing()
+        failPending('unpaired')
         setStatus('unpaired')
       })
       break

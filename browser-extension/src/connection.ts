@@ -53,8 +53,13 @@ export function reconnectDelay(attempt: number, status: ConnectionStatus): numbe
 /** Keeps the MV3 worker alive while connected: well under its idle limit. */
 export const PING_INTERVAL_MS = 20_000
 
-/** No outcome within this reads as "no Orbital window" (spec). */
-export const OUTCOME_TIMEOUT_MS = 5_000
+/**
+ * No outcome for a screenshot within this reads as "no Orbital window"
+ * (spec). Well over the server's own outcome wait, which starts only once a
+ * large screenshot has reached it; an outcome that still comes later
+ * corrects the popup's line.
+ */
+export const SCREENSHOT_OUTCOME_TIMEOUT_MS = 10_000
 
 /**
  * How long one connection check may take before it counts as "not

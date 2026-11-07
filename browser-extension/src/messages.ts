@@ -26,7 +26,13 @@ export interface BridgeState {
    * The last screenshot the user took and its fate. It stays until the
    * next one; selections leave no line (canvas 64g).
    */
-  lastShot?: { delivered: boolean; text: string; at: number }
+  lastShot?: {
+    delivered: boolean
+    text: string
+    at: number
+    /** The screenshot's event, so an outcome that comes late can correct the line. */
+    eventId?: string
+  }
   /**
    * The agent's last `browser_screenshot` this extension served. The
    * server's `capture` frame names no session, so neither does the popup.
