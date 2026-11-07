@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- In a session's MCP servers dialog, + Add server stays on one line; a long session title in the footer is cut short instead of squeezing the button.
 
 ## [0.47.2] — 2026-11-05
 ### Fixed
