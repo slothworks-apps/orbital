@@ -332,7 +332,8 @@ In order:
   its long side.
 - **`browser_screenshot`** joins a session's tools when the session starts
   with the switch on; turning the switch off mid-session makes it answer
-  "turned off".
+  "turned off". Turning the switch on does not reach a session already
+  running: the tool joins it at its next start.
 - **The extension's shortcut** for a screenshot is ⌘⇧S, when the browser
   has it free. Its content script runs in the top frame only, so a
   selection inside an iframe is not sent. Unpair in its popup forgets the
