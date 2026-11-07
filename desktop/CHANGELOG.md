@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Sessions started in Orbital can open your private claude.ai artifacts (a migrated Claude Design project, say) from a link, without sharing them publicly.
 
 ## [0.47.2] — 2026-11-05
 ### Fixed
