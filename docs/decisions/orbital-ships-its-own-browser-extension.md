@@ -1,7 +1,7 @@
 ---
 id: orbital-ships-its-own-browser-extension
 title: Orbital ships its own browser extension rather than using Claude in Chrome
-status: draft
+status: in-force
 type: adr
 domain: sessions
 related:

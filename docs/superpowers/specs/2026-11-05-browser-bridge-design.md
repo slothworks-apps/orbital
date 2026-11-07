@@ -1,7 +1,7 @@
 ---
 id: 2026-11-05-browser-bridge-design
 title: The browser bridge
-status: draft
+status: done
 type: spec
 domain: sessions
 related:
@@ -98,7 +98,12 @@ built.
 Left out on purpose. The bridge is about the browser on the Mac next to
 Orbital; the phone has no such browser beside it. The browser endpoint and
 the `browser` topic are not on `server/src/remote/allowlist.ts`, and the
-phone's web code ignores browser events. Nothing is worth an `idea`: the
+phone's web code ignores browser events.
+
+The phone is still reached through the transcript components it shares
+with the desktop: a turn sent with a browser selection or screenshot shows
+its caption there, and the agent's `browser_screenshot` shows as an image
+tool row. Nothing is worth an `idea`: the
 phone's own browser is a different feature, and nobody has asked for it.
 
 ## How it fits together
@@ -115,9 +120,13 @@ browser tab ── content script ──► extension service worker
 ```
 
 - **Extension**, Manifest V3, in a new workspace `browser-extension/`.
-  - A content script on every page listens for the end of a selection
-    (mouse up or key up after `selectionchange`, debounced) and sends
-    `{text, url, title}` to the service worker when the text is not empty.
+  - A content script on every page listens for the end of a selection and
+    sends `{text, url, title}` to the service worker when the text is not
+    empty. Only the user's own release of a mouse button or key counts
+    (`isTrusted`), in a document that has focus and is visible, and only
+    for a selection made while that button or key was held; the text is
+    read at the release and sent after a short debounce only if it is
+    unchanged. A page cannot send a selection by script (review of PR #189).
   - The service worker holds one WebSocket to Orbital, sends events, and
     answers screenshot requests with `chrome.tabs.captureVisibleTab`.
   - A popup holds pairing state, a *Screenshot* button and the connection
@@ -258,8 +267,8 @@ one unless the popup is told otherwise.
 
 The bridge exists in the desktop app only. The Labs switch is not offered
 by the Linux server, whose browser is usually not on the same machine; the
-`npm run dev` web app has it, and the server also accepts the dev port's
-origin, so the extension can be worked on. *(Builder's call.)*
+`npm run dev` web app has it, so the extension can be worked on against a
+dev server. *(Builder's call.)*
 
 The extension ships **inside the desktop app**, so it carries the desktop's
 version and its changelog lines go in `desktop/CHANGELOG.md`. Settings
@@ -325,8 +334,11 @@ In order:
   unexpected first frame, is closed with 1008.
 - **Outcomes:** with no Orbital window subscribed, `no-window` comes back at
   once; otherwise after 3 s of silence. Only the first outcome per event
-  counts. A screenshot the server cannot read or shrink under the
-  attachment limit comes back undelivered with no reason.
+  counts. The wait starts when the frame arrives; a screenshot gets at most
+  8 s from arrival, so the extension (which waits 10 s) hears first. A
+  screenshot the server cannot read or shrink under the attachment limit
+  comes back as `unreadable`; a session that shows no composer (live in a
+  terminal, locked) as `read-only`.
 - **Screenshots** are stored in the image store (re-encoded as JPEG when the
   PNG is over the limit); the agent's copy is scaled to at most 1568 px on
   its long side.
