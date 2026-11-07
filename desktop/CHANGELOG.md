@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- A wide image named in Claude's reply shows at its own proportions instead of squeezed sideways.
 
 ## [0.48.0] — 2026-11-07
 ### Added

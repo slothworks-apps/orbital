@@ -98,8 +98,12 @@ function ReplyThumb({
   const gone = (item ? isGone(item) : false) || failed || thumb.failed
 
   const box: CSSProperties = { height: REPLY_THUMB_H_PX }
-  if (item?.w && item.h) box.width = Math.min(Math.round((item.w * REPLY_THUMB_H_PX) / item.h), REPLY_THUMB_MAX_W_PX)
-  else if (pdf) box.width = thumb.thumb ? Math.round(thumb.thumb.aspect * REPLY_THUMB_H_PX) : PDF_W_PX
+  if (item?.w && item.h) {
+    // A wide image held to the width cap shrinks in height too, so the box keeps its aspect.
+    const k = Math.min(REPLY_THUMB_H_PX / item.h, REPLY_THUMB_MAX_W_PX / item.w)
+    box.width = Math.round(item.w * k)
+    box.height = Math.round(item.h * k)
+  } else if (pdf) box.width = thumb.thumb ? Math.round(thumb.thumb.aspect * REPLY_THUMB_H_PX) : PDF_W_PX
   else if (gone) box.width = GONE_W_PX
 
   if (gone) {
