@@ -1,0 +1,18 @@
+{
+  "name": "@orbital/browser-extension",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The browser bridge's extension for Chromium browsers. Ships inside the desktop app and carries its version.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.3"
+  }
+}

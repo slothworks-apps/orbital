@@ -4,6 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Added
+- Settings → Labs → Browser bridge: an extension for Chrome, Arc and other Chromium browsers sends what you select in a page, or a screenshot you take, to the session open in Orbital, and a session can take a screenshot of the browser when it needs to see the page.
 - Sessions started in Orbital can open your private claude.ai artifacts (a migrated Claude Design project, say) from a link, without sharing them publicly.
 
 ### Fixed

@@ -2,6 +2,7 @@ import { createSdkMcpServer, tool, type SdkMcpToolDefinition } from '@anthropic-
 import * as z from 'zod/v4';
 import { archiveSessionTool, listSessionsTool, type SessionKeeper } from './sessionsTools.js';
 import { controlTools, type ControlCall } from './controlTools.js';
+import type { SessionTools } from './runner.js';
 
 /**
  * The in-process MCP server every Orbital session gets, holding the one tool
@@ -92,4 +93,19 @@ export function orbitalMcpServer(
       ...(extra?.tools ?? []),
     ],
   });
+}
+
+/**
+ * Several features' extra tools as one: each part comes from a feature that
+ * is on, and none at all leaves the server without extras.
+ */
+export function mergeSessionTools(...parts: (SessionTools | undefined)[]): SessionTools | undefined {
+  const on = parts.filter((p): p is SessionTools => p !== undefined);
+  if (on.length === 0) return undefined;
+  const instructions = on.flatMap((p) => (p.instructions ? [p.instructions] : [])).join('\n');
+  return {
+    tools: on.flatMap((p) => p.tools),
+    allowedTools: on.flatMap((p) => p.allowedTools),
+    ...(instructions ? { instructions } : {}),
+  };
 }

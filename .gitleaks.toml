@@ -15,3 +15,9 @@ description = "CocoaPods' podspec checksums, flagged when a pod's name holds 'Ke
 condition = "AND"
 paths = ['''^mobile/ios/App/Podfile\.lock$''']
 regexes = ['''^[0-9a-f]{40}$''']
+
+[[allowlists]]
+description = "the browser extension's manifest key: a public key that fixes its ID"
+condition = "AND"
+paths = ['''^browser-extension/static/manifest\.json$''']
+regexes = ['''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA21/elqNcZXQmQ7C07WhQ''']

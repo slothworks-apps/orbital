@@ -1,0 +1,373 @@
+/* The popup, canvas 64g: Deep Field in a dark browser, Infrared in a light one. */
+
+@font-face {
+  font-family: Manrope;
+  font-weight: 400;
+  src: url('fonts/manrope-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: Manrope;
+  font-weight: 600;
+  src: url('fonts/manrope-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: Manrope;
+  font-weight: 700;
+  src: url('fonts/manrope-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-weight: 400;
+  src: url('fonts/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+}
+
+:root {
+  color-scheme: dark;
+  /* Deep Field */
+  --page: #202124;
+  --ink: #e8eef8;
+  --muted: rgba(160, 190, 225, 0.68);
+  --sec: rgba(200, 220, 245, 0.82);
+  --hair: rgba(150, 205, 255, 0.08);
+  --hair2: rgba(150, 205, 255, 0.16);
+  --hair3: rgba(150, 205, 255, 0.3);
+  --sunk: rgba(6, 10, 20, 0.55);
+  --solid: rgba(10, 16, 28, 0.96);
+  --accent: oklch(85% 0.12 205);
+  --onacc: #03111a;
+  --sans: Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    /* Infrared */
+    --page: #f8f9fa;
+    --ink: oklch(15% 0.022 255);
+    --muted: oklch(21% 0.03 255 / 0.72);
+    --sec: oklch(16% 0.025 252 / 0.84);
+    --hair: oklch(42% 0.07 245 / 0.1);
+    --hair2: oklch(42% 0.07 245 / 0.2);
+    --hair3: oklch(42% 0.07 245 / 0.34);
+    --sunk: oklch(96.5% 0.008 240 / 0.75);
+    --solid: oklch(98.6% 0.004 240 / 0.97);
+    --accent: oklch(47% 0.09 215);
+    --onacc: oklch(97% 0.01 220);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--page);
+}
+
+body {
+  width: 320px;
+  margin: 0;
+  background: var(--solid);
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+p {
+  margin: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.grow {
+  flex: 1;
+}
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hair);
+}
+.mark {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.name {
+  font-size: 13px;
+  font-weight: 700;
+}
+.sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+.tag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+/* ── body ───────────────────────────────────────────────────────────────── */
+
+.body {
+  padding: 14px;
+}
+.state {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.copy {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.error {
+  margin-top: -4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--sec);
+}
+
+.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  border-radius: 8px;
+  font-family: var(--sans);
+  cursor: pointer;
+}
+.button:disabled {
+  cursor: default;
+}
+.primary {
+  height: 34px;
+  border: 0;
+  background: var(--accent);
+  color: var(--onacc);
+  font-size: 13px;
+  font-weight: 700;
+}
+.primary:disabled {
+  opacity: 0.45;
+}
+.secondary {
+  height: 32px;
+  border: 1px solid var(--hair2);
+  background: transparent;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.secondary:disabled {
+  opacity: 0.45;
+}
+.keycap {
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--onacc);
+  opacity: 0.6;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+/* ── not paired ─────────────────────────────────────────────────────────── */
+
+.pair {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.code {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: text;
+}
+/* One real input over the six boxes: typing and pasting work as anywhere. */
+.code-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  border: 0;
+  font-size: 17px;
+  cursor: text;
+}
+.box {
+  width: 38px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid var(--hair2);
+  background: var(--sunk);
+  font-family: var(--mono);
+  font-size: 17px;
+  color: var(--ink);
+}
+.box.next {
+  border-color: var(--accent);
+}
+.dash {
+  width: 8px;
+  height: 1.5px;
+  margin: 0 2px;
+  background: var(--hair3);
+}
+
+.advanced summary {
+  list-style: none;
+  width: max-content;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--sec);
+  cursor: pointer;
+}
+.advanced summary::-webkit-details-marker {
+  display: none;
+}
+.advanced .caret::before {
+  content: '▸';
+}
+.advanced[open] .caret::before {
+  content: '▾';
+}
+.port-row {
+  display: grid;
+  grid-template-columns: auto 96px;
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--hair);
+  background: var(--sunk);
+}
+.port-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.port-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.port {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--hair2);
+  background: var(--solid);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+input:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+.code-input:focus-visible {
+  outline: 0;
+}
+
+/* ── connected ──────────────────────────────────────────────────────────── */
+
+.log {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hair);
+}
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--sec);
+}
+.line .glyph {
+  width: 10px;
+  flex: none;
+  color: var(--ink);
+}
+.line .text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.45;
+}
+.line time {
+  color: var(--muted);
+}
+.line.agent {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+/* ── footer ─────────────────────────────────────────────────────────────── */
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--hair);
+}
+.unpair {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sec);
+  cursor: pointer;
+}
+.foot .meta {
+  font-size: 10px;
+}

@@ -13,6 +13,7 @@ import { answeredWidthReached, resolveWindowLayout } from './lib/sessionWindowLa
 import { useCommand } from './lib/commands'
 import { useViewportWidth } from './lib/useViewportWidth'
 import { useTranscriptCheck } from './lib/useTranscriptCheck'
+import { useBrowserBridge } from './lib/useBrowserBridge'
 import { STATS_PATH } from './stats/route'
 import { DetailPanel } from './panels/DetailPanel'
 import { SessionDialogs } from './panels/SessionDialogs'
@@ -111,6 +112,8 @@ export function SessionWindow({ id }: { id: string }) {
     return socket.subscribe(`session:${id}`, (msg: SessionEvent) => applySessionEvent(id, msg))
   }, [id, applySessionEvent])
   useTranscriptCheck(id)
+  // Browser events reach the session open here when this window was focused last.
+  useBrowserBridge({ isMainWindow: false })
 
   // The two app-level commands a detached window can serve (spec:
   // 2026-09-23-shortcuts-design § 7). Stats is a main-window page, so it goes

@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { runToolName } from '../lib/browserBridge'
 import type { BackgroundTask, ChatMessage, OrbitalModel, Subagent } from '../lib/types'
 import { modelNameForId } from '../lib/models'
 import { formatToolDuration } from '../lib/format'
@@ -193,7 +194,7 @@ export function summarizeToolRun(
   const counts = new Map<string, number>()
   let durationMs: number | undefined = 0
   for (const item of items) {
-    const name = item.toolUse.toolName ?? 'Tool'
+    const name = runToolName(item.toolUse.toolName ?? 'Tool')
     counts.set(name, (counts.get(name) ?? 0) + 1)
     if (durationMs !== undefined) {
       const d = toolDurationMs(item.toolUse, item.toolResult)
@@ -680,7 +681,7 @@ function ToolRunGroup({
             ⚙
           </span>
           <span className="min-w-0 flex-1 truncate">
-            {leadingEdge.toolUse.toolName}
+            {runToolName(leadingEdge.toolUse.toolName ?? '')}
             {liveLabel ? ': ' : ''}
             <span className="text-ink-100">{liveLabel}</span>
             {liveRunning && <span className="text-ink-900/50">…</span>}
