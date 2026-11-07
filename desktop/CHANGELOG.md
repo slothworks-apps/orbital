@@ -10,6 +10,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - Sessions started in Orbital can open your private claude.ai artifacts (a migrated Claude Design project, say) from a link, without sharing them publicly.
 
 ### Fixed
+- The sidebar's collapse and expand buttons show their arrows in the middle of the button.
 - A wide image named in Claude's reply shows at its own proportions instead of squeezed sideways.
 - In a session's MCP servers dialog, + Add server stays on one line; a long session title in the footer is cut short instead of squeezing the button.
 
