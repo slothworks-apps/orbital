@@ -938,9 +938,11 @@ function imageRefKey(images: readonly ImageRefEntry[] | undefined): string {
  * settled. Not store state: nothing renders it; the refusal reads it to put
  * the words back in the composer as an ordinary draft (spec
  * 2026-09-29-rewind-design § Behaviour 8). What was typed, not what was sent —
- * an editor selection riding along is not part of the draft.
+ * an editor selection riding along is not part of the draft. A browser
+ * selection the send consumed is kept beside it, so the refusal puts it back
+ * above the composer too.
  */
-const rewindSentText: Record<string, string> = {}
+const rewindSentText: Record<string, { text: string; browserSelection?: BrowserSelection }> = {}
 
 /** A copy of `record` without `key`. */
 function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
@@ -1949,7 +1951,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // why the turn has to go first — a reload keeps an un-echoed turn.
       const held = state.transcripts[sessionId]
       const lastLocal = held ? [...held].reverse().find(isPendingTurn) : undefined
-      const draft = rewindSentText[sessionId] ?? lastLocal?.text
+      const sent = rewindSentText[sessionId]
+      const draft = sent?.text ?? lastLocal?.text
       delete rewindSentText[sessionId]
       const rewindSending = { ...state.rewindSending }
       delete rewindSending[sessionId]
@@ -1965,6 +1968,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         },
       })
       if (draft !== undefined) get().setComposerDraft(sessionId, draft)
+      // The browser selection did not go out either. A newer one that arrived
+      // meanwhile stands.
+      if (sent?.browserSelection && !get().browserSelections[sessionId]) {
+        get().setBrowserSelection(sessionId, sent.browserSelection)
+      }
       return
     }
 
@@ -2405,7 +2413,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // 2026-09-29-rewind-design § Behaviour 7): from here the strip and the end
     // marker go, and the typed text is kept in case the CLI refuses.
     const sendsRewind = Boolean(session?.rewindPending) && !get().rewindSending[id]
-    if (sendsRewind) rewindSentText[id] = text
+    if (sendsRewind) rewindSentText[id] = { text, ...(browserSelection ? { browserSelection } : {}) }
 
     // A session waiting for a limit to reset does not send: the server queues
     // the message for the reset and republishes the wait, whose `queued` the
@@ -2453,6 +2461,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         })
       }
     } catch (err) {
+      // Whatever refused the turn — offline, 409, 500, the network — the
+      // browser selection did not go out: back above the composer, unless a
+      // newer one arrived meanwhile.
+      if (browserSelection && !get().browserSelections[id]) get().setBrowserSelection(id, browserSelection)
       if (sendsRewind) {
         // Nothing went out, so the rewind is still pending on the server.
         delete rewindSentText[id]
@@ -2473,8 +2485,6 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           },
         }))
         if (text && !get().composerDrafts[id]) get().setComposerDraft(id, text)
-        // The browser selection did not go out either: back above the composer.
-        if (browserSelection && !get().browserSelections[id]) get().setBrowserSelection(id, browserSelection)
         return true
       }
       if (err instanceof ApiError && err.status === 409) {
