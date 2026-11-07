@@ -150,15 +150,28 @@ function BrowserPairings({
   // A new pairing used the code: it is spent, so the panel closes and the row is there.
   const pairingCount = status?.pairings.length ?? 0
   const [countAtCode, setCountAtCode] = useState(0)
+  const pairedWithCode = code !== null && pairingCount > countAtCode
   useEffect(() => {
-    if (code && pairingCount > countAtCode) setCode(null)
-  }, [code, pairingCount, countAtCode])
+    if (pairedWithCode) setCode(null)
+  }, [pairedWithCode])
+
+  // The server ends a code before its time too — worn out by wrong tries,
+  // replaced by one made in another window — and says so by publishing a
+  // `codeExpiresAt` that is not this code's. Only once it has named this code:
+  // the status in hand when the code arrives can predate it.
+  const serverCode = status?.codeExpiresAt
+  const [serverNamedCode, setServerNamedCode] = useState(false)
+  useEffect(() => {
+    if (code && serverCode === code.expiresAt) setServerNamedCode(true)
+  }, [code, serverCode])
+  const ended = expired || (code !== null && serverNamedCode && serverCode !== code.expiresAt && !pairedWithCode)
 
   async function newCode() {
     setBusy(true)
     try {
       const next = await api.browserPairingCode()
       setCountAtCode(pairingCount)
+      setServerNamedCode(false)
       setCode(next)
     } catch (err) {
       reportError(err, 'Failed to make a pairing code')
@@ -220,7 +233,7 @@ function BrowserPairings({
               aria-label="Browser pairing code"
               className={[
                 'font-mono fs-28 font-medium tracking-[0.24em] text-ink-100',
-                expired ? 'opacity-30' : '',
+                ended ? 'opacity-30' : '',
               ].join(' ')}
             >
               {left}
@@ -229,7 +242,7 @@ function BrowserPairings({
               {right}
             </span>
             <span className="font-mono fs-11 text-ink-500/82">
-              {expired ? (
+              {ended ? (
                 <>
                   expired ·{' '}
                   <Button variant="dashed-link" size="inline" disabled={busy} onClick={() => void newCode()}>
