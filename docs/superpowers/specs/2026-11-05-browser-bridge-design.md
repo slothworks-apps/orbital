@@ -163,6 +163,15 @@ The server does not know which session is open; the web does
 - That window delivers the event to **its open session** at that moment —
   the selected session in the main window, or the session of a detached
   window.
+- A window that is not shown (closed to the Dock, which on macOS only hides
+  it, or minimised) never acts and gives up the record; the desktop tells
+  each window whether it is shown, because Electron reports a window merely
+  covered by the browser as hidden. A record whose window is gone (closed or
+  crashed) is detected through the Web Lock each window holds while its page
+  lives, and the main window answers instead. With no window shown, nobody
+  answers and the server's `no-window` timeout replies (review of PR #189).
+- If the open session shows no composer (live in a terminal, or behind the
+  device lock), the event is dropped as `read-only`.
 - If that window has no session open (the map with nothing selected,
   Settings), **the event is dropped.** It is not held for the next session
   you open.
