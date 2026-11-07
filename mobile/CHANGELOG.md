@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.24.3] — 2026-11-07
 ### Changed
 - A message sent from the Mac with text or a screenshot from the browser shows a short “Selected in the browser” or “Screenshot from the browser” caption instead of the raw quoted block, and the agent's browser screenshots show as an image in the transcript.
 
