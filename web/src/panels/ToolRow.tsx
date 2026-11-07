@@ -13,6 +13,14 @@ import { formatBytes, formatToolDuration } from '../lib/format'
 import { ImageThumb } from './ImageThumb'
 import { PathButton, PlainPath } from './PathButton'
 import { FileCwdContext, FileMessageContext, fileOpenHandlers, messageImages, useLongPress } from '../lib/fileOpen'
+import {
+  BROWSER_SCREENSHOT_TOOL_NAME,
+  bareUrl,
+  isNoBrowserResult,
+  linkableUrl,
+  pageHost,
+  parseToolScreenshotPage,
+} from '../lib/browserBridge'
 
 /** Tools whose salient input lives in a `file_path` field. */
 const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write'])
@@ -264,6 +272,12 @@ export function ToolRow({
   const filePath = pressablePath === null ? filePathOf(toolUse.toolName, toolUse.toolInput) : null
   const rowLongPress = useLongPress(filePath !== null && filePath === label ? filePath : null)
   const duration = formatToolDuration(toolDurationMs(toolUse, toolResult))
+  // The agent's `browser_screenshot` (canvas `Feature - Browser bridge`
+  // 64d-3–5): a row of its own words — the tool, the host it looked at — and
+  // a body that is the page, not the call's empty input.
+  const browserShot = toolUse.toolName === BROWSER_SCREENSHOT_TOOL_NAME
+  const shotPage = browserShot ? parseToolScreenshotPage(toolResult?.text) : null
+  const noBrowser = browserShot && isNoBrowserResult(toolResult?.text)
 
   // An editing tool's expanded body is its diff, not its input JSON (spec:
   // 2026-09-23-edit-diffs-in-the-transcript) — the JSON was where reviewing a
@@ -377,6 +391,22 @@ export function ToolRow({
           <span aria-hidden className="text-ink-900/60">
             ⚙
           </span>
+          {browserShot ? (
+            // 64d-3: `Browser: screenshot github.com`, then the time — or, with
+            // no browser to look at, "no browser" in the muted ink: nothing failed.
+            <>
+              <span className="flex-none">
+                Browser: <span className="text-ink-100">screenshot</span>
+              </span>
+              <span className="min-w-0 truncate text-ink-900/60">{shotPage ? pageHost(shotPage.url) : ''}</span>
+              <span className="flex-1" />
+              {noBrowser ? (
+                <span className="shrink-0 text-ink-900/60">no browser</span>
+              ) : (
+                duration && <span className="shrink-0 text-ink-900/50">{duration}</span>
+              )}
+            </>
+          ) : (
           <span className="min-w-0 flex-1 truncate">
             {toolUse.toolName}
             {label ? ': ' : ''}
@@ -388,6 +418,7 @@ export function ToolRow({
               <span className="text-ink-100">{label}</span>
             )}
           </span>
+          )}
           {/* The skim line: how much this call changed, without opening it.
               Each side appears only when it is non-zero — a new file has
               nothing removed, and `−0` would read as a claim about a side
@@ -410,7 +441,7 @@ export function ToolRow({
               )}
             </span>
           )}
-          {duration && (
+          {duration && !browserShot && (
             // Canvas 11b: "Read: eslint.config.js · 0.3s" — the row's own
             // gap between its tool_use and tool_result timestamps. Absent
             // (not "0s") when either side has no timestamp, or the call is
@@ -477,7 +508,9 @@ export function ToolRow({
         </FileMessageContext.Provider>
       )}
 
-      {expanded && (
+      {expanded && browserShot && toolResult && (toolResult.images?.length || noBrowser) ? (
+        <BrowserShotBody result={toolResult} page={shotPage} noBrowser={noBrowser} toolName={toolUse.toolName ?? ''} />
+      ) : expanded && (
         <div className="flex flex-col gap-2 border-t border-line/8 px-3 pb-2.5 pt-2">
           <div>
             <SectionLabel>{change ? changeSectionLabel(change, failed) : 'INPUT'}</SectionLabel>
@@ -551,5 +584,70 @@ export function ToolRow({
       )}
     </div>
     </FileCwdContext.Provider>
+  )
+}
+
+/**
+ * The expanded `browser_screenshot` (canvas 64d-4/5): the image result of 7b
+ * at 154×96 beside the page's title, its URL and the image's size; or, with no
+ * browser connected, the text the agent got and nothing added.
+ */
+function BrowserShotBody({
+  result,
+  page,
+  noBrowser,
+  toolName,
+}: {
+  result: ChatMessage
+  page: { title: string; url: string } | null
+  noBrowser: boolean
+  toolName: string
+}) {
+  if (noBrowser || !result.images?.length) {
+    return (
+      <pre
+        data-selectable
+        className="whitespace-pre-wrap border-t border-line/8 px-3 pb-2.5 pt-2 font-mono fs-10.5 leading-[1.6] text-ink-900/75"
+      >
+        {result.text}
+      </pre>
+    )
+  }
+  return (
+    <FileMessageContext.Provider
+      value={fileOpenHandlers() ? { messageId: result.id, images: messageImages(result) } : null}
+    >
+      <div className="flex flex-col gap-2 border-t border-line/8 px-2.5 pb-2.5 pt-2">
+        {result.images.map((image) => (
+          <div key={image.ref} className="flex items-start gap-2.5">
+            <ImageThumb image={image} messageId={result.id} variant="tool" source={toolName} widthCapPx={154} />
+            <div data-selectable className="min-w-0 flex-1 font-mono fs-10.5 leading-[1.7] text-ink-900/60">
+              {page?.title && <div className="truncate text-ink-100">{page.title}</div>}
+              {page?.url && (
+                <div className="truncate">
+                  {linkableUrl(page.url) ? (
+                    <button
+                      type="button"
+                      onClick={() => window.open(page.url, '_blank', 'noopener')}
+                      className="border-b border-dashed border-line/30 text-ink-300"
+                    >
+                      {bareUrl(page.url)}
+                    </button>
+                  ) : (
+                    <span className="border-b border-dashed border-line/30 text-ink-300">{page.url}</span>
+                  )}{' '}
+                  ↗
+                </div>
+              )}
+              <div>
+                {[image.w && image.h ? `${image.w}×${image.h}` : '', formatBytes(image.bytes), 'active tab']
+                  .filter(Boolean)
+                  .join(' · ')}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </FileMessageContext.Provider>
   )
 }

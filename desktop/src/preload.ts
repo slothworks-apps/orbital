@@ -3,6 +3,15 @@ import { parseFullScreen } from './lib/mainWindow';
 import { parseDetachedIds } from './lib/sessionWindows';
 import { parseUpdateCheckAnswer, parseUpdateView, type UpdateCheckAnswer, type UpdateView } from './lib/updates';
 
+// Whether this window is shown, as main last said (`window-shown`): kept here
+// from the first message on, so a page that asks late still knows.
+let windowShown = true;
+const windowShownListeners = new Set<(shown: boolean) => void>();
+ipcRenderer.on('window-shown', (_e, shown) => {
+  windowShown = shown !== false;
+  for (const listener of windowShownListeners) listener(windowShown);
+});
+
 // The bridge the renderer sees. `select-session` is sent by main.ts when the
 // user clicks a native notification; `web/src/lib/desktop.ts` is the other end,
 // and turns it into an ordinary selection in the store.
@@ -44,6 +53,27 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   // only.
   showInFolder(path: string) {
     ipcRenderer.send('show-in-folder', path);
+  },
+  // Settings → Labs → Browser bridge (spec 2026-11-05-browser-bridge-design
+  // § Installing it): main opens the bundled extension's folder.
+  showBrowserExtension() {
+    ipcRenderer.send('show-browser-extension');
+  },
+  // Whether this window is shown — not hidden by its close button, not
+  // minimised — and when that changes: the browser bridge hands its events
+  // only to a shown window. The returned function stops listening.
+  isWindowShown(): boolean {
+    return windowShown;
+  },
+  onWindowShownChanged(cb: (shown: boolean) => void): () => void {
+    windowShownListeners.add(cb);
+    return () => {
+      windowShownListeners.delete(cb);
+    };
+  },
+  /** The bundled extension's folder, which Settings names. */
+  browserExtensionPath(): Promise<string | null> {
+    return ipcRenderer.invoke('browser-extension-path');
   },
   // The text context menu's Cut, Copy, Paste and Select All (spec
   // 2026-11-02-text-context-menu-design): main runs the window's own edit

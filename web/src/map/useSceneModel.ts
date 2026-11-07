@@ -113,6 +113,7 @@ export function useSceneModel(): SceneModel {
           questionCursors: {},
           decisionVerdicts: {},
           ideDismissed: {},
+          browserSelections: {},
           composerDrafts: {},
           rewindSending: {},
           detachedIds: [],

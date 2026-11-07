@@ -172,11 +172,16 @@ export function EndGlyph() {
 /**
  * Collapse: two chevrons pointing off-canvas — the sidebar rail's `»` redrawn
  * in the strip's stroke (canvas 23b), so the header says "slide the panel
- * away" rather than "close something".
+ * away" rather than "close something". The sidebar's own toggles draw it too,
+ * `left` for its «: a font's » sits wherever the font's metrics put it.
  */
-export function CollapseGlyph() {
+export function CollapseGlyph({ direction = 'right' }: { direction?: 'left' | 'right' } = {}) {
   return (
-    <span aria-hidden className="relative block" style={{ width: '12px', height: '10px' }}>
+    <span
+      aria-hidden
+      className="relative block"
+      style={{ width: '12px', height: '10px', transform: direction === 'left' ? 'scaleX(-1)' : undefined }}
+    >
       {[0, 5].map((left) => (
         <span
           key={left}

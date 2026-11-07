@@ -158,14 +158,29 @@ export function SectionLabel({
   children,
   first = false,
   scope: own,
+  aside,
 }: {
   children: ReactNode
   first?: boolean
   scope?: SettingsScope | null
+  /**
+   * A line at the right end, on the kicker's baseline (`Feature - Browser
+   * bridge` 64f's LABS: "Finished features, each off until you turn it on.").
+   */
+  aside?: string
 }) {
   const shown = useShownScope()
   const scope = own === undefined ? shown : own
   const kicker = `pb-1 font-mono fs-10 tracking-[0.18em] text-ink-900/60 ${first ? 'pt-2' : 'pt-3.5'}`
+  if (aside) {
+    return (
+      <div className={`flex items-baseline gap-3 ${kicker}`}>
+        <span className="min-w-0 flex-1">{children}</span>
+        <span className="font-sans fs-11.5 tracking-normal text-ink-900/68">{aside}</span>
+        {scope && <ScopeLabel scope={scope} />}
+      </div>
+    )
+  }
   if (!scope) return <div className={kicker}>{children}</div>
   return (
     <div className={`flex items-center gap-3 ${kicker}`}>
@@ -186,6 +201,7 @@ export function Row({
   desc,
   dimmed = false,
   narrow = false,
+  labs = false,
   setting,
   children,
 }: {
@@ -196,10 +212,16 @@ export function Row({
   setting?: string | readonly string[]
   /** Canvas 50a's rows: a 300px control column 32px from the words. */
   narrow?: boolean
+  /** `Feature - Browser bridge` 64f's Labs entry: a 280px control column 24px from the words. */
+  labs?: boolean
   children: ReactNode
 }) {
   const mark = useDeviceOnlyMark(setting)
-  const grid = narrow ? 'grid-cols-[minmax(0,1fr)_300px] gap-8' : 'grid-cols-[1fr_320px] gap-6'
+  const grid = narrow
+    ? 'grid-cols-[minmax(0,1fr)_300px] gap-8'
+    : labs
+      ? 'grid-cols-[minmax(0,1fr)_280px] gap-6'
+      : 'grid-cols-[1fr_320px] gap-6'
   return (
     <div className={`grid ${grid} items-start border-t border-line/8 py-[13px]`}>
       <div className={dimmed ? 'opacity-45' : undefined}>

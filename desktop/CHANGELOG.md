@@ -4,6 +4,16 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.48.0] — 2026-11-07
+### Added
+- Settings → Labs → Browser bridge: an extension for Chrome, Arc and other Chromium browsers sends what you select in a page, or a screenshot you take, to the session open in Orbital, and a session can take a screenshot of the browser when it needs to see the page.
+- Sessions started in Orbital can open your private claude.ai artifacts (a migrated Claude Design project, say) from a link, without sharing them publicly.
+
+### Fixed
+- The sidebar's collapse and expand buttons show their arrows in the middle of the button.
+- A wide image named in Claude's reply shows at its own proportions instead of squeezed sideways.
+- In a session's MCP servers dialog, + Add server stays on one line; a long session title in the footer is cut short instead of squeezing the button.
+
 ## [0.47.2] — 2026-11-05
 ### Fixed
 - End session: “Also remove worktree” no longer unticks itself after you press End; while the session ends and the worktree is removed, the button says “Ending…” and the rest of the dialog waits.

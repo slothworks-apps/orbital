@@ -4,6 +4,13 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.24.3] — 2026-11-07
+### Changed
+- A message sent from the Mac with text or a screenshot from the browser shows a short “Selected in the browser” or “Screenshot from the browser” caption instead of the raw quoted block, and the agent's browser screenshots show as an image in the transcript.
+
+### Fixed
+- A wide image named in Claude's reply shows at its own proportions instead of squeezed sideways.
+
 ## [0.24.2] — 2026-11-05
 ### Fixed
 - End session: “Also remove worktree” no longer unticks itself after you press End; while the session ends and the worktree is removed, the button says “Ending…” and the rest of the dialog waits.

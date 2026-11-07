@@ -12,6 +12,7 @@
  */
 
 import { formatBytes } from './format'
+import type { BrowserShot } from './browserBridge'
 import type { AttachmentSource, FileEntry, ImageRefEntry } from './types'
 
 /**
@@ -196,6 +197,13 @@ export interface Attachment {
    * photo that was sent as it was.
    */
   original?: { w: number; h: number }
+  /**
+   * A screenshot the browser extension sent (spec
+   * 2026-11-05-browser-bridge-design § A screenshot from the extension): the
+   * page it shows. Its chip is named for the page (canvas 64c-B), and the sent
+   * turn names the page for the agent.
+   */
+  browser?: BrowserShot
 }
 
 /**
@@ -216,8 +224,12 @@ export function attachmentMeta(
   if (chip.original && entry && 'w' in entry && entry.w && entry.h) {
     return `${chip.original.w}×${chip.original.h} → sent at ${Math.max(entry.w, entry.h)} px`
   }
-  const dims = entry && 'w' in entry && entry.w && entry.h ? `${entry.w}×${entry.h} · ` : ''
-  return `${dims}${formatBytes(entry?.bytes ?? chip.size)}`
+  const dims = entry && 'w' in entry && entry.w && entry.h ? `${entry.w}×${entry.h}` : ''
+  const bytes = entry?.bytes ?? chip.size
+  // An image adopted already stored (a browser screenshot) may come without
+  // its size: say nothing rather than "0 B".
+  if (!bytes) return dims
+  return dims ? `${dims} · ${formatBytes(bytes)}` : formatBytes(bytes)
 }
 
 /**

@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { runToolName, userTurnImageCounts } from '../lib/browserBridge'
 import type { BackgroundTask, ChatMessage, OrbitalModel, Subagent } from '../lib/types'
 import { modelNameForId } from '../lib/models'
 import { formatToolDuration } from '../lib/format'
@@ -193,7 +194,7 @@ export function summarizeToolRun(
   const counts = new Map<string, number>()
   let durationMs: number | undefined = 0
   for (const item of items) {
-    const name = item.toolUse.toolName ?? 'Tool'
+    const name = runToolName(item.toolUse.toolName ?? 'Tool')
     counts.set(name, (counts.get(name) ?? 0) + 1)
     if (durationMs !== undefined) {
       const d = toolDurationMs(item.toolUse, item.toolResult)
@@ -680,7 +681,7 @@ function ToolRunGroup({
             ⚙
           </span>
           <span className="min-w-0 flex-1 truncate">
-            {leadingEdge.toolUse.toolName}
+            {runToolName(leadingEdge.toolUse.toolName ?? '')}
             {liveLabel ? ': ' : ''}
             <span className="text-ink-100">{liveLabel}</span>
             {liveRunning && <span className="text-ink-900/50">…</span>}
@@ -763,6 +764,9 @@ export function TranscriptView({
   // Which lost-login notices a later row answers, and which one is live (spec
   // 2026-10-21-log-in-from-orbital-design § 3).
   const loginPlaces = useMemo(() => loginNoticePlaces(messages), [messages])
+  // How many images each user turn carried, over the FULL array: a turn read
+  // back from the CLI holds its text and its images as messages of their own.
+  const turnImages = useMemo(() => userTurnImageCounts(messages), [messages])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const scrollerRef = useRef<Scroller | null>(null)
@@ -1303,6 +1307,7 @@ export function TranscriptView({
             }
             rewindMark={target ? (previewed ? 'active' : 'target') : undefined}
             waiting={waiting}
+            turnImageCount={group.item.message.uuid ? turnImages.get(group.item.message.uuid) : undefined}
           />
         )}
         </div>

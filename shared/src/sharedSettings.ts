@@ -65,6 +65,8 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   'colour_theme', 'colour_theme_follow_system', 'colour_theme_light', 'colour_theme_dark',
   // Work in a worktree: what this device's repositories hold untracked, and the worktrees on its disk the user kept.
   'worktree_copy_patterns', 'worktree_dismissed',
+  // The browser bridge: the extension pairs with this Mac's server, and its browser sits beside this Mac.
+  'browser_bridge_enabled',
 ];
 
 const PER_DEVICE_PREFIXES = ['remote_', 'new_session_last_'];

@@ -11,6 +11,8 @@
  * document orbital-features.
  */
 
+import { BROWSER_BRIDGE_SETTING } from '../browser/protocol.js';
+
 export type ControlArea =
   | 'sessions' | 'conversation' | 'decisions' | 'harness' | 'tags' | 'tag_rules' | 'settings'
   | 'mcp' | 'claude_dirs' | 'models' | 'commands' | 'files' | 'ide' | 'stats' | 'limits'
@@ -27,7 +29,7 @@ export interface ControlOperation {
   params?: string[];
   /** Stops or resets the session it names, so never the calling session: its turn waits on the call. */
   notOnCaller?: boolean;
-  /** Body keys an act may not carry: the phone's relay and its secret are the user's alone. */
+  /** Body keys an act may not carry: the phone's relay and its secret, the CLI path and the browser bridge switch are the user's alone. */
   deniedKeys?: (key: string) => boolean;
 }
 
@@ -160,9 +162,11 @@ export const CONTROL_OPERATIONS: readonly ControlOperation[] = [
   // settings
   { name: 'get_settings', area: 'settings', method: 'GET', path: '/api/settings', does: 'Every setting, as strings.' },
   { name: 'update_settings', area: 'settings', method: 'PATCH', path: '/api/settings',
-    does: 'Writes settings, values as strings. Known keys: default_permission_mode, default_model, remember_model_per_project, default_project_dir, confirm_before_clear, name_sessions_automatically, session_name_rules (your own rules for the names Orbital writes), end_closes_panel, questions_review_before_send, map_theme (planets | archipelago | desk), map_show_model, map_show_trash, map_show_context, map_show_compact_badge, map_scale_labels, map_state_pills (dot | label), planet_scale (0.7–1.6), context_threshold_warn, context_threshold_critical, transcript_edit_diffs (collapsed | expanded), permission_guard_gesture (hold | confirm | single), header_session_stats (bar | button), header_pull_request, header_line_changes (off | branch | split), default_claude_dir, notify_needs_input, notify_session_ended, notify_session_failed, notify_sound, notify_only_when_background, session_instructions_tips, session_instructions_custom, session_instructions_custom_text, limits_auto_continue, limits_continue_text, update_auto_download, delete_sessions_older_than_days (a number or never — deletes old sessions at once), harness_enabled, walkthrough_enabled, terminal_enabled, archipelago_enabled, colour_theme (deep-field | event-horizon | solar-dark | molten | velvet | arctic | ember | slate | albedo | solar-light), colour_theme_follow_system, colour_theme_light (albedo | solar-light; light mode while following the system), colour_theme_dark (one of the dark colour_theme values; dark mode while following the system), narrate_model. The phone relay settings and the CLI path are not writable here. A change applies on this Mac only, never to the rest of its device group.',
+    does: 'Writes settings, values as strings. Known keys: default_permission_mode, default_model, remember_model_per_project, default_project_dir, confirm_before_clear, name_sessions_automatically, session_name_rules (your own rules for the names Orbital writes), end_closes_panel, questions_review_before_send, map_theme (planets | archipelago | desk), map_show_model, map_show_trash, map_show_context, map_show_compact_badge, map_scale_labels, map_state_pills (dot | label), planet_scale (0.7–1.6), context_threshold_warn, context_threshold_critical, transcript_edit_diffs (collapsed | expanded), permission_guard_gesture (hold | confirm | single), header_session_stats (bar | button), header_pull_request, header_line_changes (off | branch | split), default_claude_dir, notify_needs_input, notify_session_ended, notify_session_failed, notify_sound, notify_only_when_background, session_instructions_tips, session_instructions_custom, session_instructions_custom_text, limits_auto_continue, limits_continue_text, update_auto_download, delete_sessions_older_than_days (a number or never — deletes old sessions at once), harness_enabled, walkthrough_enabled, terminal_enabled, archipelago_enabled, colour_theme (deep-field | event-horizon | solar-dark | molten | velvet | arctic | ember | slate | albedo | solar-light), colour_theme_follow_system, colour_theme_light (albedo | solar-light; light mode while following the system), colour_theme_dark (one of the dark colour_theme values; dark mode while following the system), narrate_model. The phone relay settings, the browser bridge switch and the CLI path are not writable here. A change applies on this Mac only, never to the rest of its device group.',
     params: ['<key>: string — one per setting'],
-    deniedKeys: (key) => key.startsWith('remote_') || key === 'claude_executable_path' },
+    // The browser bridge switch is the user's too: an agent that turned it on
+    // would hand itself, or a session in bypass mode, the user's browser.
+    deniedKeys: (key) => key.startsWith('remote_') || key === 'claude_executable_path' || key === BROWSER_BRIDGE_SETTING },
   { name: 'session_instruction_tips', area: 'settings', method: 'GET', path: '/api/session-instructions/tips', does: 'The tips Orbital adds to every session\'s instructions.' },
 
   // mcp

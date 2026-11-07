@@ -16,6 +16,12 @@ import {
 } from '../lib/questionCard'
 import { onQuestionDraftsChanged, readQuestionDrafts, updateQuestionDrafts } from './questionDrafts'
 import { isAttachable, isSlashCommand, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
+import {
+  promptWithBrowserScreenshots,
+  promptWithBrowserSelection,
+  type BrowserSelection,
+  type BrowserShot,
+} from '../lib/browserBridge'
 import { withViewTransition } from '../lib/viewTransition'
 import { moveTagTo } from '../lib/tagFilter'
 import { nextTagHue } from '../lib/tagHues'
@@ -479,6 +485,14 @@ export interface OrbitalState {
    */
   ideDismissed: Record<string, string>
   /**
+   * The browser selection standing in each session's composer, by session id
+   * (spec 2026-11-05-browser-bridge-design § A selection in the composer).
+   * One per session: a newer one replaces it, and deselecting in the browser
+   * does not remove it — the × does, and so does sending it. Memory only, like
+   * a draft: what the browser shows is live state, never a record.
+   */
+  browserSelections: Record<string, BrowserSelection>
+  /**
    * What is typed in each session's composer and not yet sent, by session
    * id. In the store rather than the detail panel so that switching to
    * another session — to answer its question, say — and back finds the
@@ -581,6 +595,8 @@ export interface SentAttachment {
   entry: ImageRefEntry
   name: string
   source: AttachmentSource
+  /** A screenshot from the browser: the page it shows, named for the agent in the prompt. */
+  browser?: BrowserShot
 }
 
 export interface OrbitalActions {
@@ -736,6 +752,10 @@ export interface OrbitalActions {
    * different one and raises the lip again by itself.
    */
   dismissIdeSelection(sessionId: string, selectionId: string): void
+  /** A browser selection delivered to this session, replacing the one before. */
+  setBrowserSelection(sessionId: string, selection: BrowserSelection): void
+  /** The browser lip's ×. */
+  dismissBrowserSelection(sessionId: string): void
   setComposerDraft(sessionId: string, text: string): void
   setFilterTagIds(filterTagIds: number[]): void
   setSearch(search: string): void
@@ -891,7 +911,10 @@ function optimisticTurn(text: string, attachments?: readonly SentAttachment[]): 
       ? {
           images,
           imageProvenance: Object.fromEntries(
-            attachments!.map((a) => [a.entry.ref, { name: a.name, source: a.source }]),
+            attachments!.map((a) => [
+              a.entry.ref,
+              { name: a.name, source: a.source, ...(a.browser ? { fromBrowser: true as const } : {}) },
+            ]),
           ),
         }
       : {}),
@@ -918,9 +941,11 @@ function imageRefKey(images: readonly ImageRefEntry[] | undefined): string {
  * settled. Not store state: nothing renders it; the refusal reads it to put
  * the words back in the composer as an ordinary draft (spec
  * 2026-09-29-rewind-design § Behaviour 8). What was typed, not what was sent —
- * an editor selection riding along is not part of the draft.
+ * an editor selection riding along is not part of the draft. A browser
+ * selection the send consumed is kept beside it, so the refusal puts it back
+ * above the composer too.
  */
-const rewindSentText: Record<string, string> = {}
+const rewindSentText: Record<string, { text: string; browserSelection?: BrowserSelection }> = {}
 
 /** A copy of `record` without `key`. */
 function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
@@ -1422,6 +1447,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   questionCursors: {},
   decisionVerdicts: {},
   ideDismissed: {},
+  browserSelections: {},
   composerDrafts: {},
   rewindSending: {},
   detachedIds: [],
@@ -1928,7 +1954,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // why the turn has to go first — a reload keeps an un-echoed turn.
       const held = state.transcripts[sessionId]
       const lastLocal = held ? [...held].reverse().find(isPendingTurn) : undefined
-      const draft = rewindSentText[sessionId] ?? lastLocal?.text
+      const sent = rewindSentText[sessionId]
+      const draft = sent?.text ?? lastLocal?.text
       delete rewindSentText[sessionId]
       const rewindSending = { ...state.rewindSending }
       delete rewindSending[sessionId]
@@ -1944,6 +1971,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         },
       })
       if (draft !== undefined) get().setComposerDraft(sessionId, draft)
+      // The browser selection did not go out either. A newer one that arrived
+      // meanwhile stands.
+      if (sent?.browserSelection && !get().browserSelections[sessionId]) {
+        get().setBrowserSelection(sessionId, sent.browserSelection)
+      }
       return
     }
 
@@ -2351,16 +2383,28 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // or the reason on a refused permission, is words meant for the ask — not
     // a new turn, and nothing rides on it. Nor on a slash command, which the
     // CLI runs only when it opens the turn.
+    //
+    // A browser selection rides once, between the editor's block and the
+    // typed words (spec 2026-11-05-browser-bridge-design § A selection in the
+    // composer): the editor's comes first, and sending consumes this one.
     const session = get().sessions[id]
     const selection = ideHere(session)?.selection ?? null
     const cwd = session?.cwd ?? ''
-    const outgoing = isSlashCommand(text)
+    const slash = isSlashCommand(text)
+    const browserSelection = slash ? undefined : get().browserSelections[id]
+    // A screenshot from the browser names its page for the agent, a line in
+    // front of the typed words (canvas 64c-D).
+    const shots = slash ? [] : (attachments ?? []).flatMap((a) => (a.browser ? [a.browser] : []))
+    const withShots = promptWithBrowserScreenshots(text, shots)
+    const typed = browserSelection ? promptWithBrowserSelection(withShots, browserSelection) : withShots
+    const outgoing = slash
       ? text
       : isAttachable(selection) && get().ideDismissed[id] !== selectionId(selection)
-        ? promptWithSelection(text, cwd, selection)
+        ? promptWithSelection(typed, cwd, selection)
         : selection
-          ? promptWithOpenFile(text, cwd, selection.filePath)
-          : text
+          ? promptWithOpenFile(typed, cwd, selection.filePath)
+          : typed
+    if (browserSelection) get().dismissBrowserSelection(id)
 
     const images = attachments?.map((a) => a.entry)
     // What was SENT, not what was typed: the echo that comes back off the
@@ -2372,7 +2416,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // 2026-09-29-rewind-design § Behaviour 7): from here the strip and the end
     // marker go, and the typed text is kept in case the CLI refuses.
     const sendsRewind = Boolean(session?.rewindPending) && !get().rewindSending[id]
-    if (sendsRewind) rewindSentText[id] = text
+    if (sendsRewind) rewindSentText[id] = { text, ...(browserSelection ? { browserSelection } : {}) }
 
     // A session waiting for a limit to reset does not send: the server queues
     // the message for the reset and republishes the wait, whose `queued` the
@@ -2420,6 +2464,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         })
       }
     } catch (err) {
+      // Whatever refused the turn — offline, 409, 500, the network — the
+      // browser selection did not go out: back above the composer, unless a
+      // newer one arrived meanwhile.
+      if (browserSelection && !get().browserSelections[id]) get().setBrowserSelection(id, browserSelection)
       if (sendsRewind) {
         // Nothing went out, so the rewind is still pending on the server.
         delete rewindSentText[id]
@@ -2573,6 +2621,19 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   dismissIdeSelection(sessionId, selectionId) {
     set((state) => ({ ideDismissed: { ...state.ideDismissed, [sessionId]: selectionId } }))
+  },
+
+  setBrowserSelection(sessionId, selection) {
+    set((state) => ({ browserSelections: { ...state.browserSelections, [sessionId]: selection } }))
+  },
+
+  dismissBrowserSelection(sessionId) {
+    set((state) => {
+      if (!(sessionId in state.browserSelections)) return {}
+      const browserSelections = { ...state.browserSelections }
+      delete browserSelections[sessionId]
+      return { browserSelections }
+    })
   },
 
   setComposerDraft(sessionId, text) {
@@ -3377,6 +3438,8 @@ function sessionsEventPatch(
     delete sessions[msg.sessionId]
     const composerDrafts = { ...state.composerDrafts }
     delete composerDrafts[msg.sessionId]
+    const browserSelections = { ...state.browserSelections }
+    delete browserSelections[msg.sessionId]
     // An open agent panel goes with its parent. The close guard at the
     // bottom of this file only watches `ui.selectedId`, and a removal does
     // not necessarily move it — a session removed while some OTHER planet
@@ -3396,6 +3459,7 @@ function sessionsEventPatch(
     return {
       sessions,
       composerDrafts,
+      browserSelections,
       order: state.order.filter((id) => id !== msg.sessionId),
       sessionsTotal: Math.max(0, state.sessionsTotal - 1),
     }

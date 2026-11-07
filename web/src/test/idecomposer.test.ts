@@ -3,7 +3,7 @@ import type { ApiSession, IdeSelection } from '../lib/types'
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { useOrbital } from '../store/store'
 import { selectionId } from '../lib/ideSelection'
 
@@ -50,6 +50,7 @@ function seed(sessions: ApiSession[]) {
     order: sessions.map((s) => s.id),
     transcripts: {},
     ideDismissed: {},
+    browserSelections: {},
     composerDrafts: {},
   })
 }
@@ -199,5 +200,87 @@ describe('the editor selection on the way out', () => {
     // wrapped around it.
     expect(api.sendMessage).not.toHaveBeenCalled()
     expect(useOrbital.getState().decisionDrafts.tu1).toEqual({ 'which?': 'the second one' })
+  })
+})
+
+describe('the browser selection on the way out', () => {
+  const PAGE = { eventId: 'e1', text: 'the paragraph', url: 'https://example.com/spec', title: 'Spec', at: 1 }
+  beforeEach(() => useOrbital.setState({ pendingDecisions: {} }))
+
+  it('rides once, after the editor block and before the typed words', async () => {
+    seed([session({ id: 's1', ide: { ideName: 'WebStorm', workspaceRoot: '/w/x', selection: SELECTION } })])
+    useOrbital.getState().setBrowserSelection('s1', PAGE)
+
+    await useOrbital.getState().sendPrompt('s1', 'consistent?')
+    await useOrbital.getState().sendPrompt('s1', 'and again')
+
+    const [first, second] = sentTexts()
+    const editor = first.indexOf('Selected in the editor')
+    const browser = first.indexOf('Selected in the browser — Spec (https://example.com/spec):')
+    expect(editor).toBe(0)
+    expect(browser).toBeGreaterThan(editor)
+    expect(first.indexOf('consistent?')).toBeGreaterThan(browser)
+    expect(second).not.toContain('Selected in the browser')
+    expect(useOrbital.getState().browserSelections.s1).toBeUndefined()
+  })
+
+  it('leaves a slash command untouched and keeps the selection standing', async () => {
+    seed([session({ id: 's1' })])
+    useOrbital.getState().setBrowserSelection('s1', PAGE)
+    await useOrbital.getState().sendPrompt('s1', '/compact')
+    expect(sentTexts()).toEqual(['/compact'])
+    expect(useOrbital.getState().browserSelections.s1).toEqual(PAGE)
+  })
+
+  it.each([
+    ['a 409', () => new ApiError('Session is live in a terminal', 409)],
+    ['a 500', () => new ApiError('boom', 500)],
+    ['a network failure', () => new TypeError('Failed to fetch')],
+  ])('comes back above the composer when the send fails with %s', async (_label, error) => {
+    seed([session({ id: 's1' })])
+    useOrbital.getState().setBrowserSelection('s1', PAGE)
+    vi.mocked(api.sendMessage).mockRejectedValueOnce(error())
+    await useOrbital.getState().sendPrompt('s1', 'look')
+    expect(sentTexts()[0]).toContain('Selected in the browser')
+    expect(useOrbital.getState().browserSelections.s1).toEqual(PAGE)
+  })
+
+  it('leaves a newer selection standing when a failed send comes back', async () => {
+    seed([session({ id: 's1' })])
+    useOrbital.getState().setBrowserSelection('s1', PAGE)
+    const NEWER = { ...PAGE, eventId: 'e2', text: 'newer' }
+    vi.mocked(api.sendMessage).mockImplementationOnce(async () => {
+      useOrbital.getState().setBrowserSelection('s1', NEWER)
+      throw new ApiError('boom', 500)
+    })
+    await useOrbital.getState().sendPrompt('s1', 'look')
+    expect(useOrbital.getState().browserSelections.s1).toEqual(NEWER)
+  })
+
+  it('goes out on its own with nothing typed', async () => {
+    seed([session({ id: 's1' })])
+    useOrbital.getState().setBrowserSelection('s1', PAGE)
+    await useOrbital.getState().sendPrompt('s1', '')
+    expect(sentTexts()).toEqual(['Selected in the browser — Spec (https://example.com/spec):\n\n```\nthe paragraph\n```'])
+    expect(useOrbital.getState().browserSelections.s1).toBeUndefined()
+  })
+
+  it('comes back when the CLI refuses the rewind it rode on', async () => {
+    seed([session({ id: 's1', rewindPending: { hiddenCount: 2, text: 'before' } })])
+    useOrbital.setState({ rewindSending: {} })
+    useOrbital.getState().setBrowserSelection('s1', PAGE)
+    await useOrbital.getState().sendPrompt('s1', 'again')
+    expect(useOrbital.getState().browserSelections.s1).toBeUndefined()
+    useOrbital.getState().applySessionEvent('s1', { event: 'rewind_refused', message: 'no', hiddenCount: 2 })
+    expect(useOrbital.getState().browserSelections.s1).toEqual(PAGE)
+    expect(useOrbital.getState().composerDrafts.s1).toBe('again')
+  })
+
+  it('belongs to its own session', async () => {
+    seed([session({ id: 's1' }), session({ id: 's2' })])
+    useOrbital.getState().setBrowserSelection('s1', PAGE)
+    await useOrbital.getState().sendPrompt('s2', 'other')
+    expect(sentTexts()).toEqual(['other'])
+    expect(useOrbital.getState().browserSelections.s1).toEqual(PAGE)
   })
 })

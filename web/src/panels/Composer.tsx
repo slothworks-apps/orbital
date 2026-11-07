@@ -35,8 +35,11 @@ import { PIN_TOOLTIP_DELAY_MS } from './UtilityStrip'
 import { AttachmentChip } from './AttachmentChip'
 import { ATTACHMENT_TYPES_LINE, MAX_ATTACHMENTS, filesFrom } from '../lib/attachments'
 import type { AttachmentsHandle } from './useAttachments'
-import { IdeSlot, IDE_SLOT_HEIGHT_PX } from './IdeSlot'
-import { lineCountLabel, selectionId } from '../lib/ideSelection'
+import { IdeSlot, IDE_SLOT_HEIGHT_PX, IDE_SLOT_SLIDE_MS } from './IdeSlot'
+import { BrowserLip, BROWSER_LIP_FADE_MS, lipStack } from './BrowserLip'
+import { usePresence, type Presence } from '../ui/usePresence'
+import { composerSendable, type BrowserSelection } from '../lib/browserBridge'
+import { isSlashCommand, lineCountLabel, selectionId } from '../lib/ideSelection'
 import { useIdeReadout } from '../lib/useIdeReadout'
 import type { CompletionKey, IdeContext, SlashCommand } from '../lib/types'
 import { completionKeyId } from '../lib/completionKey'
@@ -232,6 +235,14 @@ export interface ComposerProps {
   /** Called with the dropped selection's id. Per session (spec § Behaviour). */
   onIdeDismiss?: (selectionId: string) => void
   /**
+   * The browser selection standing in this session, drawn as a second lip
+   * above the editor's (spec 2026-11-05-browser-bridge-design § A selection
+   * in the composer). Absent on every mount but the desktop's detail panel.
+   */
+  browserSelection?: BrowserSelection | null
+  /** The browser lip's ×. */
+  onBrowserDismiss?: () => void
+  /**
    * The mount's attachment state (`useAttachments`). Absent means this mount
    * has nowhere to upload to, and then there is no chip row, no paste intake
    * and no refusal line — see the note in `NewSessionDialog`.
@@ -257,6 +268,9 @@ export interface ComposerControl {
   startCommand(): void
 }
 
+/** The browser row of a session the composer has switched away from. */
+const BROWSER_LIP_GONE: Presence = { mounted: false, state: 'exiting' }
+
 export function Composer({
   sessionKey,
   value,
@@ -280,6 +294,8 @@ export function Composer({
   ide = null,
   ideDismissedId,
   onIdeDismiss,
+  browserSelection = null,
+  onBrowserDismiss,
   attachments,
   dropArmed = false,
   className,
@@ -674,24 +690,54 @@ export function Composer({
   const ideReadout = useIdeReadout(ide?.selection ?? null)
   const ideLip = ideReadout.lip
   const ideStanding = ideLip !== null && selectionId(ideLip) !== ideDismissedId
+  // The lip family's stack (canvas `Feature - Browser bridge` 64b). The
+  // browser row's presence is held here so the rows above it move only once
+  // it has faded out.
+  //
+  // The row belongs to the session it stands in. The composer outlives a
+  // switch to another session, so the presence is keyed: switched away from,
+  // the row is gone at once rather than fading out over the other session's
+  // composer. Its × and a send still fade it.
+  const browserOpenKey = useRef<string | null>(null)
+  if (browserSelection !== null) browserOpenKey.current = keyId
+  const browserPresenceHeld = usePresence(browserSelection !== null, IDE_SLOT_SLIDE_MS, BROWSER_LIP_FADE_MS)
+  const browserPresence = browserOpenKey.current === keyId ? browserPresenceHeld : BROWSER_LIP_GONE
+  const stack = lipStack({
+    browserUp: browserPresence.mounted,
+    ideUp: ide !== null && ideReadout.cursor !== null,
+    ideStanding,
+  })
   /**
    * What ⏎ will carry, said in the hint line (canvas `Feature - IDE bridge`
-   * 20b-3/20b-6): `⏎ send with 5 lines · ⇧⏎ newline`, and the images alongside
-   * when there are any. It replaces the mount's RESTING copy only — an open
-   * question's hint is about the question and outranks it.
+   * 20b-3/20b-6, `Feature - Browser bridge` 64a): `⏎ send with browser
+   * selection, 5 lines, 1 image · ⇧⏎ newline` — what stands in the lip, the
+   * browser's first as the stack has it, and the images alongside. It replaces
+   * the mount's RESTING copy only — an open question's hint is about the
+   * question and outranks it.
+   *
+   * A slash command carries neither selection (the store sends it as typed),
+   * so a slash draft in the session's composer names neither.
    */
+  const slashDraft = enter === 'send' && isSlashCommand(value.trim())
   const ideHint = useMemo(() => {
-    if (!ideStanding || !ideLip) return null
+    const editorCarries = ideStanding && ideLip !== null && !slashDraft
+    const browserCarries = browserSelection !== null && !slashDraft
+    if (!editorCarries && !browserCarries) return null
     const armed = chips.filter((chip) => chip.state !== 'failed').length
-    const images = armed > 0 ? `, ${armed} image${armed === 1 ? '' : 's'}` : ''
-    const carries = `${lineCountLabel(ideLip)}${images}`
+    const carries = [
+      browserCarries ? 'browser selection' : '',
+      editorCarries ? lineCountLabel(ideLip) : '',
+      armed > 0 ? `${armed} image${armed === 1 ? '' : 's'}` : '',
+    ]
+      .filter(Boolean)
+      .join(', ')
     // In the dialog the bare key is a newline, so `composer.send`'s chord
     // names it in both mounts.
     const bare = chordLabel(command('composer.send').chords[0])
     return enter === 'send'
       ? `${bare} send with ${carries} · ${chordLabel(command('composer.newline').chords[0])} newline`
       : `${bare} newline · ${chordLabel(command('composer.start').chords[0])} start session with ${carries}`
-  }, [ideStanding, ideLip, chips, enter])
+  }, [ideStanding, ideLip, browserSelection, chips, enter, slashDraft])
 
   /**
    * The keys (spec § 2). The list gets first refusal on every key — it owns
@@ -709,8 +755,12 @@ export function Composer({
       if (enter !== 'send') return false
       const text = composerMarkdown(editor).trim()
       // An armed chip is a sendable turn on its own — an image with no words is
-      // a whole message (spec § Send). Empty and unarmed still sends nothing.
-      if (text || attachments?.armed) onSend?.(text)
+      // a whole message (spec § Send) — and so is a browser selection, which
+      // the hint already offers to send. Nothing else makes an empty field
+      // sendable.
+      if (composerSendable({ text, armed: Boolean(attachments?.armed), browserSelection: browserSelection !== null })) {
+        onSend?.(text)
+      }
       return true
     }
     if (matches(command('composer.newline').chords[0], e)) {
@@ -787,6 +837,18 @@ export function Composer({
           readout={ideReadout}
           standing={ideStanding}
           onDismiss={(selection) => onIdeDismiss?.(selection)}
+          liftPx={stack.ideLiftPx}
+          under={stack.ideUnder}
+          bare={stack.ideBare}
+        />
+        {/* The browser selection, a second row of the same family: above the
+            editor's selection, below its bare cursor read-out (64b). */}
+        <BrowserLip
+          selection={browserSelection}
+          presence={browserPresence}
+          liftPx={stack.browserLiftPx}
+          stackPx={stack.stackPx}
+          onDismiss={() => onBrowserDismiss?.()}
         />
 
         {/* Canvas 27a: -2px above, a .1 hairline 10px under it; the 10px
@@ -976,7 +1038,12 @@ export function Composer({
           // The slot belongs to the well, so the popup clears both (canvas
           // `Feature - IDE bridge` 20c). Only above: the slot sits on the top
           // edge, and the dialog's list opens below it.
-          anchorInsetPx={ide && placement === 'above' ? IDE_SLOT_HEIGHT_PX : 0}
+          // The browser lip stacks on top, so it counts once more.
+          anchorInsetPx={
+            placement === 'above'
+              ? (ide ? IDE_SLOT_HEIGHT_PX : 0) + (browserSelection ? IDE_SLOT_HEIGHT_PX : 0)
+              : 0
+          }
           listboxId={listboxId}
           onAccept={handleAccept}
           onClose={() => setDismissed(true)}

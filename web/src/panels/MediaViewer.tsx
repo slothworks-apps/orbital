@@ -5,6 +5,7 @@ import type { MediaItem } from '../lib/types'
 import type { MediaTarget } from '../lib/media'
 import { isToolFrame, matchMediaItem, mediaClock, mediaSourceKey, mediaSourceLabel, positionIn, stepIndex } from '../lib/media'
 import { api } from '../lib/api'
+import { BROWSER_SCREENSHOT_TOOL_NAME, bareUrl, linkableUrl, parseToolScreenshotPage } from '../lib/browserBridge'
 import { copyImageToClipboard } from '../lib/clipboard'
 import { canShowInFolder, showInFolder } from '../lib/desktop'
 import { copyPathOrReport, reportFailure } from '../lib/errors'
@@ -232,6 +233,16 @@ function ViewerBody({
     onClose()
   }
 
+  // A screenshot the agent took of the browser names its page (canvas
+  // `Feature - Browser bridge` 64d-6): the title after the tool, the URL
+  // before the size — read off the result's own text line, while the
+  // transcript holding it is loaded.
+  const resultText = useOrbital((s) =>
+    sessionId && shown?.tool === BROWSER_SCREENSHOT_TOOL_NAME
+      ? s.transcripts[sessionId]?.find((m) => m.id === shown.messageId)?.text
+      : undefined,
+  )
+  const shotPage = parseToolScreenshotPage(resultText)
   const clock = shown?.ts ? mediaClock(shown.ts) : ''
   const where = [title, clock].filter(Boolean).join(', ')
 
@@ -286,10 +297,31 @@ function ViewerBody({
               </span>
             )}
             {current ? mediaSourceLabel(current) : (fallbackCaption ?? null)}
+            {shotPage?.title && (
+              <>
+                <span className="text-line/28">·</span>
+                <span className="text-ink-200">{shotPage.title}</span>
+              </>
+            )}
             {current && shown.path && <span className="text-line/28">·</span>}
             {shown.path && <span className="text-ink-200">{shown.path}</span>}
           </div>
           <div className="flex items-center gap-3 fs-10.5 text-ink-900/60">
+            {shotPage && linkableUrl(shotPage.url) && (
+              <>
+                <span>
+                  <button
+                    type="button"
+                    onClick={() => window.open(shotPage.url, '_blank', 'noopener')}
+                    className="border-b border-dashed border-line/30 text-ink-300"
+                  >
+                    {bareUrl(shotPage.url)}
+                  </button>{' '}
+                  ↗
+                </span>
+                <span className="text-line/28">·</span>
+              </>
+            )}
             {current && <Meta item={shown} pages={pages} where={where} />}
             {current && (
               <>

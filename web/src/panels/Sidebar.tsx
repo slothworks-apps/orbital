@@ -33,7 +33,7 @@ import { TagFilterRow } from './TagFilterRow'
 import { Select } from '../ui/Select'
 import { Logo } from '../ui/Logo'
 import { PinButton } from '../ui/PinButton'
-import { DetachGlyph, StatsGlyph } from '../ui/UtilityButton'
+import { CollapseGlyph, DetachGlyph, StatsGlyph } from '../ui/UtilityButton'
 import { STATS_PATH } from '../stats/route'
 import { LIMITS_PATH } from '../limits/route'
 import { LimitsGlyph } from '../ui/LimitsGlyph'
@@ -151,8 +151,9 @@ function RowDot({
 
 /**
  * 28×28 square icon button used by the sidebar's collapse/expand toggles —
- * the export gives these their own chrome (7px radius, .14 hairline, 14px
- * glyph) rather than any of `Button`'s variants.
+ * the export gives these their own chrome (7px radius, .14 hairline) rather
+ * than any of `Button`'s variants. The export's » and « are text; they are
+ * drawn here (`CollapseGlyph`), as a font set them off centre (issue #187).
  */
 /**
  * The settings affordance's glyph in canvas 1a: a dashed accent ring — an
@@ -246,7 +247,7 @@ function IconButton({
   label: string
   /** Hover title, when it says more than the label — the shortcut, say. */
   title?: string
-  glyph: string
+  glyph: ReactNode
   onClick: () => void
 }) {
   return (
@@ -255,9 +256,9 @@ function IconButton({
       aria-label={label}
       title={title}
       onClick={onClick}
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-line/14 fs-14 leading-(--text-sm--line-height) text-ink-500/70 transition-colors hover:bg-ink-50/5 hover:text-ink-100"
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-line/14 text-ink-500/70 transition-colors hover:bg-ink-50/5 hover:text-ink-100"
     >
-      <span aria-hidden>{glyph}</span>
+      {glyph}
     </button>
   )
 }
@@ -766,7 +767,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <IconButton
           label="Expand sidebar"
           title={`Expand sidebar · ${shortcutLabel('global.sidebar')}`}
-          glyph="»"
+          glyph={<CollapseGlyph />}
           onClick={() => setSidebarCollapsed(false)}
         />
         <span aria-hidden className="h-px w-5 bg-line/14" />
@@ -774,7 +775,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} offline={machineOffline(s)} />
         ))}
         {/* Rail settings button (1a): 30px, and the only icon button here that
-            is not one of `IconButton`'s 28px text glyphs. 11d's stats glyph
+            is not one of `IconButton`'s 28px chevrons. 11d's stats glyph
             sits with it at the foot of the rail, mirroring the footer order. */}
         <span className="flex-1" />
         <StatsLink size="rail" />
@@ -827,7 +828,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <IconButton
           label="Collapse sidebar"
           title={`Collapse sidebar · ${shortcutLabel('global.sidebar')}`}
-          glyph="«"
+          glyph={<CollapseGlyph direction="left" />}
           onClick={() => setSidebarCollapsed(true)}
         />
       </div>

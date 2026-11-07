@@ -28,6 +28,7 @@ import { parseTerminalFocused, terminalKeyDecision } from './lib/terminalKeys';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
 import { pickerStartPath } from './lib/chooseDirectory';
 import { parseRevealPath } from './lib/showInFolder';
+import { browserExtensionDir } from './lib/browserExtension';
 import { parseEditCommand } from './lib/editCommand';
 import {
   decideWindowButtons,
@@ -638,6 +639,27 @@ function watchTerminalKeys(contents: WebContents): void {
 }
 
 /**
+ * Tell a window whether it is shown — not hidden (the main window's close
+ * button only hides it) and not minimised — on every change and on every
+ * load. The browser bridge hands its events only to a shown window (spec
+ * 2026-11-05-browser-bridge-design § Which session gets an event). The page's
+ * own `visibilityState` cannot say this: on macOS it reads hidden for a window
+ * merely covered by another, which is where Orbital is while you work in the
+ * browser.
+ */
+function watchWindowShown(w: BrowserWindow): void {
+  const send = () => {
+    if (w.isDestroyed()) return;
+    w.webContents.send('window-shown', w.isVisible() && !w.isMinimized());
+  };
+  w.on('show', send);
+  w.on('hide', send);
+  w.on('minimize', send);
+  w.on('restore', send);
+  w.webContents.on('did-finish-load', send);
+}
+
+/**
  * Every Orbital window is Orbital and nothing else. A link in a transcript
  * opens in the user's browser instead of replacing the page — there is no
  * Back here, and a remote page would be loaded with the preload attached.
@@ -677,6 +699,7 @@ function openWindow(url: string, page: string = url): void {
   });
   win = main;
   confineToOrbital(main.webContents);
+  watchWindowShown(main);
   main.on('page-title-updated', (event) => event.preventDefault());
   // A renderer rebuilt after a crash starts with an empty list, and one that
   // reloaded has lost its own — so every finished load hears it again
@@ -818,6 +841,7 @@ function openSessionWindow(sessionId: string): void {
     webPreferences,
   });
   confineToOrbital(detached.webContents);
+  watchWindowShown(detached);
   sessionWindows.set(sessionId, detached);
   // Whatever the user moves or resizes it to is where the next detached
   // window opens; `sessionFrameToRemember` leaves out the subagent panel's
@@ -1708,6 +1732,21 @@ ipcMain.on('show-in-folder', (event, payload: unknown) => {
   if (!fromOrbitalWindow(event.sender)) return;
   const path = parseRevealPath(payload);
   if (path !== null) shell.showItemInFolder(path);
+});
+// Settings → Labs → Browser bridge: the extension's folder, for Load unpacked.
+// Opened rather than revealed, so Finder shows what is in it; from the
+// repository before the extension is built, its workspace is shown instead.
+// And where that folder is, for Settings to name it (canvas 64e).
+ipcMain.handle('browser-extension-path', (event) =>
+  fromOrbitalWindow(event.sender)
+    ? browserExtensionDir({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, repoRoot })
+    : null,
+);
+ipcMain.on('show-browser-extension', (event) => {
+  if (!fromOrbitalWindow(event.sender)) return;
+  const dir = browserExtensionDir({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, repoRoot });
+  if (existsSync(dir)) void shell.openPath(dir);
+  else shell.showItemInFolder(join(repoRoot, 'browser-extension'));
 });
 // The text context menu's rows: the sender's own edit command, as its shortcut runs it.
 ipcMain.on('edit-command', (event, payload: unknown) => {

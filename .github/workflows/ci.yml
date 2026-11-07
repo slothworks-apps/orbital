@@ -56,6 +56,11 @@ jobs:
             relay: &relay
               - *shared
               - 'relay/**'
+            # The extension mirrors the server's half of the bridge protocol.
+            browser-extension: &browser-extension
+              - *root
+              - 'browser-extension/**'
+              - server/src/browser/protocol.ts
             mobile:
               - *web
               - 'mobile/**'
@@ -63,6 +68,7 @@ jobs:
               - *web
               - 'server/**'
               - 'desktop/**'
+              - *browser-extension
             relay-image: *relay
             # The Linux package: the server, its build script and the
             # package's own files; its version is the desktop's.
@@ -94,7 +100,7 @@ jobs:
         env:
           CHANGES: ${{ steps.filter.outputs.changes }}
         run: |
-          echo "list=$(jq -c 'map(select(IN("shared","server","web","desktop","relay","mobile")))' <<<"$CHANGES")" >> "$GITHUB_OUTPUT"
+          echo "list=$(jq -c 'map(select(IN("shared","server","web","desktop","relay","mobile","browser-extension")))' <<<"$CHANGES")" >> "$GITHUB_OUTPUT"
 
   check:
     # One job per workspace, so a red check names the workspace that broke.
@@ -139,6 +145,8 @@ jobs:
       - run: npm ci
       - run: npm run build -w server
       - run: npm run build -w web
+      # electron-builder.yml packages its dist/ as an extra resource.
+      - run: npm run build -w browser-extension
       - run: npm run build -w desktop
       # electron-builder skips signing in a pull request unless told not to,
       # and build/verify-signature.cjs then fails the build. An ad-hoc

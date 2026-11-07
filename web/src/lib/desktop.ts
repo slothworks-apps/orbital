@@ -9,6 +9,10 @@ type DesktopBridge = {
   requestNotificationPermission?: () => Promise<unknown>
   openNotificationSettings?: () => void
   showInFolder?: (path: string) => void
+  showBrowserExtension?: () => void
+  browserExtensionPath?: () => Promise<string | null>
+  isWindowShown?: () => boolean
+  onWindowShownChanged?: (cb: (shown: boolean) => void) => () => void
   edit?: (command: EditCommand) => void
   detachSession?: (id: string) => void
   focusSession?: (id: string) => void
@@ -163,6 +167,20 @@ function bridge(): DesktopBridge | undefined {
  */
 export function hasDesktopBridge(): boolean {
   return bridge() !== undefined
+}
+
+/**
+ * Whether this window is shown — not hidden by its close button, not
+ * minimised — as the desktop app says. A browser tab, or a desktop app older
+ * than the signal, counts as shown: its page goes away when it closes.
+ */
+export function isWindowShown(): boolean {
+  return bridge()?.isWindowShown?.() ?? true
+}
+
+/** Follows `isWindowShown`; returns the unsubscribe. A no-op outside the desktop app. */
+export function onWindowShownChanged(cb: (shown: boolean) => void): () => void {
+  return bridge()?.onWindowShownChanged?.(cb) ?? (() => {})
 }
 
 /**
@@ -348,6 +366,31 @@ export function canShowInFolder(): boolean {
 /** Reveals an absolute path in Finder; main ignores anything else. */
 export function showInFolder(path: string): void {
   bridge()?.showInFolder?.(path)
+}
+
+/**
+ * Whether Settings → Labs → Browser bridge can open the extension's folder:
+ * the desktop app, in a build that ships the extension.
+ */
+export function canShowBrowserExtension(): boolean {
+  return typeof bridge()?.showBrowserExtension === 'function'
+}
+
+/** Reveals the bundled browser extension's folder in Finder, for Load unpacked. */
+export function showBrowserExtension(): void {
+  bridge()?.showBrowserExtension?.()
+}
+
+/** The bundled browser extension's folder, or null outside a desktop build that knows it. */
+export async function browserExtensionPath(): Promise<string | null> {
+  const ask = bridge()?.browserExtensionPath
+  if (typeof ask !== 'function') return null
+  try {
+    const path = await ask()
+    return typeof path === 'string' && path ? path : null
+  } catch {
+    return null
+  }
 }
 
 /** The window's own edit commands, as their shortcuts run them (spec 2026-11-02-text-context-menu-design). */
