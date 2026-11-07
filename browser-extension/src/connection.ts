@@ -69,6 +69,8 @@ const DROP_TEXT: Record<BrowserDropReason, string> = {
   'no-window': 'Nothing open in Orbital',
   foreign: 'The open session runs on another Mac',
   'composer-full': 'The composer is full',
+  'read-only': 'The open session is read-only',
+  unreadable: 'Orbital couldn’t read the screenshot',
 }
 
 /** The popup's outcome line for a screenshot the user took. */

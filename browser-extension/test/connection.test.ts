@@ -73,6 +73,12 @@ describe('outcomeText', () => {
     expect(outcomeText({ delivered: false, reason: 'composer-full' })).toBe(
       'The composer is full — not sent',
     )
+    expect(outcomeText({ delivered: false, reason: 'read-only' })).toBe(
+      'The open session is read-only — not sent',
+    )
+    expect(outcomeText({ delivered: false, reason: 'unreadable' })).toBe(
+      'Orbital couldn’t read the screenshot — not sent',
+    )
   })
 })
 
