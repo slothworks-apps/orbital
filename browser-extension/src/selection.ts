@@ -1,7 +1,16 @@
 /**
- * When a selection in a page counts as an event: its end, guessed from the
- * mouse or key going up after the selection changed, debounced so a
- * shift+arrow run or a double-click-and-drag sends one event, not many.
+ * When a selection in a page counts as an event: its end, taken from the
+ * user's own mouse or key going up after the selection changed, debounced
+ * so a shift+arrow run or a double-click-and-drag sends one event, not many.
+ *
+ * A page can select text from script and dispatch events of its own, so
+ * only the user's input counts: an untrusted event never sends and cancels
+ * what was pending, a change of the selection counts only while the user
+ * holds a mouse button or a key, the gesture counts only in a document
+ * that is focused and visible, and the text read at the gesture is sent
+ * only if the debounce ends on that same text. Leaving the page after the
+ * gesture does not cancel it: selecting and switching straight to Orbital
+ * is the point.
  */
 
 /** How long the selection must stay put after the mouse or key goes up. */
@@ -51,21 +60,31 @@ export interface Timers {
   clear(handle: unknown): void
 }
 
+/** The part of a DOM event the detector reads. */
+export interface InputEventLike {
+  /** False for an event a page dispatched from script. */
+  isTrusted: boolean
+}
+
 export interface SelectionEndOptions {
   /** The page's current selection, as text. */
   read(): string
   send(text: string): void
+  /** Whether the document has focus and is visible: a background tab never sends. */
+  isActive(): boolean
   debounceMs?: number
   timers?: Timers
 }
 
 export interface SelectionEndDetector {
-  /** `selectionchange` (or `select` in an input). */
+  /** `selectionchange`, or `select` in a text field. */
   onSelectionChange: () => void
-  /** A press that may start a new drag: whatever was pending is not an end. */
-  onPointerDown: () => void
-  onPointerUp: () => void
-  onKeyUp: () => void
+  /** `mousedown` or `keydown`: the user may be about to change the selection. */
+  onPress: (event: InputEventLike) => void
+  /** `mouseup` or `keyup`: the end of the user's gesture. */
+  onRelease: (event: InputEventLike) => void
+  /** The window lost focus: a press it started will not be released here. */
+  onBlur: () => void
   dispose: () => void
 }
 
@@ -82,8 +101,13 @@ const realTimers: Timers = {
 export function createSelectionEndDetector(options: SelectionEndOptions): SelectionEndDetector {
   const debounceMs = options.debounceMs ?? SELECTION_DEBOUNCE_MS
   const timers = options.timers ?? realTimers
+  /** A trusted press is under way: a selection change now is the user's. */
+  let pressing = false
+  /** The selection changed during a trusted press. */
   let changed = false
   let pending: unknown = null
+  /** The text read at the gesture that scheduled `pending`. */
+  let gestureText = ''
   let lastSent: string | null = null
 
   const cancel = () => {
@@ -95,6 +119,8 @@ export function createSelectionEndDetector(options: SelectionEndOptions): Select
     pending = null
     changed = false
     const text = normalizeSelection(options.read())
+    // Changed by script since the gesture: not the user's selection.
+    if (text !== gestureText) return
     if (!text) {
       lastSent = null
       return
@@ -104,19 +130,29 @@ export function createSelectionEndDetector(options: SelectionEndOptions): Select
     options.send(text)
   }
 
-  const release = () => {
-    if (!changed) return
-    cancel()
-    pending = timers.set(settle, debounceMs)
-  }
-
   return {
     onSelectionChange: () => {
-      changed = true
+      if (pressing) changed = true
     },
-    onPointerDown: cancel,
-    onPointerUp: release,
-    onKeyUp: release,
-    dispose: cancel,
+    onPress: (event) => {
+      cancel()
+      if (event.isTrusted) pressing = true
+    },
+    onRelease: (event) => {
+      cancel()
+      if (!event.isTrusted) return
+      pressing = false
+      if (!changed || !options.isActive()) return
+      gestureText = normalizeSelection(options.read())
+      pending = timers.set(settle, debounceMs)
+    },
+    onBlur: () => {
+      pressing = false
+    },
+    dispose: () => {
+      cancel()
+      pressing = false
+      changed = false
+    },
   }
 }

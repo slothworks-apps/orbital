@@ -37,12 +37,22 @@ async function start(): Promise<void> {
   const stored = await chrome.storage.local.get(LOCAL_KEYS.port)
   if (isOrbitalPage(location, parsePort(stored[LOCAL_KEYS.port], DEFAULT_ORBITAL_PORT))) return
 
-  const detector = createSelectionEndDetector({ read: readSelection, send })
+  const detector = createSelectionEndDetector({
+    read: readSelection,
+    send,
+    isActive: () => document.hasFocus() && document.visibilityState === 'visible',
+  })
   document.addEventListener('selectionchange', detector.onSelectionChange)
+  // `select` is trusted even when a script calls `input.select()`, so it is
+  // a change of the selection, never the end of a gesture.
   window.addEventListener('select', detector.onSelectionChange, true)
-  window.addEventListener('mousedown', detector.onPointerDown, true)
-  window.addEventListener('mouseup', detector.onPointerUp, true)
-  window.addEventListener('keyup', detector.onKeyUp, true)
+  window.addEventListener('mousedown', detector.onPress, true)
+  window.addEventListener('keydown', detector.onPress, true)
+  window.addEventListener('mouseup', detector.onRelease, true)
+  // ⌘A in a text field: on a Mac the A's keyup never comes while ⌘ is
+  // held, the ⌘ key's own keyup ends the gesture.
+  window.addEventListener('keyup', detector.onRelease, true)
+  window.addEventListener('blur', detector.onBlur)
 }
 
 void start()
