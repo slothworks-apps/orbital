@@ -8,6 +8,9 @@ import type { EndAnswer } from '../lib/worktree'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Checkbox } from '../ui/Checkbox'
+import { setupPending } from '../lib/types'
+import { discardSentence } from '../lib/setup'
+import { copySetupPrompt, discardSetup } from '../store/setupActions'
 
 /** What a confirmed End carries besides the session: End's worktree row (canvas 63h). */
 export type EndOptions = EndWithWorktreeRequest
@@ -56,12 +59,46 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
     if (!open) setPending(false)
   }, [open])
 
-  const session = useOrbital((s) => (targetId ? s.sessions[targetId] : undefined))
+  const session = useOrbital((s) => {
+    // The prop stands in for the first frame, before the open is captured.
+    const id = targetId ?? (open ? sessionId : null)
+    return id ? s.sessions[id] : undefined
+  })
+  /**
+   * A worktree launch that never ran has no transcript to keep: ending it is
+   * discarding it (spec 2026-11-09-worktree-setup-in-background-design §
+   * Discard; canvas 66c DISCARD, 66d). Held from the open on, so a setup
+   * that gets ready meanwhile does not swap the dialog under the pointer.
+   */
+  const pendingNow = session !== undefined && setupPending(session)
+  const [latched, setLatched] = useState(false)
+  useEffect(() => {
+    setLatched(open && (latched || pendingNow))
+  }, [open, pendingNow, latched])
+  const discards = open && (latched || pendingNow)
 
   // Canvas 63h: a session in a linked worktree gets one more row — every
   // worktree but one another live session is still in (C3).
-  const row = useEndWorktreeRow(session, open)
+  const row = useEndWorktreeRow(session, open && !pendingNow && !discards)
   const { hold, release, settle } = row
+
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!open) setCopied(false)
+  }, [open])
+
+  const handleDiscard = useCallback(async () => {
+    if (!targetId || pending) return
+    setPending(true)
+    try {
+      await discardSetup(targetId)
+      onClose()
+    } catch (err) {
+      reportError(err, 'Failed to discard the session')
+    } finally {
+      setPending(false)
+    }
+  }, [targetId, pending, onClose])
 
   const handleEnd = useCallback(async () => {
     if (!targetId || pending) return
@@ -89,11 +126,51 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!matches(command('dialogs.confirm').chords[0], e)) return
       e.preventDefault()
-      void handleEnd()
+      void (discards ? handleDiscard() : handleEnd())
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, handleEnd])
+  }, [open, handleEnd, handleDiscard, discards])
+
+  if (discards) {
+    return (
+      <Dialog
+        open={open}
+        title="Discard this session?"
+        eyebrow="/end"
+        onClose={pending ? ignore : onClose}
+        footerCaption={<span className={pending ? 'opacity-45' : undefined}>esc · ⏎ discard</span>}
+        footer={
+          <>
+            <Button variant="ghost" size="lg" onClick={onClose} disabled={pending}>
+              Cancel
+            </Button>
+            {/* 66c: the text can leave with you before it goes. */}
+            <Button
+              variant="ghost"
+              size="lg"
+              disabled={pending}
+              onClick={() => {
+                if (targetId) void copySetupPrompt(targetId).then(setCopied)
+              }}
+            >
+              {copied ? 'Copied' : 'Copy prompt'}
+            </Button>
+            <Button variant="primary" size="lg" onClick={() => void handleDiscard()} disabled={pending}>
+              Discard
+            </Button>
+          </>
+        }
+      >
+        {session?.title && (
+          <div className="fs-13 font-mono leading-[1.55] text-ink-100 [overflow-wrap:anywhere]">{session.title}</div>
+        )}
+        <p className={`${session?.title ? 'mt-0.5' : ''} fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]`}>
+          {session?.setup ? discardSentence(session.setup) : 'Nothing was set up and nothing is on disk.'}
+        </p>
+      </Dialog>
+    )
+  }
 
   return (
     <Dialog

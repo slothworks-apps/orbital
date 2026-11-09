@@ -1,3 +1,5 @@
+import { copySetupPrompt, retrySetup, startWithoutWorktree } from '../store/setupActions'
+import { discardLabel } from '../lib/setup'
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -189,6 +191,25 @@ function SessionMenu({
         }
       case 'end':
         return { key: action, label: 'End session…', icon: <EndGlyph />, disabled, onSelect: () => useOrbital.getState().setDialog('end', id) }
+      // A worktree launch that has not started (spec
+      // 2026-11-09-worktree-setup-in-background-design): the block's ways out.
+      case 'retry':
+        return { key: action, label: 'Try again', icon: <RefreshGlyph />, disabled, onSelect: () => retrySetup(id) }
+      case 'without-worktree':
+        return { key: action, label: 'Start without a worktree…', disabled, onSelect: () => startWithoutWorktree(id) }
+      case 'copy-prompt':
+        return { key: action, label: 'Copy first prompt', icon: <CopyGlyph />, disabled, onSelect: () => void copySetupPrompt(id) }
+      case 'error-log':
+        return { key: action, label: 'Error log', disabled, onSelect: () => useOrbital.getState().setDialog('errors') }
+      case 'discard':
+        // The End dialog asks, in its discard words.
+        return {
+          key: action,
+          label: session?.setup ? `${discardLabel(session.setup)}…` : 'Discard…',
+          icon: <EndGlyph />,
+          disabled,
+          onSelect: () => useOrbital.getState().setDialog('end', id),
+        }
       case 'remove-worktree':
         return {
           key: action,

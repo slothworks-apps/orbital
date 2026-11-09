@@ -434,6 +434,13 @@ export interface TranscriptViewProps {
    */
   isWaiting?: (message: ChatMessage) => boolean
   waitCaption?: (count: number) => ReactNode
+  /**
+   * Drawn under the session's first message, when that is a user turn and
+   * nothing older is held out of sight: a worktree launch's setup block,
+   * which keeps its place there for the life of the session (spec
+   * 2026-11-09-worktree-setup-in-background-design).
+   */
+  afterFirstTurn?: ReactNode
 }
 
 /**
@@ -735,6 +742,7 @@ export function TranscriptView({
   liveRow,
   isWaiting,
   waitCaption,
+  afterFirstTurn,
 }: TranscriptViewProps) {
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_MESSAGES)
   // The row under the pointer in pick mode. Forgotten when the mode ends, so
@@ -963,6 +971,13 @@ export function TranscriptView({
   // would bring, and a fetch cursored on the store's oldest message would
   // skip right over them.
   const hiddenCount = pairedAll.length - items.length
+  // The first row on screen is the session's opening turn only with nothing
+  // windowed away above it.
+  const firstTurnHeld =
+    afterFirstTurn != null &&
+    hiddenCount === 0 &&
+    groups[0]?.kind === 'message' &&
+    groups[0].item.message.role === 'user'
   const canFetch = Boolean(onLoadOlder) && !exhausted && messages.length > 0
   const pages = hiddenCount > 0 || canFetch
 
@@ -1310,6 +1325,7 @@ export function TranscriptView({
             turnImageCount={group.item.message.uuid ? turnImages.get(group.item.message.uuid) : undefined}
           />
         )}
+        {index === 0 && firstTurnHeld && <div className="mt-[14px]">{afterFirstTurn}</div>}
         </div>
         )
       }))}
