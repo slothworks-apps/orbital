@@ -20,6 +20,8 @@ import type { IdeContext, IdeEditor } from '../ide/protocol.js';
 import type { LimitsService } from '../limits/service.js';
 import type { LimitWait } from '../limits/logic.js';
 import type { LoginService, LoginWait } from '../login/service.js';
+import type { SessionSetup } from '@orbital/shared/worktree';
+import type { SetupStore } from '../worktree/setup.js';
 
 /** The usage-limit wire types, beside the session shape that carries one of them. */
 export type { LimitWait, LimitWindow, LimitsSnapshot, ExtraUsage } from '../limits/logic.js';
@@ -44,6 +46,8 @@ export interface ShapeContext {
   limits?: Pick<LimitsService, 'waitFor'>;
   /** The continuation lists of the logins. Optional so a context built without one shapes every session as waiting on none. */
   logins?: Pick<LoginService, 'waitFor'>;
+  /** Worktree launches' setups. Optional so a context built without one shapes every session without `setup`. */
+  setups?: Pick<SetupStore, 'setupOf'>;
   /**
    * Where each session works now. Optional so a context built without one
    * shapes every session as working in its home, with no other trees.
@@ -281,6 +285,12 @@ export interface ApiSession {
    * directories are configured.
    */
   claudeDirId: number;
+  /**
+   * The worktree setup of a session launched into a worktree (spec
+   * 2026-11-09-worktree-setup-in-background-design); absent for any other.
+   * While it is not `ready` the session has no process and reads `idle`.
+   */
+  setup?: SessionSetup;
 }
 
 /** The gate the session's live harness stands at, or null. */
@@ -437,7 +447,14 @@ export function toApiSession(
     limitWait: ctx.limits?.waitFor(row.id) ?? null,
     loginWait: ctx.logins?.waitFor(row.id) ?? null,
     claudeDirId: row.claude_dir_id,
+    ...setupOf(ctx, row.id),
   };
+}
+
+/** `{ setup }` for a worktree launch's session, `{}` otherwise — the key is omitted, not null. */
+function setupOf(ctx: ShapeContext, id: string): { setup?: SessionSetup } {
+  const setup = ctx.setups?.setupOf(id);
+  return setup ? { setup } : {};
 }
 
 /** Where the session works now: its home and nothing else without a `trees` reader. */

@@ -60,6 +60,7 @@ import { OutputFollower } from './files/taskOutput.js';
 import { MAX_PROMPT_CHARS, NAME_RULES_KEY, SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { nameBranch } from './worktree/naming.js';
 import { worktreeContextOf } from './worktree/service.js';
+import { SetupStore } from './worktree/setup.js';
 import { HarnessService } from './harness/service.js';
 import { askWatcher } from './harness/watcher.js';
 import { askOnce } from './harness/ask.js';
@@ -469,6 +470,9 @@ export async function buildServer(overrides: {
       }),
   });
   limits.load();
+  // The worktree launches' setups (spec 2026-11-09-worktree-setup-in-background-design);
+  // one the previous server left half done is rolled back once the routes can run it.
+  const setups = new SetupStore(db);
 
   // Every session's subagents, keyed by session — running and ended alike,
   // since the subagent list keeps finished rows (subagent list spec § 5). Read back
@@ -536,7 +540,7 @@ export async function buildServer(overrides: {
     transcriptPath: (id, projectDir, claudeDirId) => transcriptPath(id, projectDir, claudeDirId),
     git,
   });
-  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits, logins, trees });
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits, logins, trees, setups });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
   const rowOf = (sessionId: string): SessionRow | undefined =>
     db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get();
@@ -1720,6 +1724,7 @@ export async function buildServer(overrides: {
     mcpFor,
     limits,
     logins,
+    setups,
     controlKey,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,

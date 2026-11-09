@@ -45,7 +45,7 @@ import {
 } from '../runner/runner.js';
 import type { ArchiveOutcome, ListedSession } from '../runner/sessionsTools.js';
 import { mergeCompactionFailures, type CompactionFailureRecord } from '../transcript/compaction.js';
-import { RETENTION_KEY } from '../retention.js';
+import { RETENTION_KEY, deleteSessions } from '../retention.js';
 import type { LiveSessions } from '../watcher/registry.js';
 import { endCli, type EndCliOutcome } from '../watcher/endCli.js';
 import type { Hub } from './hub.js';
@@ -72,8 +72,9 @@ import { registerTerminalRoutes } from './terminals.js';
 import { registerLoginRoutes } from './logins.js';
 import { registerWorktreeRoutes } from './worktree.js';
 import { LaunchReplays, type LaunchAnswer } from './launchReplays.js';
-import { WorktreeService, type BranchNamer, type LaunchPrep } from '../worktree/service.js';
-import { repoOfWorktreeDir, type EndSessionResult } from '@orbital/shared/worktree';
+import { WorktreeService, type BranchNamer, type LaunchCheck } from '../worktree/service.js';
+import { SetupFailure, SetupService, SetupStore, firstPhaseOf } from '../worktree/setup.js';
+import { repoOfWorktreeDir, type EndSessionResult, type SetupActionRefusal, type SetupLaunchSettings } from '@orbital/shared/worktree';
 import type { LoginService } from '../login/service.js';
 import type { TerminalStore } from '../terminal/store.js';
 import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
@@ -255,6 +256,12 @@ export interface RouteContext {
   worktrees?: WorktreeService;
   /** The launch's branch naming call; absent, every unnamed branch gets the temporary name. */
   nameBranch?: BranchNamer;
+  /**
+   * The setups of worktree launches (spec
+   * 2026-11-09-worktree-setup-in-background-design), loaded at boot. Absent,
+   * one is read from the db here.
+   */
+  setups?: SetupStore;
   /** `POST /api/sessions` on a group member, for `spawn_session`'s `machine` (spec 2026-10-19-member-grants-design § 3). */
   spawnOnMember?: (machine: string, body: Record<string, unknown>) => Promise<{ status: number; body: unknown }>;
 }
@@ -596,12 +603,71 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   /** Clear's harness carry-over, set once the harness routes are registered (at the end). */
   let carry: CarryHarness | null = null;
   const launchReplays = new LaunchReplays();
+  // Set on the context, so every session shape built over it carries `setup`.
+  const setupStore = ctx.setups ??= new SetupStore(db);
+  setupStore.onChange = publishSession;
   const worktrees = ctx.worktrees ?? new WorktreeService({
     ctx, trees: ctx.trees, settings: ctx.settings, nameBranch: ctx.nameBranch, errors: ctx.errors,
+    inSetup: (id) => setupStore.pending(id),
   });
   // A removal End left running finishes before the server goes: `preClose`,
   // since `onClose` hooks run last-registered-first, after the db is closed.
   app.addHook('preClose', () => worktrees.settled());
+  /**
+   * The worktree launches' setups, run after the launch has answered. The
+   * session starts the way any launch does, in the worktree; the queue goes
+   * in the way the composer's messages do.
+   */
+  const setups = new SetupService({
+    store: setupStore, worktrees, errors: ctx.errors,
+    start: async (rec, cwd) => {
+      if (rec.mcpjson) {
+        try {
+          recordDecisions(cwd, rec.mcpjson, { fingerprints: mcpjsonFingerprints });
+        } catch (err) {
+          throw new SetupFailure('The .mcp.json answers could not be saved in the worktree.', err instanceof Error ? err.message : String(err));
+        }
+      }
+      // The mode and model as the row has them now: either can be changed while the worktree is made.
+      const row = db.select({ permissionMode: sessions.permissionMode, model: sessions.model })
+        .from(sessions).where(eq(sessions.id, rec.sessionId)).get();
+      try {
+        await launchSession({
+          cwd, prompt: rec.prompt,
+          permissionMode: (row?.permissionMode ?? rec.launch.permissionMode) as PermissionMode,
+          model: row?.model ?? rec.launch.model, sessionId: rec.sessionId, claudeDirId: rec.launch.claudeDirId,
+          ...(rec.attachments.length ? { attachments: rec.attachments } : {}),
+          ...(rec.title ? { title: rec.title } : {}),
+          launched: true,
+        });
+      } catch (err) {
+        if (ctx.runner.active().includes(rec.sessionId)) await ctx.runner.stop(rec.sessionId);
+        throw new SetupFailure('The session could not be started in the worktree.', err instanceof Error ? err.message : String(err));
+      }
+    },
+    deliver: async (id, message) => {
+      const attachments = message.attachments?.length ? message.attachments : undefined;
+      const delivery = await deliverToSession(id, message.text, attachments);
+      if (delivery.uuid) publishSentTurn(id, delivery.uuid, message.text, attachments);
+    },
+    stop: (id) => ctx.runner.stop(id),
+  });
+  setups.recover();
+  // Before the db closes: what a run is in the middle of is left to the next boot.
+  app.addHook('preClose', () => setups.close());
+
+  /**
+   * Discards a session that never started (spec § Discard): its setup is
+   * stopped and rolled back on the server, and the session is gone from
+   * every client at once. False when the session is not in setup.
+   */
+  function discardSession(id: string): boolean {
+    if (!setups.discard(id)) return false;
+    ctx.limits?.drop(id);
+    deleteSessions(db, [id]);
+    ctx.hub.publish('sessions', { event: 'remove', sessionId: id });
+    return true;
+  }
 
   app.get('/api/sessions', (req) => {
     const q = req.query as Record<string, string>;
@@ -1423,43 +1489,29 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const refused = clientIdRefusal(clientId);
     if (refused) return reply.code(refused.status).send({ error: refused.error });
     const run = async (): Promise<LaunchAnswer> => {
-      // The worktree is made before anything else is written, so a launch it
-      // refuses leaves nothing behind. Its fallback branch is named after the
-      // session, so the id is fixed here when the browser did not mint one.
-      let prepared: LaunchPrep | null = null;
-      let launchId = clientId;
+      // What the dialog can still fix is answered now; the worktree itself
+      // is made after the answer (spec 2026-11-09-worktree-setup-in-background-design).
+      let check: LaunchCheck | null = null;
       if (worktree) {
-        launchId ??= randomUUID();
-        const result = await worktrees.prepareLaunch({
-          cwd, base: worktree.base, branch: worktree.branch,
-          prompt: typeof body.prompt === 'string' ? body.prompt : '', sessionId: launchId, claudeDirId,
-        });
+        const result = await worktrees.checkLaunch({ cwd, base: worktree.base, branch: worktree.branch });
         if (!result.ok) return { status: result.status, body: { error: result.error, message: result.message } };
-        prepared = result;
+        check = result;
       }
-      const sessionCwd = prepared?.cwd ?? cwd;
       if (mcpjson) {
         // A settings file that cannot be parsed is left alone rather than
         // overwritten, and the launch waits: the user's answer would be lost.
-        // In a worktree the answer holds for the worktree's own path too.
+        // In a worktree the answer holds for the worktree's own path too,
+        // written there once it exists.
         try {
           recordDecisions(cwd, mcpjson, { fingerprints: mcpjsonFingerprints });
-          if (sessionCwd !== cwd) recordDecisions(sessionCwd, mcpjson, { fingerprints: mcpjsonFingerprints });
         } catch (err) {
           console.warn('orbital: could not record .mcp.json decisions:', err);
-          await prepared?.rollback();
           return { status: 500, body: { error: 'mcpjson_not_recorded' } };
         }
       }
-      let sessionId: string;
-      try {
-        sessionId = await launchSession({
-          ...launch, cwd: sessionCwd, sessionId: launchId, claudeDirId, ...(prepared?.title ? { title: prepared.title } : {}),
-        });
-      } catch (err) {
-        await prepared?.rollback();
-        throw err;
-      }
+      const sessionId = check
+        ? beginWorktreeLaunch(check, { ...launch, cwd, sessionId: clientId ?? randomUUID(), claudeDirId, mcpjson: mcpjson ?? null })
+        : await launchSession({ ...launch, cwd, sessionId: clientId, claudeDirId });
       // The dialog's choice, remembered for the next one (spec § 3) — stored
       // here rather than by the client, because the phone cannot write settings.
       if (body.claudeDirId !== undefined && body.claudeDirId !== null) {
@@ -1679,6 +1731,45 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   };
 
   /**
+   * A worktree launch's session, before its worktree exists: the row, in
+   * the dialog's directory and with no process, and its setup record, whose
+   * steps then run in the background. Its session starts through
+   * `launchSession` once the worktree is ready.
+   */
+  function beginWorktreeLaunch(check: LaunchCheck, opts: {
+    cwd: string; prompt: string; permissionMode: PermissionMode; tagId?: number; model?: string;
+    sessionId: string; attachments?: string[]; claudeDirId: number; mcpjson: McpjsonDecisions | null;
+  }): string {
+    const { sessionId: id, tagId } = opts;
+    const now = Date.now();
+    db.insert(sessions)
+      .values({
+        id, projectDir: '', cwd: opts.cwd, source: 'web', claudeDirId: opts.claudeDirId,
+        permissionMode: opts.permissionMode, model: opts.model ?? null, lastAt: now,
+      })
+      .run();
+    if (tagId != null) {
+      db.insert(sessionTags).values({ sessionId: id, tagId, origin: 'manual' }).onConflictDoNothing().run();
+    }
+    const launch: SetupLaunchSettings = {
+      cwd: opts.cwd, base: check.base, ...(check.branch ? { branch: check.branch } : {}),
+      permissionMode: opts.permissionMode,
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(tagId != null ? { tagId } : {}),
+      claudeDirId: opts.claudeDirId,
+    };
+    // Publishes the row, `setup` and all.
+    setupStore.create({
+      sessionId: id, ...firstPhaseOf(launch), path: null, repoRoot: check.repoRoot, made: 'none', title: null,
+      launch, prompt: typeof opts.prompt === 'string' ? opts.prompt : '', attachments: opts.attachments ?? [],
+      mcpjson: opts.mcpjson, queued: [], sessionStarted: false, message: null, errorId: null,
+      startedAt: now, readyInMs: null,
+    });
+    setups.begin(id, check);
+    return id;
+  }
+
+  /**
    * Starts a web session and announces it: the run, the row born already
    * claimed, the optional manual tag, the `upsert` the map draws the planet
    * from. Shared by the new-session dialog's route and `spawn_session`.
@@ -1691,11 +1782,30 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     claudeDirId?: number;
     /** A name already made for the session — the worktree's naming call's —, which takes the place of naming it from its first message. */
     title?: string;
+    /** The row was written at the launch (a worktree setup's): it moves to `cwd` rather than being inserted. */
+    launched?: boolean;
   }): Promise<string> {
-    const { cwd, spawnedBy, tagId, purpose, title, ...start } = opts;
+    const { cwd, spawnedBy, tagId, purpose, title, launched, ...start } = opts;
     const claudeDirId = opts.claudeDirId ?? ctx.claudeDirs.defaultId();
-    const sessionId = await ctx.runner.start({ ...start, cwd, claudeDirId });
-    db.insert(sessions)
+    // A setup's row moves to the worktree before the start, which reads
+    // where the session works from it; back again when the start throws.
+    const before = launched && opts.sessionId
+      ? db.select({ cwd: sessions.cwd }).from(sessions).where(eq(sessions.id, opts.sessionId)).get()
+      : undefined;
+    if (before) db.update(sessions).set({ cwd }).where(eq(sessions.id, opts.sessionId!)).run();
+    let sessionId: string;
+    try {
+      sessionId = await ctx.runner.start({ ...start, cwd, claudeDirId });
+    } catch (err) {
+      if (before) db.update(sessions).set({ cwd: before.cwd }).where(eq(sessions.id, opts.sessionId!)).run();
+      throw err;
+    }
+    if (launched) {
+      db.update(sessions)
+        .set({ lastAt: Date.now(), runnerStatus: ctx.runner.status(sessionId) ?? null })
+        .where(eq(sessions.id, sessionId))
+        .run();
+    } else db.insert(sessions)
       .values({
         id: sessionId, projectDir: '', cwd, source: 'web', claudeDirId,
         permissionMode: opts.permissionMode, model: opts.model ?? null,
@@ -1729,7 +1839,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         .where(and(eq(sessions.id, sessionId), eq(sessions.titleSource, 'derived')))
         .run();
     }
-    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow;
+    // A setup's row can be gone: discarded while its session was starting.
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow | undefined;
+    if (!row) throw new Error(`session ${sessionId} was discarded while it started`);
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
     if (!purpose && !named) nameFromFirstMessage(sessionId, opts.prompt);
     return sessionId;
@@ -2017,6 +2129,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // is held and sent at the reset, in place of the continuation text (spec
     // 2026-10-03-usage-limits-design § Writing to a waiting session).
     if (ctx.limits?.queue(id, typeof text === 'string' ? text : '', attachments)) {
+      return { ok: true, queued: true };
+    }
+    // Nor does a session whose worktree is being set up, or could not be:
+    // it goes in after the first prompt, once the session starts (spec
+    // 2026-11-09-worktree-setup-in-background-design § Messages).
+    if (setupStore.queue(id, { text: typeof text === 'string' ? text : '', ...(attachments?.length ? { attachments } : {}) })) {
       return { ok: true, queued: true };
     }
     // Read before delivering: a revive turns a terminal session's `source`
@@ -2374,6 +2492,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * ended yet still pinned in between — the planet faded back in, then out.
    */
   async function endSession(id: string, opts: { unpin?: boolean } = {}): Promise<void> {
+    // A session that never ran has nothing to keep: ending it discards it.
+    if (discardSession(id)) return;
     db.update(sessions)
       .set(opts.unpin ? { endedAt: Date.now(), pinnedAt: null } : { endedAt: Date.now() })
       .where(eq(sessions.id, id))
@@ -2435,6 +2555,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
+    // A session in setup has no worktree of its own yet, whatever its directory is: End discards it.
+    if (discardSession(id)) return { ok: true } satisfies EndSessionResult;
     const end = (sid: string) => endSession(sid, { unpin: unpin === true });
     if (!removeWorktree) {
       const tree = worktrees.linkedTreeOf(row);
@@ -2455,6 +2577,32 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       ok: true, worktreeRemoved: false, error: 'not_worktree',
       message: 'The session no longer works in a worktree.',
     } satisfies EndSessionResult;
+  });
+
+  /**
+   * Try again for a session whose worktree could not be made (spec
+   * 2026-11-09-worktree-setup-in-background-design § Ways out): the same
+   * launch from step 1, the prompt and queue kept.
+   */
+  app.post('/api/sessions/:id/setup/retry', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const res = await setups.retry(id);
+    if (res === 'ok') return { ok: true };
+    const known = res === 'not_failed' || db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get() !== undefined;
+    const refusal: SetupActionRefusal = known ? 'not_failed' : 'not_found';
+    return reply.code(known ? 409 : 404).send({ error: refusal });
+  });
+
+  /**
+   * Discard for a session in setup or not started (§ Discard): gone at
+   * once; a setup still running is rolled back on the server after.
+   */
+  app.post('/api/sessions/:id/discard', (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (discardSession(id)) return { ok: true };
+    const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
+    const refusal: SetupActionRefusal = row ? 'not_in_setup' : 'not_found';
+    return reply.code(row ? 409 : 404).send({ error: refusal });
   });
 
   /**
