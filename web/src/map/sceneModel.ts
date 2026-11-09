@@ -163,7 +163,8 @@ export interface ScenePlanet {
   /**
    * The progress list's figure after the name (`3/7`; canvas `Feature -
    * Progress list` 67e): label text, muted, never a mark on the planet. Null
-   * without a list, for an ended session, and while Labs has it off.
+   * without a list, for a frozen one, for an ended session, and while Labs
+   * has it off.
    */
   progressFigure: string | null
   /**
@@ -413,9 +414,12 @@ export function deskCardMeta(
  * turning a chip off moves nothing else (canvas 50e); the counts and the
  * cluster labels leave them out.
  */
-/** The figure a planet's label and a Desk card end with (67e), or null for none. */
+/**
+ * The figure a planet's label and a Desk card end with (67e), or null for
+ * none. A frozen list shows none: the harness has taken its place.
+ */
 export function progressFigureOf(session: Pick<ApiSession, 'progress' | 'status'>, enabled: boolean): string | null {
-  if (!enabled || !session.progress || session.status === 'ended') return null
+  if (!enabled || !session.progress || session.progress.frozen || session.status === 'ended') return null
   return `${session.progress.done}/${session.progress.total}`
 }
 

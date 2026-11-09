@@ -2054,6 +2054,23 @@ describe('a launch with a progress list', () => {
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' })).progressListEnabled).toBe(true);
   });
 
+  it('remembers only what the dialog chose: a session started another way resets nothing', async () => {
+    const { app, db } = makeApp();
+    enable(db);
+    expect((await launch(app, { cwd: '/w/q', progressList: true })).statusCode).toBe(201);
+    expect(db.select({ choice: sessions.progressListChoice }).from(sessions).where(eq(sessions.id, 'web-9')).get()?.choice).toBe(true);
+    // Newer, without the dialog's choice: a spawn_session child, a Clear.
+    db.insert(sessions).values({
+      id: 'spawned', projectDir: 'p', cwd: '/w/q', source: 'web', spawnedBy: 'web-9', lastAt: Date.now() + 1_000,
+    }).run();
+    const lastHere = async () => (res200(await app.inject({ method: 'GET', url: '/api/projects' })).projects as
+      { cwd: string; lastProgressList: boolean }[]).find((p) => p.cwd === '/w/q')?.lastProgressList;
+    expect(await lastHere()).toBe(true);
+    // The dialog's own "off" is a choice, and counts.
+    db.update(sessions).set({ progressListChoice: false, lastAt: Date.now() + 2_000 }).where(eq(sessions.id, 'spawned')).run();
+    expect(await lastHere()).toBe(false);
+  });
+
   it('starts without one when the flag is false or absent', async () => {
     const { app, db, startCalls } = makeApp();
     expect((await launch(app, { progressList: false })).statusCode).toBe(201);

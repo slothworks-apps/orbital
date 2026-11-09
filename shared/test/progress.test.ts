@@ -41,8 +41,8 @@ describe('applyProgressCall', () => {
     expect(applyProgressCall(null, { items: list })).toEqual({ items: list, change: { kind: 'written', items: list } });
     expect(applyProgressCall(null, { items: list, new_list: true }).change.kind).toBe('written');
     const next = [{ title: 'Ship it', state: 'pending' as const }];
-    expect(applyProgressCall(list, { items: next, new_list: true })).toEqual({
-      items: next, change: { kind: 'new_list', items: next, previous: list },
+    expect(applyProgressCall(list, { items: next, new_list: true, reason: 'A new task.' })).toEqual({
+      items: next, change: { kind: 'new_list', items: next, previous: list, reason: 'A new task.' },
     });
   });
 

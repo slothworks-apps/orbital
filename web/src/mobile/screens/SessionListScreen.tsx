@@ -533,8 +533,10 @@ function SessionRow({
       : idle
         ? agoLabel(session.lastAt, now)
         : timeAgo(session.lastAt, now)
-  // Only on a session with a progress list, from a Mac that serves it (67g).
-  const progress = session.progress && sessionSupports('progressList', session.id) ? figureOf(session.progress) : null
+  // Only on a session with a progress list, from a Mac that serves it (67g);
+  // none once a harness has frozen it and taken its place.
+  const progress =
+    session.progress && !session.progress.frozen && sessionSupports('progressList', session.id) ? figureOf(session.progress) : null
   const summary = moonsSummary(session)
   const hasMoons = summary.subagents !== null || summary.tasks !== null
   // Canvas 10a asleep: a row with moons trades its where line for the counts, and the

@@ -1416,6 +1416,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       return reply.code(400).send({ error: 'invalid_progress_list' });
     }
     const progressList = rawProgressList === true;
+    // The New session dialog sends its switch, on or off, whenever it offers
+    // one; that choice is what the dialog remembers per directory.
+    const progressListChoice = typeof rawProgressList === 'boolean' && !body.resume ? rawProgressList : undefined;
     if (progressList && body.resume) return reply.code(400).send({ error: 'invalid_progress_list' });
     if (progressList && ctx.settings.get(PROGRESS_LIST_ENABLED_KEY) !== 'true') {
       return reply.code(403).send({ error: 'progress_list_disabled' });
@@ -1495,6 +1498,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         sessionId = await launchSession({
           ...launch, cwd: sessionCwd, sessionId: launchId, claudeDirId, ...(prepared?.title ? { title: prepared.title } : {}),
           ...(progressList ? { progressList } : {}),
+          ...(progressListChoice !== undefined ? { progressListChoice } : {}),
         });
       } catch (err) {
         await prepared?.rollback();
@@ -1733,8 +1737,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     title?: string;
     /** Start with a progress list. A resume keeps its row's, whatever this says. */
     progressList?: boolean;
+    /** The New session dialog's switch, when the launch came from it with one offered. */
+    progressListChoice?: boolean;
   }): Promise<string> {
-    const { cwd, spawnedBy, tagId, purpose, title, ...start } = opts;
+    const { cwd, spawnedBy, tagId, purpose, title, progressListChoice, ...start } = opts;
     const claudeDirId = opts.claudeDirId ?? ctx.claudeDirs.defaultId();
     const resumed = opts.resume
       ? db.select({ progressList: sessions.progressList }).from(sessions).where(eq(sessions.id, opts.resume)).get()
@@ -1748,6 +1754,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         spawnedBy: spawnedBy ?? null,
         purpose: purpose ?? null,
         progressList,
+        progressListChoice: progressListChoice ?? null,
         lastAt: Date.now(),
         // The row is born already claimed. `start()` above announced the
         // claim to a row that did not exist yet, so without this a session
@@ -2013,6 +2020,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   function rewindStarted(id: string): void {
     if (!rewindStore.promote(id)) return;
+    ctx.progress?.rewindSent(id);
     db.update(sessions).set({ contextUsedTokens: null }).where(eq(sessions.id, id)).run();
     publishReset(id);
     publishRow(id);
@@ -2026,6 +2034,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   function rewindRefused(id: string, message: string): void {
     const pending = rewindStore.takePending(id);
+    ctx.progress?.forget(id);
     const restored = pending
       ? `${pending.hiddenCount} hidden message${pending.hiddenCount === 1 ? '' : 's'} restored`
       : 'nothing to restore';
@@ -2179,6 +2188,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       priorDraft: typeof body.draft === 'string' ? body.draft : '',
       createdAt: Date.now(),
     });
+    // The progress list follows the cut branch, as the transcript does.
+    ctx.progress?.forget(id);
     publishRewindEdge(id);
     return { text: target.text };
   });
@@ -2191,6 +2202,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const pending = rewindStore.takePending(id);
     if (!pending) return reply.code(404).send({ error: 'no_rewind_pending' });
+    ctx.progress?.forget(id);
     publishRewindEdge(id);
     return { draft: pending.priorDraft };
   });
@@ -2877,8 +2889,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         model: sessions.model,
         resolvedModel: sessions.resolvedModel,
         lastAt: sessions.lastAt,
-        source: sessions.source,
-        progressList: sessions.progressList,
+        progressListChoice: sessions.progressListChoice,
       })
       .from(sessions)
       .where(ne(sessions.cwd, ''))
@@ -2888,12 +2899,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null; lastProgressList: boolean }> = [];
     // The New session dialog's progress list switch, remembered per
     // directory as the model is (spec 2026-11-09-progress-list-design §
-    // Scope): what the newest session Orbital started there was started
-    // with. A terminal session had no choice to remember.
+    // Scope): what the switch said for the newest session the dialog started
+    // there. A session started any other way — `spawn_session`, Clear, the
+    // control API, a terminal — made no choice, and resets nothing.
     const progressLists = new Map<string, boolean>();
     for (const row of rows) {
       const cwd = repoOfWorktreeDir(row.cwd);
-      if (row.source === 'web' && !progressLists.has(cwd)) progressLists.set(cwd, row.progressList);
+      if (row.progressListChoice !== null && !progressLists.has(cwd)) progressLists.set(cwd, row.progressListChoice);
     }
     const seen = new Set<string>();
     for (const row of rows) {

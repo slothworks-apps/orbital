@@ -336,6 +336,25 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     setFocusCustomModel(true)
   }
 
+  /** Whether the chosen member offers the progress list: its own Labs setting, from its session defaults. */
+  const [memberProgress, setMemberProgress] = useState<{ device: string; offered: boolean } | null>(null)
+  useEffect(() => {
+    if (!open || !remote) return
+    let live = true
+    api
+      .sessionDefaults(device)
+      .then((defaults) => {
+        if (live) setMemberProgress({ device, offered: defaults.progressListEnabled === true })
+      })
+      .catch(() => {
+        // Unread, the member offers nothing: the session starts as it always did.
+        if (live) setMemberProgress({ device, offered: false })
+      })
+    return () => {
+      live = false
+    }
+  }, [open, remote, device])
+
   const canBrowse = canChooseDirectory()
   /** Only the last request's projects land: switching device twice quickly must not show the first's. */
   const projectsTicket = useRef(0)
@@ -489,9 +508,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // to accept either kind of id — see `modelByAnyId`.
   const lastModelRow = modelByAnyId(lastModelHere, models)
   // The progress list (spec 2026-11-09-progress-list-design; canvas 67f):
-  // offered only while Labs has it on, and on when this directory's last
-  // Orbital session had one unless switched here.
-  const progressOffered = progressListEnabled(settings)
+  // offered only while the device the session runs on has it on in Labs —
+  // this Mac's setting here, a member's own defaults there, where a build
+  // without the field offers none — and on when this directory's last
+  // session launched from here had it, unless switched now.
+  const progressOffered = remote
+    ? memberProgress?.device === device && memberProgress.offered
+    : progressListEnabled(settings)
   const lastProgressListHere = projects.find((p) => p.cwd === cwd.trim())?.lastProgressList === true
   const progressList = progressOffered && (progressPick ?? lastProgressListHere)
   //
@@ -605,7 +628,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         ...(mcpjson ? { mcpjson } : {}),
         ...(machine ? { machine } : {}),
         ...(worktreeLaunch ? { worktree: worktreeLaunch } : {}),
-        ...(progressList ? { progressList: true } : {}),
+        // Sent on or off whenever the switch was offered: the server
+        // remembers only a choice made here, per directory.
+        ...(progressOffered ? { progressList } : {}),
       }
       // One id per attempt: Launch pressed again on the same form after a
       // lost answer repeats it, and the server answers instead of launching twice.
@@ -647,7 +672,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, progressList, setWorktreeLaunchError, launchAttempt])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, progressOffered, progressList, setWorktreeLaunchError, launchAttempt])
 
   /**
    * Launch: asks about the project's undecided `.mcp.json` servers first,

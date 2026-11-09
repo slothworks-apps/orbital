@@ -25,7 +25,10 @@ export interface ProgressItem {
 /** One call of the tool, as its input carries it. */
 export interface ProgressCall {
   items: ProgressItem[];
-  /** One sentence the user reads: why items were added or dropped. */
+  /**
+   * One sentence the user reads: why items were added or dropped, or why a
+   * new list replaces the previous one. The tool asks for it on both.
+   */
   reason?: string;
   /** A new list for a new task; the previous one stays in the transcript. */
   new_list?: boolean;
@@ -35,8 +38,8 @@ export interface ProgressCall {
 export type ProgressChange =
   /** The session's first list. */
   | { kind: 'written'; items: ProgressItem[] }
-  /** A new list for a new task, in place of `previous`. */
-  | { kind: 'new_list'; items: ProgressItem[]; previous: ProgressItem[] }
+  /** A new list for a new task, in place of `previous`, with the call's reason. */
+  | { kind: 'new_list'; items: ProgressItem[]; previous: ProgressItem[]; reason?: string }
   /** Items added or dropped, with the call's reason. */
   | { kind: 'changed'; added: string[]; dropped: { title: string; reason?: string }[]; reason?: string }
   /** States moved and nothing else: no row. */
@@ -94,7 +97,12 @@ export function applyProgressCall(
   call: ProgressCall,
 ): { items: ProgressItem[]; change: ProgressChange } {
   if (current === null) return { items: call.items, change: { kind: 'written', items: call.items } };
-  if (call.new_list) return { items: call.items, change: { kind: 'new_list', items: call.items, previous: current } };
+  if (call.new_list) {
+    return {
+      items: call.items,
+      change: { kind: 'new_list', items: call.items, previous: current, ...(call.reason !== undefined ? { reason: call.reason } : {}) },
+    };
+  }
 
   const before = new Map(current.map((item) => [item.title, item]));
   const items: ProgressItem[] = call.items.map((item) => {

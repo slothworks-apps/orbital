@@ -307,14 +307,15 @@ export interface ApiSession {
   harnessStep?: { index: number; total: number } | null
   /**
    * The session's progress list as a figure: `done` of the `total` items not
-   * dropped, and `frozen` once a harness is attached and leads in its place.
-   * Null for a session started without a list and before its first is
-   * written; absent from a Mac older than the feature. The list itself is
+   * dropped, and `frozen` — since `frozenAt` — once a harness was attached
+   * and took its place, for good. Null for a session started without a list,
+   * before its first is written, and while the Mac's Labs switch is off;
+   * absent from a Mac older than the feature. The list itself is
    * folded from the `progress_write` calls in the transcript
    * (`@orbital/shared/progress`). Mirrors `server/src/api/shape.ts` (spec
    * 2026-11-09-progress-list-design).
    */
-  progress?: { done: number; total: number; frozen: boolean } | null
+  progress?: { done: number; total: number; frozen: boolean; frozenAt: number | null } | null
   /**
    * The session ran out of a plan limit and waits for its window to reset,
    * or null (spec 2026-10-03-usage-limits-design § 1). While it waits the

@@ -46,8 +46,11 @@ artboards 67a–67h.
 ### Turning it on
 
 - The New session dialog has a progress list switch (67f), shown only
-  while the Labs feature is on. It remembers the last choice per directory,
-  as the model does. It is the only way to turn the list on: a running
+  while the Labs feature is on on the device the session runs on (another
+  member's own setting, from its session defaults). It remembers the last
+  choice made in the dialog per directory, as the model does; a session
+  started any other way (`spawn_session`, Clear, the control API) does not
+  change it. It is the only way to turn the list on: a running
   session cannot be given one later.
 - Only Orbital sessions get it. A terminal session cannot be given an MCP
   tool, so it has no progress list (by design, as with the harness).
@@ -59,7 +62,9 @@ artboards 67a–67h.
   disabled nor reset, and the launch summary says "no progress list"
   (67f).
 - Attaching a harness to a session with a progress list **freezes** the
-  list. It is not deleted: it stays readable in the transcript and opens
+  list, for good: the freeze is recorded with its time, and removing the
+  harness, or turning the harness off in Labs, does not undo it. It is not
+  deleted: it stays readable in the transcript and opens
   in the side slot from its row, marked read only. The harness takes its
   place, and the strip's harness button says so in its tooltip (67h).
 - Turning it on adds one sentence to the session's system prompt: for work
@@ -80,6 +85,8 @@ artboards 67a–67h.
   the user knowing:
   - A call that adds or drops an item must carry a one-sentence reason.
     The tool refuses the call without one.
+  - So must a new list (`new_list`) that replaces one, saying why the
+    previous list ends; the session's first list needs none.
   - Each such change shows a row in the transcript: what was added, what
     was dropped, and the reason.
   - A dropped item stays on the list, struck through, with its reason. It
@@ -102,10 +109,12 @@ artboards 67a–67h.
   Nothing in it looks pressable except ×. There is no percentage
   anywhere.
 - **On the map (67e):** the figure is label text after the session's name,
-  muted, never a mark on the planet. At far zoom the name is cut before
+  muted, never a mark on the planet; the label always makes room for a
+  two-digit figure, so a tick never moves the neighbours. At far zoom the name is cut before
   the figure; at the farthest the figure stays alone under the planet. It
-  hides with its label, and ended planets show none. On Desk it ends the
-  card's meta row.
+  hides with its label; ended planets and frozen lists show none. On Desk
+  it ends the card's meta row, over its end, the meta text fading out
+  under it.
 - **In the transcript (67d):** the harness's dashed row with the list
   glyph, for a list written, items added or dropped, a new list, and a
   freeze. The tool calls themselves render as those rows, not as JSON.
@@ -148,11 +157,21 @@ transcript back, which on the phone would cross the relay.
   `PreToolUse` hook refuses their calls.
 - Only calls on the transcript's live branch with a result that is not an
   error count: a refused call does not, and a rewind takes its calls back.
-- The server reads a session's list from its transcript once, and again
-  at each start; between, the calls the tool accepts keep it current.
+  The branch is the one the messages route presents: a pending rewind, or
+  a sent one whose new branch has not landed, cuts it before its target.
+- The server reads a session's list from its transcript once, again at
+  each start, when a rewind is picked, cancelled, refused or sent, and once
+  more when a sent rewind's new branch lands; between, the calls the tool
+  accepts keep it current. The web reads the calls before its newest page
+  once per load of the transcript (picked again, a reconnect, a rewind's
+  reset), and again after a failed read.
 - The Labs switch, `progress_list_enabled`, gates the launch flag (403
-  `progress_list_disabled`) and the tool. A session started with a list
-  while it was on keeps its row, but gets no tool while it is off.
+  `progress_list_disabled`), the tool and the session's figure. A session
+  started with a list while it was on keeps its row, but gets no tool and
+  carries no figure while it is off, on the desktop and the phone alike.
+- The freeze is `sessions.progress_frozen_at`, set when a harness is first
+  attached to a session with a list; `ApiSession.progress.frozenAt` carries
+  it, and the frozen row and panel show its time.
 
 ## Phone
 
@@ -162,7 +181,7 @@ Built for the phone too (67g):
   shows `HarnessProgress`.
 - A sheet with the full list, like the harness's `StepsSheet`.
 - The figure in the session list, under the time, in muted mono, only on
-  sessions that have a list.
+  sessions that have a list, and not once it is frozen.
 
 The list reaches the phone with the session (the same session shape the
 harness step uses) and the `progress-calls` route, which is on

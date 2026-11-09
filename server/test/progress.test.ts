@@ -15,9 +15,13 @@ const list: ProgressItem[] = [
 ];
 
 describe('progressRefusal', () => {
-  it('lets the first list and a new list through without a reason', () => {
+  it('lets the first list through without a reason, and a new list only with one', () => {
     expect(progressRefusal(null, { items: list }, false)).toBeNull();
-    expect(progressRefusal(list, { items: [{ title: 'Other task', state: 'pending' }], new_list: true }, false)).toBeNull();
+    expect(progressRefusal(null, { items: list, new_list: true }, false)).toBeNull();
+    const next = [{ title: 'Other task', state: 'pending' as const }];
+    expect(progressRefusal(list, { items: next, new_list: true }, false)).toMatch(/A new list needs `reason`/);
+    expect(progressRefusal(list, { items: next, new_list: true, reason: ' ' }, false)).toMatch(/A new list needs `reason`/);
+    expect(progressRefusal(list, { items: next, new_list: true, reason: 'The user asked for something else.' }, false)).toBeNull();
   });
 
   it('lets a change of states alone through', () => {
@@ -111,30 +115,74 @@ describe('foldProgress', () => {
   });
 });
 
-/** A service over a transcript file, with a harness that can be attached. */
+/** A service over a transcript file, with a freeze and a rewind's cut that can be set. */
 function makeService(entries: TranscriptEntry[] = []) {
   const dir = makeTmpDir('progress');
   const path = join(dir, 's.jsonl');
-  writeFileSync(path, entries.map((e) => JSON.stringify(e)).join('\n') + (entries.length ? '\n' : ''));
-  const state = { enabled: true, harness: false, changes: [] as string[] };
+  const write = (all: TranscriptEntry[]) =>
+    writeFileSync(path, all.map((e) => JSON.stringify(e)).join('\n') + (all.length ? '\n' : ''));
+  write(entries);
+  const state = { enabled: true, frozenAt: null as number | null, cut: null as string | null, changes: [] as string[] };
   const service = new ProgressService({
     isEnabled: () => state.enabled,
-    harnessAttached: () => state.harness,
+    frozenAt: () => state.frozenAt,
     transcriptPathOf: () => path,
+    rewindCut: () => state.cut,
     onChange: (id) => state.changes.push(id),
   });
-  return { service, state };
+  return { service, state, write };
 }
 
-const row = { id: 's', progress_list: true };
+const row = { id: 's', progress_list: true, progress_frozen_at: null };
 
 describe('ProgressService', () => {
   it('reads the list from the transcript, and carries it as a figure', () => {
-    const { service, state } = makeService([call('a1', null, 't1', { items: list }), result('u1', 'a1', 't1')]);
-    expect(service.figureOf(row)).toEqual({ done: 1, total: 3, frozen: false });
+    const { service } = makeService([call('a1', null, 't1', { items: list }), result('u1', 'a1', 't1')]);
+    expect(service.figureOf(row)).toEqual({ done: 1, total: 3, frozen: false, frozenAt: null });
     expect(service.figureOf({ ...row, progress_list: false })).toBeNull();
-    state.harness = true;
-    expect(service.figureOf(row)).toEqual({ done: 1, total: 3, frozen: true });
+    expect(service.figureOf({ ...row, progress_frozen_at: 5 })).toEqual({ done: 1, total: 3, frozen: true, frozenAt: 5 });
+  });
+
+  it('carries no figure while the Labs switch is off', () => {
+    const { service, state } = makeService([call('a1', null, 't1', { items: list }), result('u1', 'a1', 't1')]);
+    state.enabled = false;
+    expect(service.figureOf(row)).toBeNull();
+  });
+
+  it('follows a rewind: a pending cut takes its calls back, and so does the new branch once it lands', () => {
+    const second = { items: [{ title: 'Other task', state: 'pending' }], new_list: true, reason: 'New task.' };
+    const before = [
+      call('a1', null, 't1', { items: list }),
+      result('u1', 'a1', 't1'),
+      { type: 'user', uuid: 'p2', parentUuid: 'u1', message: { role: 'user', content: 'next task' } } as TranscriptEntry,
+      call('a2', 'p2', 't2', second),
+      result('u2', 'a2', 't2'),
+    ];
+    const { service, state, write } = makeService(before);
+    expect(service.figureOf(row)).toMatchObject({ done: 0, total: 1 });
+
+    // Picked: the branch is cut before p2, and the list with it.
+    state.cut = 'p2';
+    service.forget('s');
+    expect(service.figureOf(row)).toMatchObject({ done: 1, total: 3 });
+
+    // Sent: read before the new branch is written, the cut still holds.
+    service.sessionTools('s', true);
+    service.rewindSent('s');
+    expect(service.figureOf(row)).toMatchObject({ done: 1, total: 3 });
+
+    // The new branch lands: the old prompt is off the live branch, and a
+    // write of another session leaves this one's list alone.
+    write([...before, { type: 'user', uuid: 'b1', parentUuid: 'u1', message: { role: 'user', content: 'try again' } }]);
+    state.cut = null;
+    service.transcriptsWritten(['other']);
+    expect(state.changes).toEqual([]);
+    service.transcriptsWritten(['s']);
+    expect(state.changes).toEqual(['s']);
+    expect(service.figureOf(row)).toMatchObject({ done: 1, total: 3 });
+    // Read once: a later write is not folded again.
+    service.transcriptsWritten(['s']);
+    expect(state.changes).toEqual(['s']);
   });
 
   it('is null before the first list', () => {
@@ -146,13 +194,13 @@ describe('ProgressService', () => {
     expect(service.write('s', { items: list })).toEqual({ ok: true, text: 'Written: 1 of 3 done.' });
     expect(state.changes).toEqual(['s']);
     expect(service.write('s', { items: [list[0]] }).ok).toBe(false);
-    expect(service.figureOf(row)).toEqual({ done: 1, total: 3, frozen: false });
-    state.harness = true;
+    expect(service.figureOf(row)).toEqual({ done: 1, total: 3, frozen: false, frozenAt: null });
+    state.frozenAt = 5;
     expect(service.write('s', { items: list })).toEqual({ ok: false, text: FROZEN_REFUSAL });
     expect(state.changes).toEqual(['s']);
   });
 
-  it('gives the tool only to a session started with a list, while Labs is on and no harness leads', () => {
+  it('gives the tool only to a session started with a list, while Labs is on and no harness froze it', () => {
     const { service, state } = makeService();
     expect(service.sessionTools('s', false)).toBeUndefined();
     const tools = service.sessionTools('s', true)!;
@@ -160,7 +208,7 @@ describe('ProgressService', () => {
     expect(tools.allowedTools).toEqual([PROGRESS_TOOL]);
     expect(tools.disallowedTools).toEqual([...CLI_TASK_TOOLS]);
     expect(service.instructs('s', true)).toBe(true);
-    state.harness = true;
+    state.frozenAt = 5;
     expect(service.sessionTools('s', true)).toEqual({ tools: [], allowedTools: [], disallowedTools: [...CLI_TASK_TOOLS] });
     expect(service.instructs('s', true)).toBe(false);
     state.enabled = false;

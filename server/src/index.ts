@@ -62,13 +62,14 @@ import { nameBranch } from './worktree/naming.js';
 import { worktreeContextOf } from './worktree/service.js';
 import { HarnessService } from './harness/service.js';
 import { PROGRESS_LIST_ENABLED_KEY, ProgressService } from './progress/service.js';
+import { RewindStore } from './rewind/store.js';
 import { askWatcher } from './harness/watcher.js';
 import { askOnce } from './harness/ask.js';
 import { checkDuplicates, DUPLICATE_CHECK_TIMEOUT_MS, DUPLICATE_SYSTEM_PROMPT, listIssues } from './issues/duplicates.js';
 import { DRAFT_SYSTEM_PROMPT } from './harness/drafter.js';
 import { askReviewer } from './harness/reviewer.js';
 import { gateOf } from './harness/logic.js';
-import type { HarnessGate } from './harness/types.js';
+import type { HarnessGate, SessionHarness } from './harness/types.js';
 import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { composeAppendix } from './runner/sessionInstructions.js';
 import { ModelCatalog, catalogKeyFor, recordContextWindows } from './models/catalog.js';
@@ -635,6 +636,30 @@ export async function buildServer(overrides: {
   const harnessGates = new Map<string, HarnessGate | null>();
   /** Whether each session last had a live harness: attaching one freezes a progress list. */
   const harnessesAttached = new Map<string, boolean>();
+  /** The freeze each session's attach recorded in this process, so a discarded attach can take it back. */
+  const frozenByAttach = new Map<string, number>();
+  /**
+   * A harness attached to a session with a progress list freezes the list,
+   * for good (spec 2026-11-09-progress-list-design § Turning it on): the
+   * first attach's time is kept, whatever becomes of the harness. An attach
+   * discarded before it reached the session (no harness row left at all)
+   * takes back the freeze it recorded.
+   */
+  const recordProgressFreeze = (sessionId: string, h: SessionHarness | null) => {
+    if (h) {
+      const frozen = db.update(sessions).set({ progressFrozenAt: h.createdAt })
+        .where(and(eq(sessions.id, sessionId), eq(sessions.progressList, true), isNull(sessions.progressFrozenAt)))
+        .run();
+      if (frozen.changes > 0) frozenByAttach.set(sessionId, h.createdAt);
+      return;
+    }
+    const at = frozenByAttach.get(sessionId);
+    frozenByAttach.delete(sessionId);
+    if (at === undefined || harness.get(sessionId) || harness.removed(sessionId)) return;
+    db.update(sessions).set({ progressFrozenAt: null })
+      .where(and(eq(sessions.id, sessionId), eq(sessions.progressFrozenAt, at)))
+      .run();
+  };
   const harness: HarnessService = new HarnessService({
     db,
     isEnabled: () => settingsStore.get('harness_enabled') === 'true',
@@ -676,6 +701,7 @@ export async function buildServer(overrides: {
       const gate = h ? gateOf(h) : null;
       const attached = h !== null;
       if ((harnessGates.get(sessionId) ?? null) !== gate || (harnessesAttached.get(sessionId) ?? false) !== attached) {
+        if ((harnessesAttached.get(sessionId) ?? false) !== attached) recordProgressFreeze(sessionId, h);
         harnessGates.set(sessionId, gate);
         harnessesAttached.set(sessionId, attached);
         republish(sessionId);
@@ -1118,11 +1144,15 @@ export async function buildServer(overrides: {
 
   // The progress lists of the sessions started with one (spec
   // 2026-11-09-progress-list-design), read from their transcripts and kept
-  // up to date by the calls the tool accepts.
+  // up to date by the calls the tool accepts. The branch they follow is the
+  // one the messages route presents, a rewind's cut included.
+  const progressRewinds = new RewindStore(db);
   const progress = new ProgressService({
     isEnabled: () => settingsStore.get(PROGRESS_LIST_ENABLED_KEY) === 'true',
-    harnessAttached: (sessionId) => harness.get(sessionId) !== null,
+    frozenAt: (sessionId) =>
+      db.select({ at: sessions.progressFrozenAt }).from(sessions).where(eq(sessions.id, sessionId)).get()?.at ?? null,
     transcriptPathOf,
+    rewindCut: (sessionId) => progressRewinds.cutTarget(sessionId),
     onChange: (sessionId) => republish(sessionId),
   });
 
@@ -1387,6 +1417,8 @@ export async function buildServer(overrides: {
         // `publishSession`, which the store's own change republishes through and
         // would feed back into a recount.
         const ids = batchSessionIds(batch);
+        // A rewind's new branch landing moves the progress list it follows.
+        progress.transcriptsWritten(ids);
         if (ids === null) {
           branchStatus.transcriptActivityAnywhere();
           republishMoved(trees.shapedSessions());

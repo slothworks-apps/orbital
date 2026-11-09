@@ -24,16 +24,21 @@ const LEGEND: [ProgressItemState, string][] = [
   ['dropped', 'dropped'],
 ]
 
+/** 67c's big figure, `3/7`. */
+function FigureNumber({ text, frozen }: { text: string; frozen: boolean }) {
+  return (
+    <span className={['font-mono fs-22 leading-none tracking-[-0.01em]', frozen ? 'text-ink-500/70' : 'text-ink-100'].join(' ')}>
+      {text}
+    </span>
+  )
+}
+
 /** The figure, what it leaves out, and when (67c's header block under the kicker row). */
 function Figure({ list, frozen, frozenAt }: { list: ProgressList; frozen: boolean; frozenAt: number | null }) {
   return (
     <>
       <div className="mt-2.5 flex items-baseline gap-2.5">
-        <span
-          className={['font-mono fs-22 leading-none tracking-[-0.01em]', frozen ? 'text-ink-500/70' : 'text-ink-100'].join(' ')}
-        >
-          {figureText(list.items)}
-        </span>
+        <FigureNumber text={figureText(list.items)} frozen={frozen} />
         <span className="font-mono fs-10.5 text-ink-900/65">{progressSummary(list.items, frozen)}</span>
       </div>
       <div className="mt-2 font-mono fs-10 text-ink-900/55">{progressMeta(list, frozenAt, frozen)}</div>
@@ -112,6 +117,12 @@ function ProgressSlot({
         )}
         {list ? (
           <Figure list={list} frozen={frozen} frozenAt={frozenAt} />
+        ) : session?.progress ? (
+          // The Mac has a list the calls are still being read for: its figure
+          // alone, and the body stays empty until they land.
+          <div className="mt-2.5 flex items-baseline gap-2.5">
+            <FigureNumber text={`${session.progress.done}/${session.progress.total}`} frozen={frozen} />
+          </div>
         ) : (
           <div className="mt-2.5 font-mono fs-10 text-ink-900/55">The agent hasn’t written its list yet.</div>
         )}

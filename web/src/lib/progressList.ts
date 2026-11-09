@@ -51,8 +51,6 @@ export type ProgressRow =
 interface Accepted {
   change: ProgressChange
   at: number | null
-  /** The call's own reason, which a new list's row says too. */
-  reason?: string
 }
 
 export interface ProgressFold {
@@ -93,7 +91,7 @@ export function foldProgress(messages: readonly ChatMessage[]): ProgressFold {
     if (result.isError || call === null) continue
     const at = timeOf(m)
     const { items, change } = applyProgressCall(list?.items ?? null, call)
-    calls.set(m.id, { change, at, ...(call.reason !== undefined ? { reason: call.reason } : {}) })
+    calls.set(m.id, { change, at })
     if (change.kind === 'ticked') hidden.add(m.id)
     list = nextList(list, items, change, at)
   }
@@ -174,14 +172,13 @@ export function withProgressRows(
 /** How long before the harness's own time its first row may be stamped and still be its. */
 const KICKOFF_SLACK_MS = 5_000
 
-function rowOf({ change, reason }: Accepted): ProgressRow | null {
+function rowOf({ change }: Accepted): ProgressRow | null {
   switch (change.kind) {
     case 'written':
       return { kind: 'written', items: change.items }
     case 'changed':
-      return change
     case 'new_list':
-      return { kind: 'new_list', items: change.items, previous: change.previous, ...(reason !== undefined ? { reason } : {}) }
+      return change
     case 'ticked':
       return null
   }

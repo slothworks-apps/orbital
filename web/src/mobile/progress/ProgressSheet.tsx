@@ -83,7 +83,7 @@ export function ProgressSheetHost({ session }: { session: ApiSession }) {
  */
 function ProgressSheet({ session, figure }: { session: ApiSession; figure: { done: number; total: number; frozen: boolean } }) {
   const list = useProgressFold(session.id).list
-  // The harness that froze the list says when it took over, once it is read.
+  // When a harness took over and froze the list, as the Mac recorded it.
   const { frozenAt } = useProgressFrozen(session.id)
   const frozen = figure.frozen
   // The figure is the Mac's; what it leaves out and the times need the list.
@@ -136,9 +136,9 @@ function ProgressSheet({ session, figure }: { session: ApiSession; figure: { don
                   />
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                  {/* 67g cuts a long title to one line with the rest on hover; a phone has no hover, so it takes two. */}
+                  {/* 67g cuts a long title to one line with an ellipsis. */}
                   <span
-                    className={['line-clamp-2 fs-14 leading-5', look.struck ? 'line-through' : ''].join(' ')}
+                    className={['truncate fs-14 leading-5', look.struck ? 'line-through' : ''].join(' ')}
                     style={{
                       color: look.title,
                       fontWeight: look.weight,

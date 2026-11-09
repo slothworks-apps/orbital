@@ -477,6 +477,12 @@ export const LABEL_FAMILY_GAP_PX = 5
 export const PROGRESS_FIGURE_GAP_PX = 7
 export const PROGRESS_FIGURE_TRACKING_EM = 0.04
 export const progressFigurePx = (titlePx: number): number => (titlePx * 10) / 11
+/**
+ * The figure the label's box always makes room for, whatever the list says:
+ * the widest two-digit one. A tick then never resizes the outline the
+ * simulation keeps neighbours clear of — only a list appearing does.
+ */
+const PROGRESS_FIGURE_RESERVED = '99/99'
 /** JetBrains Mono is monospaced: every glyph advances 600/1000 of an em. */
 const MONO_ADVANCE_EM = 0.6
 /**
@@ -509,7 +515,10 @@ export function restingLabelSizePx(
   const figurePx = progressFigurePx(font.title)
   const titleWidth =
     monoWidthPx(truncateLabel(title).length, font.title, LABEL_TITLE_TRACKING_EM) +
-    (progressFigure ? PROGRESS_FIGURE_GAP_PX + monoWidthPx(progressFigure.length, figurePx, PROGRESS_FIGURE_TRACKING_EM) : 0)
+    (progressFigure
+      ? PROGRESS_FIGURE_GAP_PX +
+        monoWidthPx(Math.max(progressFigure.length, PROGRESS_FIGURE_RESERVED.length), figurePx, PROGRESS_FIGURE_TRACKING_EM)
+      : 0)
   const titleHeight = font.title * MONO_LINE_HEIGHT_EM
   // A waiting session's pill takes the family line's place (31b).
   if (limitPill !== null) {

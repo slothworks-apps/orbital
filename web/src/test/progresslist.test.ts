@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PROGRESS_TOOL, type ProgressItem } from '@orbital/shared/progress'
 import { foldProgress, progressSummary, withProgressRows } from '../lib/progressList'
 import type { ChatMessage } from '../lib/types'
+import { olderCallsFor } from '../lib/useProgressList'
 
 const T0 = Date.parse('2026-11-09T14:00:00Z')
 const at = (min: number) => T0 + min * 60_000
@@ -101,5 +102,28 @@ describe('progressSummary', () => {
     expect(progressSummary(items, true)).toBe('1 dropped · 1 left as they were')
     expect(progressSummary([item('A', 'done'), item('B', 'dropped')], false)).toBe('all done · 1 dropped')
     expect(progressSummary([item('A', 'pending')], false)).toBe('1 to go')
+  })
+})
+
+describe('olderCallsFor', () => {
+  const first = said('first', 0)
+  // Not through `call`, whose ids the tests above count on.
+  const calls: ChatMessage[] = [{ id: 'use-older', role: 'tool_use', toolName: PROGRESS_TOOL, toolUseId: 'older', timestamp: iso(1) }]
+  const cached = { anchor: first, calls }
+
+  it('keeps the calls while the load they were read for is held, streamed onto or paged in above', () => {
+    expect(olderCallsFor([first, said('next', 2)], cached)).toBe(calls)
+    expect(olderCallsFor([said('older', -5), first, said('next', 2)], cached)).toBe(calls)
+  })
+
+  it('asks again once the transcript was loaded anew, even with the same first message', () => {
+    // Left and picked again, reconnected, or reset by a rewind: new objects.
+    expect(olderCallsFor([{ ...first }], cached)).toBeNull()
+    expect(olderCallsFor([said('later', 30)], cached)).toBeNull()
+  })
+
+  it('has nothing before anything is read, or with nothing held', () => {
+    expect(olderCallsFor([first], undefined)).toBeNull()
+    expect(olderCallsFor([], cached)).toBeNull()
   })
 })
