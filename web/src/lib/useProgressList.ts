@@ -1,15 +1,9 @@
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
-import { PROGRESS_TOOL } from '@orbital/shared/progress'
 import { useOrbital } from '../store/store'
 import { api } from './api'
 import { foldProgress, type ProgressFold } from './progressList'
 import type { ChatMessage } from './types'
-
-/** The largest page the messages route answers. */
-const OLDER_PAGE = 500
-/** How far back a list is looked for: past this, the list is what the transcript held shows. */
-const OLDER_PAGES_MAX = 20
 
 /**
  * The tool's calls from before the transcript the store holds, per session:
@@ -20,31 +14,27 @@ const OLDER_PAGES_MAX = 20
 const useOlderCalls = create<{ older: Record<string, readonly ChatMessage[]> }>(() => ({ older: {} }))
 const reading = new Set<string>()
 
-const isCall = (m: ChatMessage) => m.role === 'tool_use' && m.toolName === PROGRESS_TOOL
-
-/** Reads the session's transcript back from `before`, once, keeping only the tool's calls and their answers. */
-async function readOlderCalls(sessionId: string, before: string): Promise<void> {
+/** Reads the session's calls and their answers, once, from the route that keeps only those. */
+async function readOlderCalls(sessionId: string): Promise<void> {
   if (reading.has(sessionId)) return
   reading.add(sessionId)
-  const pages: ChatMessage[][] = []
-  let cursor = before
+  let calls: ChatMessage[]
   try {
-    for (let i = 0; i < OLDER_PAGES_MAX; i++) {
-      const { messages } = await api.getMessagesPage(sessionId, { before: cursor, limit: OLDER_PAGE })
-      if (messages.length > 0) pages.unshift(messages)
-      if (messages.length < OLDER_PAGE) break
-      cursor = messages[0].id
-    }
+    calls = await api.getProgressCalls(sessionId)
   } catch {
     // The list goes with what the transcript held; the next session pick asks again.
     reading.delete(sessionId)
     return
   }
-  const all = pages.flat()
-  const ids = new Set(all.filter(isCall).map((m) => m.toolUseId))
-  const kept = all.filter((m) => isCall(m) || (m.role === 'tool_result' && ids.has(m.toolUseId)))
-  useOlderCalls.setState((s) => ({ older: { ...s.older, [sessionId]: kept } }))
+  useOlderCalls.setState((s) => ({ older: { ...s.older, [sessionId]: calls } }))
 }
+
+/**
+ * A call or an answer by its tool id, which the file and the live stream
+ * share: a launched session's store holds its calls under live ids the
+ * route's file ids never match.
+ */
+const keyOf = (m: ChatMessage) => (m.toolUseId ? `${m.role}:${m.toolUseId}` : m.id)
 
 const NO_MESSAGES: ChatMessage[] = []
 
@@ -59,14 +49,15 @@ export function useProgressFold(sessionId: string | undefined): ProgressFold {
   const first = messages[0]?.id
 
   useEffect(() => {
-    if (sessionId && hasList && first && older === undefined) void readOlderCalls(sessionId, first)
+    if (sessionId && hasList && first && older === undefined) void readOlderCalls(sessionId)
   }, [sessionId, hasList, first, older])
 
   return useMemo(() => {
     if (!older || older.length === 0) return foldProgress(messages)
-    // The user may have scrolled some of them into the store since.
-    const held = new Set(messages.map((m) => m.id))
-    return foldProgress([...older.filter((m) => !held.has(m.id)), ...messages])
+    // The store holds the newest of them already, and the user may have
+    // scrolled more of them in since.
+    const held = new Set(messages.map(keyOf))
+    return foldProgress([...older.filter((m) => !held.has(keyOf(m))), ...messages])
   }, [messages, older])
 }
 

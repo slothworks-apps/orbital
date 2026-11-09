@@ -126,6 +126,13 @@ call is the current state, and the calls before it give the change rows.
 A resumed or restarted session therefore shows the same list without
 extra persistence.
 
+The store holds only the newest page of a transcript, so the web and the
+phone read the calls from before it through
+`GET /api/sessions/:id/progress-calls`: the live branch's tool calls and
+their results, oldest first, in the messages route's shape and ids, filtered
+from the same cached read. One small answer instead of paging the whole
+transcript back, which on the phone would cross the relay.
+
 ### How the Mac keeps it
 
 - The tool is `progress_write` on Orbital's `orbital` MCP server, written
@@ -158,8 +165,8 @@ Built for the phone too (67g):
   sessions that have a list.
 
 The list reaches the phone with the session (the same session shape the
-harness step uses). If that needs a new route or field, the route goes on
-`server/src/remote/allowlist.ts`, and the phone gates the readout in
+harness step uses) and the `progress-calls` route, which is on
+`server/src/remote/allowlist.ts`; the phone gates the readout in
 `MAC_FEATURES`, because the phone updates before the Mac.
 
 ## Not in this feature

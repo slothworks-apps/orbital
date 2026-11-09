@@ -1,6 +1,7 @@
 import { TAGS_TOPIC, type TagsChangedFrame } from '@orbital/shared/tags';
 import { isSharedSetting } from '@orbital/shared/sharedSettings';
 import { UPDATE_CHANNEL_KEY } from '@orbital/shared/updateChannel';
+import { PROGRESS_TOOL } from '@orbital/shared/progress';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
@@ -802,6 +803,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       messages: page,
       queued: withHarnessMessages(id, ctx.runner.sentTurns(id, holds)),
       liveNotice: ctx.runner.liveNotice(id),
+    };
+  });
+
+  /**
+   * The progress tool's calls and their results, oldest first: what the
+   * client folds its list from, without paging the whole transcript back
+   * (spec 2026-11-09-progress-list-design § Where the state comes from).
+   * Filtered from the transcript the messages route presents, so a message
+   * here is the same message, under the same id, that a page carries, and
+   * the read is the one that route caches per file stamp.
+   */
+  app.get('/api/sessions/:id/progress-calls', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const messages = presentTranscript(id);
+    if (!messages) return reply.code(404).send({ error: 'not found' });
+    const calls = new Set(
+      messages.filter((m) => m.role === 'tool_use' && m.toolName === PROGRESS_TOOL).map((m) => m.toolUseId),
+    );
+    return {
+      messages: messages.filter((m) =>
+        (m.role === 'tool_use' || m.role === 'tool_result') && m.toolUseId !== undefined && calls.has(m.toolUseId)),
     };
   });
 

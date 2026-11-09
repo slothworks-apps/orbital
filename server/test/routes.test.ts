@@ -17,6 +17,7 @@ import type { OrbitalDb } from '../src/db/database.js';
 import { SharedSettingsStore } from '../src/settings/sharedSettings.js';
 import { SharedTagsStore } from '../src/tags/sharedTags.js';
 import type { StampedTag } from '@orbital/shared/sharedSettings';
+import { PROGRESS_TOOL } from '@orbital/shared/progress';
 import {
   countSweepable,
   parseRetentionDays,
@@ -758,6 +759,45 @@ describe('REST routes', () => {
       'say F (reply with just the letter)',
       'say I (reply with just the letter)',
     ]);
+  });
+
+  // Spec 2026-11-09-progress-list-design § Where the state comes from: the
+  // client folds its list from these instead of paging the transcript back.
+  describe('GET /api/sessions/:id/progress-calls', () => {
+    const entry = (type: 'user' | 'assistant', uuid: string, parentUuid: string | null, content: unknown[]) =>
+      JSON.stringify({ type, uuid, parentUuid, message: { role: type, content } });
+    const use = (id: string, name = PROGRESS_TOOL) => ({ type: 'tool_use', id, name, input: { items: [] } });
+    const answer = (id: string) => ({ type: 'tool_result', tool_use_id: id, content: 'ok' });
+
+    it('returns only the live branch\'s progress calls and their results, oldest first, under the messages route\'s ids', async () => {
+      const projectsDir = makeTmpDir('msg-routes');
+      mkdirSync(join(projectsDir, 'p'), { recursive: true });
+      writeFileSync(join(projectsDir, 'p', 's1.jsonl'), [
+        entry('user', 'u0', null, [{ type: 'text', text: 'go' }]),
+        entry('assistant', 'a1', 'u0', [use('p1'), use('b1', 'Bash')]),
+        entry('user', 'u1', 'a1', [answer('p1'), answer('b1')]),
+        // Rewound away: the branch that ends at the newest leaf skips it.
+        entry('user', 'u2', 'u1', [{ type: 'text', text: 'first try' }]),
+        entry('assistant', 'a2', 'u2', [use('gone')]),
+        entry('user', 'r2', 'a2', [answer('gone')]),
+        entry('user', 'u3', 'u1', [{ type: 'text', text: 'second try' }]),
+        entry('assistant', 'a3', 'u3', [use('p2')]),
+        entry('user', 'r3', 'a3', [answer('p2')]),
+      ].join('\n') + '\n');
+      const { app } = makeApp({ projectsDir });
+      const body = res200(await app.inject({ method: 'GET', url: '/api/sessions/s1/progress-calls' }));
+      expect(body.messages.map((m: any) => [m.role, m.toolUseId])).toEqual([
+        ['tool_use', 'p1'], ['tool_result', 'p1'], ['tool_use', 'p2'], ['tool_result', 'p2'],
+      ]);
+      const page = res200(await app.inject({ method: 'GET', url: '/api/sessions/s1/messages' })).messages;
+      for (const m of body.messages) expect(page).toContainEqual(m);
+    });
+
+    it('answers an empty list for a session with no file yet, and 404s an unknown session', async () => {
+      expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/s1/progress-calls' }))).toEqual({ messages: [] });
+      const res = await app.inject({ method: 'GET', url: '/api/sessions/does-not-exist/progress-calls' });
+      expect(res.statusCode).toBe(404);
+    });
   });
 
   it('GET /api/sessions/:id/messages still 404s for a session nobody has heard of', async () => {
