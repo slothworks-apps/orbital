@@ -132,6 +132,14 @@ export const sessions = sqliteTable(
      * Declared last for the same reason as `runnerStatus`.
      */
     claudeDirId: integer('claude_dir_id').notNull().default(1),
+    /**
+     * The session was started with a progress list (spec
+     * 2026-11-09-progress-list-design): every start of it, resumes included,
+     * gives it the list's tool. Set at launch and never after, since a
+     * running session cannot be given one. The list itself lives in the
+     * transcript. Declared last for the same reason as `runnerStatus`.
+     */
+    progressList: integer('progress_list', { mode: 'boolean' }).notNull().default(false),
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );

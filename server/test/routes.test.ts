@@ -1704,8 +1704,8 @@ describe('REST routes', () => {
     db.update(sessions).set({ model: null, resolvedModel: 'claude-haiku-4-5-20251001' }).where(eq(sessions.id, 's2')).run();
     const res = await app.inject({ method: 'GET', url: '/api/projects' });
     expect(res.json().projects).toEqual([
-      { cwd: '/w/x', lastModel: 'opus[1m]', lastAt: 200 },
-      { cwd: '/w/y', lastModel: 'claude-haiku-4-5-20251001', lastAt: 100 },
+      { cwd: '/w/x', lastModel: 'opus[1m]', lastAt: 200, lastProgressList: false },
+      { cwd: '/w/y', lastModel: 'claude-haiku-4-5-20251001', lastAt: 100, lastProgressList: false },
     ]);
   });
 
@@ -1716,8 +1716,8 @@ describe('REST routes', () => {
     }).run();
     const res = await app.inject({ method: 'GET', url: '/api/projects' });
     expect(res.json().projects).toEqual([
-      { cwd: '/w/y', lastModel: null, lastAt: 300 },
-      { cwd: '/w/x', lastModel: null, lastAt: 200 },
+      { cwd: '/w/y', lastModel: null, lastAt: 300, lastProgressList: false },
+      { cwd: '/w/x', lastModel: null, lastAt: 200, lastProgressList: false },
     ]);
   });
 
@@ -1730,13 +1730,13 @@ describe('REST routes', () => {
     }))).run();
     const projects = res200(await app.inject({ method: 'GET', url: '/api/projects' })).projects;
     expect(projects).toHaveLength(62);
-    expect(projects[0]).toEqual({ cwd: '/many/59', lastModel: null, lastAt: 1059 });
+    expect(projects[0]).toEqual({ cwd: '/many/59', lastModel: null, lastAt: 1059, lastProgressList: false });
   });
 
   it('GET /api/sessions/defaults answers the three new-session settings', async () => {
     const { app, db } = makeApp();
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
-      permissionMode: 'acceptEdits', model: 'sonnet', rememberModelPerProject: true,
+      permissionMode: 'acceptEdits', model: 'sonnet', rememberModelPerProject: true, progressListEnabled: false,
       claudeDirs: [expect.objectContaining({ id: 1, name: 'Personal' })], defaultClaudeDir: 1, lastClaudeDir: null,
     });
     for (const [key, value] of [
@@ -1745,7 +1745,7 @@ describe('REST routes', () => {
       db.update(settingsTable).set({ value }).where(eq(settingsTable.key, key)).run();
     }
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
-      permissionMode: 'plan', model: null, rememberModelPerProject: false,
+      permissionMode: 'plan', model: null, rememberModelPerProject: false, progressListEnabled: false,
       claudeDirs: [expect.objectContaining({ id: 1, name: 'Personal' })], defaultClaudeDir: 1, lastClaudeDir: null,
     });
   });
@@ -1754,7 +1754,7 @@ describe('REST routes', () => {
     const { app, db } = makeApp();
     db.delete(settingsTable).run();
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
-      permissionMode: 'acceptEdits', model: null, rememberModelPerProject: true,
+      permissionMode: 'acceptEdits', model: null, rememberModelPerProject: true, progressListEnabled: false,
       claudeDirs: [expect.objectContaining({ id: 1, name: 'Personal' })], defaultClaudeDir: 1, lastClaudeDir: null,
     });
   });
@@ -1984,6 +1984,61 @@ describe('.mcp.json approval', () => {
     }
     expect(startCalls).toEqual([]);
     expect(() => readFileSync(join(cwd, '.claude', 'settings.local.json'))).toThrow();
+  });
+});
+
+describe('a launch with a progress list', () => {
+  const launch = (app: FastifyInstance, extra: Record<string, unknown>) =>
+    app.inject({ method: 'POST', url: '/api/sessions', payload: { cwd: '/w/p', prompt: 'go', permissionMode: 'acceptEdits', ...extra } });
+  const enable = (db: OrbitalDb) => db.insert(settingsTable).values({ key: 'progress_list_enabled', value: 'true' }).run();
+
+  it('is refused while Labs is off, and starts nothing', async () => {
+    const { app, startCalls } = makeApp();
+    const res = await launch(app, { progressList: true });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ error: 'progress_list_disabled' });
+    expect(startCalls).toEqual([]);
+  });
+
+  it('starts the session with one and records it on the row, and remembers it for the directory', async () => {
+    const { app, db, startCalls } = makeApp();
+    enable(db);
+    expect((await launch(app, { progressList: true })).statusCode).toBe(201);
+    expect(startCalls[0].progressList).toBe(true);
+    const row = db.select({ progressList: sessions.progressList }).from(sessions).where(eq(sessions.id, 'web-9')).get();
+    expect(row?.progressList).toBe(true);
+    const projects = res200(await app.inject({ method: 'GET', url: '/api/projects' })).projects;
+    expect(projects.find((p: { cwd: string }) => p.cwd === '/w/p').lastProgressList).toBe(true);
+    // A terminal session has no choice to remember.
+    expect(projects.find((p: { cwd: string }) => p.cwd === '/w/x').lastProgressList).toBe(false);
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' })).progressListEnabled).toBe(true);
+  });
+
+  it('starts without one when the flag is false or absent', async () => {
+    const { app, db, startCalls } = makeApp();
+    expect((await launch(app, { progressList: false })).statusCode).toBe(201);
+    expect((await launch(app, {})).statusCode).toBe(201);
+    expect(startCalls.map((c) => c.progressList)).toEqual([false, false]);
+    expect(db.select({ progressList: sessions.progressList }).from(sessions).where(eq(sessions.id, 'web-9')).get()?.progressList)
+      .toBe(false);
+  });
+
+  it('refuses a flag that is not a boolean, and one on a resume', async () => {
+    const { app, db, startCalls } = makeApp();
+    enable(db);
+    for (const extra of [{ progressList: 'yes' }, { progressList: 1 }, { progressList: true, resume: 's1' }]) {
+      const res = await launch(app, extra);
+      expect(res.statusCode, JSON.stringify(extra)).toBe(400);
+      expect(res.json()).toEqual({ error: 'invalid_progress_list' });
+    }
+    expect(startCalls).toEqual([]);
+  });
+
+  it('gives a resume what its row was started with', async () => {
+    const { app, db, startCalls } = makeApp();
+    db.update(sessions).set({ progressList: true }).where(eq(sessions.id, 's2')).run();
+    expect((await launch(app, { resume: 's2' })).statusCode).toBe(201);
+    expect(startCalls[0]).toMatchObject({ resume: 's2', progressList: true });
   });
 });
 

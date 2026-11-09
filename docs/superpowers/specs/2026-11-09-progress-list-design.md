@@ -126,6 +126,27 @@ call is the current state, and the calls before it give the change rows.
 A resumed or restarted session therefore shows the same list without
 extra persistence.
 
+### How the Mac keeps it
+
+- The tool is `progress_write` on Orbital's `orbital` MCP server, written
+  `mcp__orbital__progress_write` in transcripts (`PROGRESS_TOOL` in
+  `shared/src/progress.ts`). The fold of its calls — the list, and what each
+  call changed — lives in that module, for the server, the web and the
+  phone alike.
+- The launch's `progressList` flag is kept on the session's row
+  (`sessions.progress_list`), so a revive, an MCP restart and a resume give
+  the session the tool again. Clear carries it to the new session, unless
+  the harness goes on there.
+- Subagents share the session's MCP server, so they see the tool; a
+  `PreToolUse` hook refuses their calls.
+- Only calls on the transcript's live branch with a result that is not an
+  error count: a refused call does not, and a rewind takes its calls back.
+- The server reads a session's list from its transcript once, and again
+  at each start; between, the calls the tool accepts keep it current.
+- The Labs switch, `progress_list_enabled`, gates the launch flag (403
+  `progress_list_disabled`) and the tool. A session started with a list
+  while it was on keeps its row, but gets no tool while it is off.
+
 ## Phone
 
 Built for the phone too (67g):

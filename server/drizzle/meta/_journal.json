@@ -260,6 +260,13 @@
       "when": 1792935405544,
       "tag": "0036_tag_position",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1794251023833,
+      "tag": "0037_session_progress_list",
+      "breakpoints": true
     }
   ]
 }

@@ -65,6 +65,7 @@ import type { ImageStore } from '../images/store.js';
 import type { FileStore } from '../files/store.js';
 import { NAME_SESSIONS_KEY, type SessionTitler } from '../titler/titler.js';
 import type { HarnessService } from '../harness/service.js';
+import { PROGRESS_LIST_ENABLED_KEY, type ProgressService } from '../progress/service.js';
 import { registerHarnessRoutes, type CarryHarness } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
@@ -238,6 +239,11 @@ export interface RouteContext {
    * never accepted.
    */
   trees?: WorkingTrees;
+  /**
+   * The progress lists (spec 2026-11-09-progress-list-design). Absent, no
+   * session carries a figure.
+   */
+  progress?: ProgressService;
   /**
    * The settings the group shares (spec 2026-10-24-group-shared-settings-design):
    * a local change of one is stamped and pushed, and members read and push
@@ -1373,11 +1379,25 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
        * Orbital names (spec 2026-11-02-work-in-a-worktree-design § Launch).
        */
       worktree?: unknown;
+      /**
+       * Start with a progress list (spec 2026-11-09-progress-list-design):
+       * only while `progress_list_enabled` is on, and never on a resume — a
+       * resume keeps what its session was started with.
+       */
+      progressList?: unknown;
     };
     if (invalidAttachments(body.attachments)) {
       return reply.code(400).send({ error: 'invalid_attachment' });
     }
-    const { mcpjson: rawMcpjson, worktree: rawWorktree, ...launch } = body;
+    const { mcpjson: rawMcpjson, worktree: rawWorktree, progressList: rawProgressList, ...launch } = body;
+    if (rawProgressList !== undefined && rawProgressList !== null && typeof rawProgressList !== 'boolean') {
+      return reply.code(400).send({ error: 'invalid_progress_list' });
+    }
+    const progressList = rawProgressList === true;
+    if (progressList && body.resume) return reply.code(400).send({ error: 'invalid_progress_list' });
+    if (progressList && ctx.settings.get(PROGRESS_LIST_ENABLED_KEY) !== 'true') {
+      return reply.code(403).send({ error: 'progress_list_disabled' });
+    }
     const mcpjson = parseMcpjsonDecisions(rawMcpjson);
     if (mcpjson === null) return reply.code(400).send({ error: 'invalid_mcpjson' });
     const worktree = parseWorktreeRequest(rawWorktree);
@@ -1452,6 +1472,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       try {
         sessionId = await launchSession({
           ...launch, cwd: sessionCwd, sessionId: launchId, claudeDirId, ...(prepared?.title ? { title: prepared.title } : {}),
+          ...(progressList ? { progressList } : {}),
         });
       } catch (err) {
         await prepared?.rollback();
@@ -1688,16 +1709,23 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     claudeDirId?: number;
     /** A name already made for the session — the worktree's naming call's —, which takes the place of naming it from its first message. */
     title?: string;
+    /** Start with a progress list. A resume keeps its row's, whatever this says. */
+    progressList?: boolean;
   }): Promise<string> {
     const { cwd, spawnedBy, tagId, purpose, title, ...start } = opts;
     const claudeDirId = opts.claudeDirId ?? ctx.claudeDirs.defaultId();
-    const sessionId = await ctx.runner.start({ ...start, cwd, claudeDirId });
+    const resumed = opts.resume
+      ? db.select({ progressList: sessions.progressList }).from(sessions).where(eq(sessions.id, opts.resume)).get()
+      : undefined;
+    const progressList = resumed ? resumed.progressList : opts.progressList === true;
+    const sessionId = await ctx.runner.start({ ...start, cwd, claudeDirId, progressList });
     db.insert(sessions)
       .values({
         id: sessionId, projectDir: '', cwd, source: 'web', claudeDirId,
         permissionMode: opts.permissionMode, model: opts.model ?? null,
         spawnedBy: spawnedBy ?? null,
         purpose: purpose ?? null,
+        progressList,
         lastAt: Date.now(),
         // The row is born already claimed. `start()` above announced the
         // claim to a row that did not exist yet, so without this a session
@@ -1867,6 +1895,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         // Without this, reviving silently moved the session onto the CLI's
         // default model.
         model: row.model ?? undefined,
+        // And without its progress list's tool, its appendix sentence and the CLI's task tools taken away.
+        progressList: row.progress_list,
         // The revive is the same turn the send would have been, images included.
         attachments,
         ...extra,
@@ -2542,14 +2572,19 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const model = row.model ?? undefined;
     // The fresh session stays under the cleared one's directory.
     const claudeDirId = launchDirOf(row.claude_dir_id);
+    // A progress list too, while Labs offers one — unless the harness goes
+    // on in the new session: a session follows one or the other (spec
+    // 2026-11-09-progress-list-design § Turning it on).
+    const progressList = row.progress_list && ctx.settings.get(PROGRESS_LIST_ENABLED_KEY) === 'true'
+      && !(carryHarness === true && ctx.harness.get(id));
     const newId = await ctx.runner.start({
       cwd: row.cwd, prompt: '',
-      permissionMode, model, claudeDirId,
+      permissionMode, model, claudeDirId, progressList,
     });
     db.insert(sessions)
       .values({
         id: newId, projectDir: '', cwd: row.cwd, source: 'web', claudeDirId,
-        permissionMode, model: model ?? null, lastAt: Date.now(),
+        permissionMode, model: model ?? null, progressList, lastAt: Date.now(),
       })
       .onConflictDoNothing()
       .run();
@@ -2820,13 +2855,24 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         model: sessions.model,
         resolvedModel: sessions.resolvedModel,
         lastAt: sessions.lastAt,
+        source: sessions.source,
+        progressList: sessions.progressList,
       })
       .from(sessions)
       .where(ne(sessions.cwd, ''))
       .orderBy(desc(sessions.lastAt))
       .limit(PROJECTS_SCAN_ROWS)
       .all();
-    const projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }> = [];
+    const projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null; lastProgressList: boolean }> = [];
+    // The New session dialog's progress list switch, remembered per
+    // directory as the model is (spec 2026-11-09-progress-list-design §
+    // Scope): what the newest session Orbital started there was started
+    // with. A terminal session had no choice to remember.
+    const progressLists = new Map<string, boolean>();
+    for (const row of rows) {
+      const cwd = repoOfWorktreeDir(row.cwd);
+      if (row.source === 'web' && !progressLists.has(cwd)) progressLists.set(cwd, row.progressList);
+    }
     const seen = new Set<string>();
     for (const row of rows) {
       // A worktree stands for its repository: RECENT must not fill up with
@@ -2838,6 +2884,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         cwd,
         lastModel: row.model ?? row.resolvedModel ?? null,
         lastAt: row.lastAt ?? null,
+        lastProgressList: progressLists.get(cwd) ?? false,
       });
       if (projects.length === PROJECTS_LIMIT) break;
     }
@@ -2863,6 +2910,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       permissionMode: (ctx.settings.get('default_permission_mode') || 'acceptEdits') as PermissionMode,
       model: ctx.settings.get('default_model') || null,
       rememberModelPerProject: ctx.settings.get('remember_model_per_project') !== 'false',
+      // Whether New session offers the progress list switch: the phone cannot read the setting.
+      progressListEnabled: ctx.settings.get(PROGRESS_LIST_ENABLED_KEY) === 'true',
       claudeDirs: ctx.claudeDirs.info().map(({ id, name, path, account, exists }) => ({ id, name, path, account, exists })),
       defaultClaudeDir: ctx.claudeDirs.defaultId(),
       lastClaudeDir: Number.isInteger(last) && ctx.claudeDirs.has(last) ? last : null,
