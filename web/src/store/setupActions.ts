@@ -39,18 +39,30 @@ export async function discardSetup(id: string): Promise<void> {
 /** The New Session prefill Without a worktree left for the dialog's next open. */
 export const useNewSessionPrefill = create<{ prefill: NewSessionPrefill | null }>(() => ({ prefill: null }))
 
+/**
+ * Leaves this session's launch, Worktree off, for New Session's next open —
+ * the desktop's dialog or the phone's screen. False when the session has no
+ * setup to carry, and then nothing should open.
+ */
+export function leaveWithoutWorktreePrefill(id: string): boolean {
+  const session = useOrbital.getState().sessions[id]
+  if (!session?.setup) return false
+  useNewSessionPrefill.setState({ prefill: withoutWorktreePrefill(session, session.setup) })
+  return true
+}
+
 /** Without a worktree: New Session, prefilled with this session's launch and Worktree off. */
 export function startWithoutWorktree(id: string): void {
-  const session = useOrbital.getState().sessions[id]
-  if (!session?.setup) return
-  useNewSessionPrefill.setState({ prefill: withoutWorktreePrefill(session, session.setup) })
-  useOrbital.getState().setDialog('new')
+  if (leaveWithoutWorktreePrefill(id)) useOrbital.getState().setDialog('new')
 }
 
 /**
  * The prefilled launch was accepted: the session it replaces goes. A discard
- * that is lost leaves that session NOT STARTED, to be discarded by hand.
+ * that is lost leaves that session NOT STARTED beside the new one, to be
+ * discarded by hand — said, and kept in the error log with why.
  */
 export function replacedByLaunch(prefill: NewSessionPrefill): void {
-  api.discardSession(prefill.replaces).catch(() => {})
+  api
+    .discardSession(prefill.replaces)
+    .catch((err) => reportError(err, `Could not discard “${prefill.title}”, which the new session replaces`))
 }
