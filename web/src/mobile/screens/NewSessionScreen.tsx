@@ -34,6 +34,9 @@ import { useLaunchAttempt } from '../../lib/useLaunchAttempt'
 import { recentDirectories, worktreeLaunchError } from '../../lib/worktree'
 import { NewSessionWorktree } from './NewSessionWorktree'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
+import { LOCAL_DEVICE } from '../../lib/devices'
+import { apiImagePath } from '../../lib/images'
+import { replacedByLaunch, useNewSessionPrefill } from '../../store/setupActions'
 
 /** The device sheet's ages are in minutes at the finest. */
 const MINUTE_MS = 60_000
@@ -66,11 +69,24 @@ export function NewSessionScreen() {
     [link, rechecking, devices, members, minute],
   )
   const several = devices.length >= 2
+  /**
+   * Start without a worktree (spec 2026-11-09-worktree-setup-in-background-design
+   * § The phone): taken once, as the screen opens, from the session that
+   * could not get its worktree — its device, directory, mode, model, Claude
+   * directory, prompt and attachments, with Worktree off.
+   */
+  const [carried] = useState(() => {
+    const taken = useNewSessionPrefill.getState().prefill
+    useNewSessionPrefill.setState({ prefill: null })
+    return taken
+  })
   const [remembered] = useState(rememberedDevice)
   const opening = phoneOpeningDevice(options, remembered)
   const settles = openingSettles({ link, rechecking, devices }, options, remembered)
   /** Chosen in the sheet, or held once settled; until then the opening device, which follows the devices as they come up. */
-  const [pickedDevice, setPickedDevice] = useState<string | null>(null)
+  const [pickedDevice, setPickedDevice] = useState<string | null>(
+    carried && carried.device !== LOCAL_DEVICE ? carried.device : null,
+  )
   const [deviceSheet, setDeviceSheet] = useState(false)
   // Held once settled, so a device waking or sleeping meanwhile does not move the form under the user.
   useEffect(() => {
@@ -90,15 +106,15 @@ export function NewSessionScreen() {
   /** `undefined` while the two reads run; `null` when the defaults could not be read. */
   const [defaults, setDefaults] = useState<SessionDefaults | null | undefined>(undefined)
   const [projects, setProjects] = useState<DirectoryRow[]>([])
-  const [cwd, setCwd] = useState('')
+  const [cwd, setCwd] = useState(carried?.cwd ?? '')
   /** A permission mode picked by hand: kept across a change of device, unlike its directory and model. */
-  const [pickedMode, setPickedMode] = useState<PermissionMode | null>(null)
+  const [pickedMode, setPickedMode] = useState<PermissionMode | null>(carried?.permissionMode ?? null)
   const mode = pickedMode ?? (defaults ? preselectMode(defaults) : 'acceptEdits')
   /** A model picked by hand; until then the preselection follows the directory. */
-  const [pickedModel, setPickedModel] = useState<string | null>(null)
+  const [pickedModel, setPickedModel] = useState<string | null>(carried?.model ?? null)
   /** A Claude directory picked by hand; until then the Mac's prefill (`prefillClaudeDir`). */
-  const [pickedDir, setPickedDir] = useState<number | null>(null)
-  const [prompt, setPrompt] = useState('')
+  const [pickedDir, setPickedDir] = useState<number | null>(carried?.claudeDirId ?? null)
+  const [prompt, setPrompt] = useState(carried?.prompt ?? '')
   const [pending, setPending] = useState(false)
   const [notFound, setNotFound] = useState(false)
   /** Any other refused Start, in words (provisional copy). */
@@ -119,7 +135,18 @@ export function NewSessionScreen() {
    * The field holds the device's last directory, filled in here, not a path
    * typed or picked: a change of device replaces it with that device's own.
    */
-  const cwdPrefilled = useRef(true)
+  const cwdPrefilled = useRef(carried === null)
+  /** A carried model and Claude directory hold while the device is the one they were carried for. */
+  const keepsCarried = useRef(carried !== null)
+  // The carried attachments, as done chips: they are stored on the Mac already.
+  const adoptedRef = useRef(false)
+  useEffect(() => {
+    if (!carried || adoptedRef.current) return
+    adoptedRef.current = true
+    for (const ref of carried.attachments) {
+      attachments.adoptStored({ entry: { ref, w: null, h: null, bytes: 0 }, name: 'attachment', previewUrl: apiImagePath(ref) })
+    }
+  }, [carried, attachments])
   /**
    * The `.mcp.json` question (spec 2026-10-08-mcpjson-approval-design; canvas
    * 47c/47d): the servers Start found undecided and the answers so far. Set,
@@ -150,6 +177,8 @@ export function NewSessionScreen() {
     cwd,
     servesWorktree && !asleep && (dirState === null || dirState === 'directory'),
     machine ?? undefined,
+    // Without a worktree, in the directory it was asked for.
+    carried !== null && cwd.trim() === carried.cwd,
   )
 
   // The chosen device's defaults and recent directories (canvas 50j: they
@@ -159,8 +188,11 @@ export function NewSessionScreen() {
     let current = true
     setDefaults(undefined)
     setProjects([])
-    setPickedDir(null)
-    setPickedModel(null)
+    // A carried model and Claude directory hold until another device is picked.
+    if (!keepsCarried.current) {
+      setPickedDir(null)
+      setPickedModel(null)
+    }
     // Another device's last directory means nothing here; one typed or picked stays.
     if (cwdPrefilled.current) setCwd('')
     void Promise.allSettled([api.sessionDefaults(machine ?? undefined), api.listProjects(machine ?? undefined)]).then(([d, p]) => {
@@ -281,6 +313,8 @@ export function NewSessionScreen() {
       // launch rather than making a second session and worktree.
       const sessionId = await launchSession({ ...body, sessionId: launchAttempt.idFor(body) }, images)
       launchAttempt.settle()
+      // The session that could not get its worktree goes now this one runs.
+      if (carried) replacedByLaunch(carried)
       // The next New session opens on it (canvas 50j).
       if (machine !== null) rememberDevice(machine)
       attachments.reset()
@@ -563,6 +597,7 @@ export function NewSessionScreen() {
             options={options}
             value={machine}
             onPick={(id) => {
+              keepsCarried.current = false
               setPickedDevice(id)
               setDeviceSheet(false)
             }}

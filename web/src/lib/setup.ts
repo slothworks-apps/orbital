@@ -131,7 +131,7 @@ export function setupBlock(setup: SessionSetup): SetupBlockModel {
       const kept =
         n === 0
           ? 'Nothing was left on disk. Your prompt is kept.'
-          : `Nothing was left on disk. Your prompt and ${plural(n, 'queued message')} ${n === 1 ? 'is' : 'are'} kept.`
+          : `Nothing was left on disk. Your prompt and ${plural(n, 'queued message')} are kept.`
       return {
         failed: true,
         title: 'Couldn’t create the worktree',

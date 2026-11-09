@@ -1,10 +1,11 @@
+import { setupRowNote } from '../../lib/setup'
 import { swatch } from '../../lib/palette'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
 import { toggleTag } from '../../lib/tagFilter'
 import { sessionViewTransitionName, withViewTransition } from '../../lib/viewTransition'
-import { isReadOnly, tagColor, type ApiSession, type Tag } from '../../lib/types'
+import { isReadOnly, setupPending, tagColor, type ApiSession, type Tag } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { ClaudeDirMark, useClaudeDirMark } from '../../ui/ClaudeDirMark'
 import { useOrbital } from '../../store/store'
@@ -519,6 +520,8 @@ function SessionRow({
   const reason = input ? inputReason(session) : null
   const dirMark = useClaudeDirMark(session.claudeDirId)
   const waitLine = group === 'limit' ? limitLine(session, offline || asleep, mac, now) : null
+  // Canvas 66d: which step a worktree launch is at, or that it did not start.
+  const setupLine = session.setup && setupPending(session) ? setupRowNote(session.setup) : null
   const idle = group === 'idle'
   // A gate carries no elapsed time (10a); asleep, NEEDS INPUT shows none either (9a). The limit
   // row shows its last activity like every other row (spec § 8, Decision 9).
@@ -608,6 +611,11 @@ function SessionRow({
           {waitLine && (
             <span className={['fs-12.5 leading-[1.35]', offline ? 'text-ink-600/70' : 'text-ink-600/80'].join(' ')}>
               {waitLine}
+            </span>
+          )}
+          {setupLine && (
+            <span className={['fs-12.5 leading-[1.35]', offline ? 'text-ink-600/70' : 'text-ink-600/80'].join(' ')}>
+              {setupLine}
             </span>
           )}
         </span>

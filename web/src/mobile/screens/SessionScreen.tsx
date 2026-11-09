@@ -24,7 +24,10 @@
  *   worktree cleanup row       where/WorktreeCleanup.tsx         under an ended session's tail (canvas 63g)
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
+import { isReadOnly, setupPending, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
+import { SetupBlock, SetupPending } from '../../panels/SetupBlock'
+import { SessionMenuSheet } from '../menu/SessionMenuSheet'
+import { GLINT_ACCENT_HUE } from '../../ui/TopGlint'
 import { getSocket } from '../../lib/socket'
 import { ReplyMediaSession } from '../../panels/ReplyMedia'
 import { PhoneToolRowContext } from '../../panels/ToolRow'
@@ -158,6 +161,14 @@ function SessionView({ id }: { id: string }) {
     [jump],
   )
 
+  // A worktree launch (spec 2026-11-09-worktree-setup-in-background-design;
+  // canvas 66d): before it starts, its prompt, the block and its queue from
+  // `setup`; after, the block under the first turn. More… in a failed block
+  // opens the ⋯ sheet, which holds the rest of the ways out.
+  const setup = session?.setup ?? null
+  const pending = session != null && setupPending(session)
+  const [moreOpen, setMoreOpen] = useState(false)
+
   const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
   const phoneRows = usePhoneToolRow(id, tagHue, offline)
   const header = (
@@ -214,7 +225,8 @@ function SessionView({ id }: { id: string }) {
       {/* Reply thumbnails read named files through this session (canvas 24f A, 24g). */}
       <ReplyMediaSession.Provider value={id}>
       <TranscriptView
-        messages={shown}
+        messages={pending ? EMPTY : shown}
+        afterFirstTurn={setup && !pending ? <SetupBlock sessionId={id} setup={setup} surface="phone" /> : undefined}
         jumpTo={jumpTo}
         isWorking={!offline && session?.status === 'working'}
         models={models}
@@ -236,12 +248,21 @@ function SessionView({ id }: { id: string }) {
         footer={
           session ? (
             <>
+              {pending && setup && (
+                <SetupPending
+                  sessionId={id}
+                  setup={setup}
+                  hue={tag?.hue ?? GLINT_ACCENT_HUE}
+                  surface="phone"
+                  onMore={() => setMoreOpen(true)}
+                />
+              )}
               <TranscriptTail session={session} offline={offline} />
               {cleanup.shown && <WorktreeCleanupRow cleanup={cleanup} className="my-3" />}
             </>
           ) : undefined
         }
-        footerKey={tailKey}
+        footerKey={pending && setup ? `setup:${setup.phase}:${setup.queued.length}|${tailKey}` : tailKey}
         liveRow={liveRow}
         isWaiting={isWaiting}
         waitCaption={waitCaption}
@@ -251,6 +272,9 @@ function SessionView({ id }: { id: string }) {
       </PhoneToolRowContext.Provider>
       </LoginNoticeContext.Provider>
       <SheetPresence>{cleanup.sheet && <WorktreeCleanupSheet cleanup={cleanup} />}</SheetPresence>
+      <SheetPresence>
+        {moreOpen && session && <SessionMenuSheet session={session} offline={offline} onClose={() => setMoreOpen(false)} />}
+      </SheetPresence>
     </MobileScreen>
   )
 }

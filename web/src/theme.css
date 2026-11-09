@@ -816,6 +816,29 @@ body {
   }
 }
 
+/* A planet being born (canvas 66d `nbBorn`): the core of a session whose
+   worktree is still being made, breathing once every 4s — slower and softer
+   than a working core's pulse. */
+@keyframes orbital-born {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.orbital-born {
+  animation: orbital-born 4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-born {
+    animation: none;
+  }
+}
+
 /* Streaming caret on the last assistant turn (1b): a hard terminal blink
    (`orb-cursor 1s steps(1)`), deliberately unlike the smooth status pulse. */
 @keyframes orbital-caret {

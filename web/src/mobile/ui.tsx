@@ -453,6 +453,8 @@ interface ConfirmProps {
   busy?: boolean
   /** Cancel waits too while `busy` (63i ENDING…: End); elsewhere it stays live. */
   cancelWaits?: boolean
+  /** An outlined button between the two (canvas 66d DISCARD SHEET: Copy prompt). */
+  also?: { label: string; onPress: () => void }
 }
 
 /**
@@ -462,7 +464,7 @@ interface ConfirmProps {
  * or swapped in place of a menu's rows (10i's /END and /CLEAR).
  */
 export function ConfirmBody({
-  eyebrow, title, body, detail, extra, confirmLabel, cancelLabel = 'Cancel', onConfirm, onCancel, busy = false, cancelWaits = false,
+  eyebrow, title, body, detail, extra, confirmLabel, cancelLabel = 'Cancel', onConfirm, onCancel, busy = false, cancelWaits = false, also,
 }: ConfirmProps) {
   // canvas 10b GO BACK, 10g STOP TASK: the sheet's text sits 18 px in, the
   // shell's 10 plus this block's 8 (10i's confirms nest the same way).
@@ -479,6 +481,7 @@ export function ConfirmBody({
       {extra}
       <div className="flex flex-col gap-2 pb-2.5 pt-[18px]">
         <PrimaryButton variant="sheet" onClick={onConfirm} disabled={busy}>{confirmLabel}</PrimaryButton>
+        {also && <SecondaryButton variant="sheet" onClick={also.onPress} disabled={busy}>{also.label}</SecondaryButton>}
         <SecondaryButton variant="sheet" onClick={onCancel} disabled={busy && cancelWaits}>{cancelLabel}</SecondaryButton>
       </div>
     </div>

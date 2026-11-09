@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState } from 'react'
-import type { ApiSession } from '../../lib/types'
+import { setupPending, type ApiSession, type GitLocation } from '../../lib/types'
+import { setupBranch } from '../../lib/setup'
 import { treesCompactText, treesCountText, treesHeadText, whereFormOf } from '../../lib/whereForm'
 import { FullTextTip } from '../FullTextTip'
 import { basename } from '../format'
@@ -90,7 +91,12 @@ export function WhereLine({
   const mac = useSessionDeviceName(session.id) ?? 'the Mac'
   const v = VARIANTS[variant]
   const header = variant === 'header'
-  const git = session.git ?? null
+  // A worktree launch not started yet: the branch it is getting, or what
+  // stands in for one, in italics while it is not a branch (canvas 66d).
+  const setup = session.setup && setupPending(session) ? setupBranch(session.setup) : null
+  const git: GitLocation | null = setup
+    ? { ref: setup.text, detached: false, worktree: false, defaultBranch: false }
+    : (session.git ?? null)
   const form = whereFormOf(git, session.otherTrees)
   const inWorktree = git?.worktree ?? false
   const project = basename(session.cwd)
@@ -140,7 +146,7 @@ export function WhereLine({
           {sep}
           <span className="flex min-w-0 items-center" style={{ gap: MARK_GAP_PX }}>
             {inWorktree ? <TreeMark /> : <span aria-hidden>⎇</span>}
-            <span className="truncate">{fit.branch}</span>
+            <span className={['truncate', setup?.italic ? 'italic' : ''].join(' ')}>{fit.branch}</span>
           </span>
         </>
       )}
@@ -153,7 +159,7 @@ export function WhereLine({
         ref={ref}
         className={['flex min-w-0 items-center gap-1.5 whitespace-nowrap font-mono', v.text, dim ? v.dimInk : v.ink].join(' ')}
       >
-        {header && git ? (
+        {header && git && !setup ? (
           // A 44 px hit area reaching above and below the line, like the count's.
           <button
             type="button"
