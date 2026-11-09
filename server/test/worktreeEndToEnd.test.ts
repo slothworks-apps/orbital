@@ -47,8 +47,12 @@ function textOf(userMsg: any): string {
   return Array.isArray(content) ? content.map((b: any) => (b?.type === 'text' ? b.text : '')).join('') : '';
 }
 
-/** The session's own fake SDK: records each start's options and every prompt it is handed, answers each. */
-function fakeSessionQueryFn(starts: any[], prompts: string[]) {
+/**
+ * The session's own fake SDK: records each start's options and every prompt
+ * it is handed, answers each. `firstReply`, when given, holds the answer to
+ * the first prompt until it settles.
+ */
+function fakeSessionQueryFn(starts: any[], prompts: string[], firstReply?: Promise<void>) {
   return ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
     starts.push(options);
     const sid = options?.sessionId ?? options?.resume;
@@ -60,6 +64,7 @@ function fakeSessionQueryFn(starts: any[], prompts: string[]) {
           announced = true;
           yield { type: 'system', subtype: 'init', session_id: sid };
         }
+        if (prompts.length === 1 && firstReply) await firstReply;
         yield { type: 'assistant', session_id: sid, message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } };
         yield { type: 'result', subtype: 'success', session_id: sid, usage: {} };
       }
@@ -92,7 +97,7 @@ function heldNaming(name: string) {
   return { naming: async () => { await held; return name; }, release };
 }
 
-async function serverWith(naming: Naming, dirs?: { claudeDir: string; dbPath: string }) {
+async function serverWith(naming: Naming, dirs?: { claudeDir: string; dbPath: string }, firstReply?: Promise<void>) {
   const claudeDir = dirs?.claudeDir ?? makeTmpDir('wt-claude');
   mkdirSync(join(claudeDir, 'projects'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
@@ -102,7 +107,7 @@ async function serverWith(naming: Naming, dirs?: { claudeDir: string; dbPath: st
   const oneShot = fakeOneShot(naming);
   const app = await buildServer({
     claudeDir, dbPath,
-    queryFn: fakeSessionQueryFn(starts, prompts) as any,
+    queryFn: fakeSessionQueryFn(starts, prompts, firstReply) as any,
     titleQueryFn: oneShot as any,
   });
   return { app, starts, prompts, oneShot, dirs: { claudeDir, dbPath } };
@@ -171,7 +176,9 @@ describe('launching into a worktree', () => {
   it('answers before the worktree exists, queues what is written meanwhile, and starts once it is ready', async () => {
     const repo = makeRepo();
     const held = heldNaming('feat/later\nLater');
-    const { app, starts, prompts } = await serverWith(held.naming);
+    let reply!: () => void;
+    const firstReply = new Promise<void>((r) => { reply = r; });
+    const { app, starts, prompts } = await serverWith(held.naming, undefined, firstReply);
     try {
       const res = await launch(app, { cwd: repo, worktree: { base: 'origin/main' } });
       expect(res.statusCode).toBe(201);
@@ -197,9 +204,19 @@ describe('launching into a worktree', () => {
       const ready = await settledAt(app, sessionId, 'ready');
       expect(ready.cwd).toBe(join(repo, '.claude/worktrees/later'));
       expect(starts).toHaveLength(1);
-      await vi.waitFor(() => expect(prompts).toEqual(['fix the tray flicker', 'and the dock too', 'then open a PR']));
-      expect(ready.setup.queued).toEqual([]);
-      // Started: a message goes in as to any session.
+      // Ready while the first turn runs: the queue waits for its reply, as if typed after it.
+      await vi.waitFor(() => expect(prompts).toEqual(['fix the tray flicker']));
+      expect(ready.setup).toMatchObject({ prompt: '', attachments: [] });
+      expect(ready.setup.queued.map((m: any) => m.text)).toEqual(['and the dock too', 'then open a PR']);
+      // What is written meanwhile joins the end, not ahead of what waits.
+      expect((await send(app, sessionId, 'and the menu')).json()).toEqual({ ok: true, queued: true });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(prompts).toEqual(['fix the tray flicker']);
+
+      reply();
+      await vi.waitFor(() => expect(prompts).toEqual(['fix the tray flicker', 'and the dock too', 'then open a PR', 'and the menu']), { timeout: 5_000 });
+      await vi.waitFor(async () => expect((await sessionOf(app, sessionId)).setup.queued).toEqual([]));
+      // Started and handed over: a message goes in as to any session.
       expect((await send(app, sessionId, 'thanks')).json()).not.toHaveProperty('queued');
     } finally {
       await app.close();
@@ -451,6 +468,27 @@ describe('discarding a session that never started', () => {
 });
 
 describe('a server that stops during setup', () => {
+  it('hands over the queue a started session had left, after a restart', async () => {
+    const repo = makeRepo();
+    const first = await serverWith('feat/restarted');
+    const { sessionId } = await launchedReady(first.app, { cwd: repo, worktree: { base: 'origin/main' } });
+    await vi.waitFor(() => expect(first.prompts).toEqual(['fix the tray flicker']));
+    await first.app.close();
+
+    // What a stop before the first turn ended leaves: ready, with the queue not yet sent.
+    const raw = new BetterSqlite3(first.dirs.dbPath);
+    raw.prepare('UPDATE session_setups SET queued = ? WHERE session_id = ?').run(JSON.stringify([{ text: 'left over' }]), sessionId);
+    raw.close();
+
+    const second = await serverWith('feat/x', first.dirs);
+    try {
+      await vi.waitFor(() => expect(second.prompts).toEqual(['left over']), { timeout: 5_000 });
+      await vi.waitFor(async () => expect((await sessionOf(second.app, sessionId)).setup).toMatchObject({ phase: 'ready', queued: [] }));
+    } finally {
+      await second.app.close();
+    }
+  });
+
   it('finds the setup not started at boot, rolled back from its record, with its prompt and queue', async () => {
     const repo = makeRepo();
     const held = heldNaming('feat/never-named');

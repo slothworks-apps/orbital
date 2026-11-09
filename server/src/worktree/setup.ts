@@ -42,7 +42,7 @@ export interface SetupRecord {
   attachments: string[];
   mcpjson: McpjsonDecisions | null;
   queued: SetupQueuedMessage[];
-  /** The session process started: the queue is being handed over. */
+  /** The session process started: what is left of the queue is being handed over. */
   sessionStarted: boolean;
   message: string | null;
   errorId: number | null;
@@ -136,10 +136,15 @@ export class SetupStore {
     return rec;
   }
 
-  /** A message to a session not started yet: kept for its start. False when the session is not waiting for one. */
+  /**
+   * A message to a session not started yet: kept for its start. Also one to
+   * a started session whose queue still waits for its first turn to end,
+   * which joins the end so nothing goes in ahead of what was written first.
+   * False when the session is waiting for neither.
+   */
   queue(sessionId: string, message: SetupQueuedMessage): boolean {
     const rec = this.records.get(sessionId);
-    if (!rec || rec.phase === 'ready') return false;
+    if (!rec || (rec.phase === 'ready' && rec.queued.length === 0)) return false;
     this.update(sessionId, { queued: [...rec.queued, message] });
     return true;
   }
@@ -207,10 +212,21 @@ export interface SetupServiceDeps {
   start: (rec: SetupRecord, cwd: string) => Promise<void>;
   /** Hands one queued message to the started session, the way the composer's goes. */
   deliver: (sessionId: string, message: SetupQueuedMessage) => Promise<void>;
+  /**
+   * Where the started session's turn is: `running` while it works or waits
+   * on a decision, `over` once it has ended (or its process has gone, which
+   * a message revives), `gone` for a session ended or deleted meanwhile.
+   */
+  turnOf: (sessionId: string) => 'running' | 'over' | 'gone';
   /** Stops a session that started while it was being discarded. */
   stop: (sessionId: string) => Promise<void>;
   now?: () => number;
+  /** How often a queue waiting for a turn to end looks again; `QUEUE_POLL_MS` by default. */
+  pollMs?: number;
 }
+
+/** How often a queue waiting for the first turn to end looks again: no hook says it, so it is read. */
+export const QUEUE_POLL_MS = 250;
 
 /** One run of the steps. Discard sets `cancelled`; the step in flight finishes, and what it made is taken away. */
 interface Run {
@@ -226,9 +242,11 @@ export class SetupService {
   private readonly cleanups = new Set<Promise<void>>();
   private closing = false;
   private readonly now: () => number;
+  private readonly pollMs: number;
 
   constructor(private readonly deps: SetupServiceDeps) {
     this.now = deps.now ?? Date.now;
+    this.pollMs = deps.pollMs ?? QUEUE_POLL_MS;
   }
 
   /** Runs the setup of a session whose record was just written. `check` is the launch's own, when it made one. */
@@ -265,7 +283,7 @@ export class SetupService {
     const run = this.runs.get(sessionId);
     if (run) run.cancelled = true;
     this.deps.store.delete(sessionId);
-    // Started already, still handing its queue over: the process goes, then the worktree it runs in.
+    // Started already, not yet marked ready: the process goes, then the worktree it runs in.
     if (rec.sessionStarted && rec.path && rec.branch) {
       const { path, branch } = rec;
       const cleanup = (async () => {
@@ -282,11 +300,12 @@ export class SetupService {
   /**
    * At boot: a setup the previous server was running is rolled back from
    * what its record says was made, and waits as not started. One whose
-   * session had already started hands over the rest of its queue.
+   * session had already started, ready or not, hands over the rest of its
+   * queue.
    */
   recover(): void {
     for (const rec of this.deps.store.all()) {
-      if (rec.phase === 'ready' || rec.phase === 'failed') continue;
+      if (rec.phase === 'failed' || (rec.phase === 'ready' && rec.queued.length === 0)) continue;
       if (rec.sessionStarted) {
         const run: Run = { cancelled: false, done: Promise.resolve() };
         run.done = this.handOver(rec.sessionId, run).catch((err) => { this.recordError(rec.sessionId, 'The setup could not finish after a restart.', err); })
@@ -395,17 +414,42 @@ export class SetupService {
   }
 
   /**
-   * The queued messages, oldest first, each taken off the record only once
-   * the session has it; one written meanwhile joins the end. Then `ready`.
+   * The session has started: `ready` at once, with the queue kept. Then the
+   * queued messages, oldest first, each once the session's turn has ended —
+   * as if typed after its reply — and taken off the record only once the
+   * session has it; one written meanwhile joins the end. A session ended or
+   * gone before its turn did gets none of them.
    */
   private async handOver(sessionId: string, run: Run): Promise<void> {
     const { store } = this.deps;
+    const started = store.get(sessionId);
+    if (!started) return;
+    if (started.phase !== 'ready') {
+      store.update(sessionId, {
+        phase: 'ready', step: 3, made: 'none', readyInMs: this.now() - started.startedAt,
+        prompt: '', attachments: [], message: null, errorId: null,
+      });
+    }
     for (;;) {
       if (run.cancelled || this.closing) return;
       const rec = store.get(sessionId);
       if (!rec) return;
       const next = rec.queued[0];
-      if (!next) break;
+      if (!next) return;
+      const turn = this.deps.turnOf(sessionId);
+      if (turn === 'running') {
+        await this.pause();
+        continue;
+      }
+      if (turn === 'gone') {
+        // Not sent into a session the user ended: the log keeps their text.
+        for (const message of rec.queued) {
+          this.recordError(sessionId, 'A message written while the worktree was set up was not sent: the session ended first.',
+            new Error('session ended'), { text: message.text });
+        }
+        store.update(sessionId, { queued: [] });
+        return;
+      }
       try {
         await this.deps.deliver(sessionId, next);
       } catch (err) {
@@ -417,12 +461,11 @@ export class SetupService {
       if (!now) return;
       store.update(sessionId, { queued: now.queued.slice(1) });
     }
-    const rec = store.get(sessionId);
-    if (!rec) return;
-    store.update(sessionId, {
-      phase: 'ready', step: 3, made: 'none', readyInMs: this.now() - rec.startedAt,
-      prompt: '', attachments: [], queued: [], message: null, errorId: null,
-    });
+  }
+
+  /** One poll interval; never what keeps the process open. */
+  private pause(): Promise<void> {
+    return new Promise((resolve) => { setTimeout(resolve, this.pollMs).unref?.(); });
   }
 
   private recordError(sessionId: string, message: string, err: unknown, context: Record<string, unknown> = {}): number | null {

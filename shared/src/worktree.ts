@@ -182,7 +182,7 @@ export type EndSessionResult =
  */
 export type SetupPhase = 'naming' | 'checkout' | 'copy' | 'failed' | 'ready';
 
-/** A message sent to a session before it started: queued, sent in order after the first prompt. */
+/** A message sent to a session before it started: queued, sent in order once the first prompt's turn has ended. */
 export interface SetupQueuedMessage {
   text: string;
   attachments?: string[];
@@ -224,7 +224,10 @@ export interface SessionSetup {
   /** The first prompt and its attachments; empty once `ready`. */
   prompt: string;
   attachments: string[];
-  /** Messages sent meanwhile, oldest first; empty once `ready`. */
+  /**
+   * Messages sent meanwhile, oldest first. Still there once `ready` while
+   * they wait for the first turn to end; each leaves once it is sent.
+   */
   queued: SetupQueuedMessage[];
   launch: SetupLaunchSettings;
 }

@@ -2427,8 +2427,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // optimistic turn would show it as sent.
     // A worktree launch that has not started queues the same way (spec
     // 2026-11-09-worktree-setup-in-background-design § Messages): its
-    // `setup.queued` lists it.
-    const queues = Boolean(session?.limitWait) || (session != null && setupPending(session))
+    // `setup.queued` lists it. So does one started whose queue still waits
+    // for its first turn to end: the message joins the end of it.
+    const queues =
+      Boolean(session?.limitWait) || (session != null && (setupPending(session) || (session.setup?.queued.length ?? 0) > 0))
 
     set((state) => ({
       ...(queues
@@ -3392,7 +3394,9 @@ function sessionsEventPatch(
     const sessions = { ...state.sessions, [msg.session.id]: withHeldHistory(held, msg.session) }
     // A worktree launch that just started: the transcript held had nothing
     // of it (the setup block showed its prompt and queue), and the file has
-    // nothing yet either, so they go in as sent turns the echo replaces.
+    // nothing yet either, so its first prompt goes in as a sent turn the echo
+    // replaces. The queue stays where it was drawn, at the bottom, until the
+    // server sends each once the first turn has ended; its echo lands then.
     const started = held?.setup && setupPending(held) && !setupPending(msg.session) ? held.setup : null
     const seeded =
       started && (msg.session.id in state.transcripts || state.ui.selectedId === msg.session.id)
@@ -3634,24 +3638,20 @@ function isSetupFailure(error: ErrorRecord, sessions: Record<string, ApiSession>
 }
 
 /**
- * `held` with the first prompt and the queue of a setup that just started
- * appended as sent turns — those not already there, as this tab's own
- * launch turn is — ahead of anything the session has said since.
+ * `held` with the first prompt of a setup that just started put in as a
+ * sent turn — unless it is already there, as this tab's own launch turn is —
+ * ahead of anything the session has said since. The queue is not: it goes
+ * in later, each message once the server has sent it.
  */
-export function withSetupTurns(held: readonly ChatMessage[], setup: Pick<SessionSetup, 'prompt' | 'attachments' | 'queued'>): ChatMessage[] {
+export function withSetupTurns(held: readonly ChatMessage[], setup: Pick<SessionSetup, 'prompt' | 'attachments'>): ChatMessage[] {
+  if (setup.prompt.trim() === '' && setup.attachments.length === 0) return held.slice()
   // No provenance: this tab may not be the one they were attached in, and
   // a caption it made up would only be replaced by the file's.
-  const asTurn = (text: string, refs: readonly string[] | undefined): ChatMessage => {
-    const turn = optimisticTurn(text)
-    return refs && refs.length > 0 ? { ...turn, images: refs.map((ref) => ({ ref, w: null, h: null, bytes: 0 })) } : turn
-  }
-  const wanted = [asTurn(setup.prompt, setup.attachments), ...setup.queued.map((q) => asTurn(q.text, q.attachments))].filter(
-    (turn) => (turn.text ?? '').trim() !== '' || (turn.images?.length ?? 0) > 0,
-  )
-  const missing = wanted.filter((turn) => !held.some((m) => echoes(m, turn)))
-  if (missing.length === 0) return held.slice()
-  const at = held.findIndex((m) => m.role !== 'user')
-  return at < 0 ? [...held, ...missing] : [...held.slice(0, at), ...missing, ...held.slice(at)]
+  const plain = optimisticTurn(setup.prompt)
+  const turn = setup.attachments.length > 0
+    ? { ...plain, images: setup.attachments.map((ref) => ({ ref, w: null, h: null, bytes: 0 })) }
+    : plain
+  return held.some((m) => echoes(m, turn)) ? held.slice() : [turn, ...held]
 }
 
 /**

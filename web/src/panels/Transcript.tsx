@@ -20,7 +20,7 @@ import { ReplyMediaSession } from './ReplyMedia'
 import { pickRewindTarget, useRewindUi } from '../store/rewind'
 import { rewindTargetIds } from '../lib/rewind'
 import { setupPending } from '../lib/types'
-import { SetupBlock, SetupPending } from './SetupBlock'
+import { SetupBlock, SetupPending, SetupQueue } from './SetupBlock'
 
 /** Stable empty array — a fresh `[]` fallback on every selector call would
  * defeat `useShallow`'s equality check and re-render on every store tick. */
@@ -248,6 +248,9 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   // queue, all from `setup`; after, the block stays under the first turn.
   const setup = session?.setup ?? null
   const pending = session != null && setupPending(session)
+  // Started, with messages still waiting for the first turn to end: they
+  // stay queued turns at the bottom until the server sends each.
+  const setupQueued = setup && !pending && setup.queued.length > 0 ? setup : null
 
   // An offline device whose history was never read while it was up: one
   // quiet line where the transcript would be, never an error. Its styling is
@@ -294,6 +297,8 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       footerKey={
         pending && setup
           ? `setup:${setup.phase}:${setup.queued.length}`
+          : setupQueued
+          ? `setup-queued:${setupQueued.queued.length}`
           : compacting
           ? 'compacting'
           : pendingHidden !== null
@@ -348,6 +353,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
               )}
             </div>
           )}
+          {setupQueued && <SetupQueue setup={setupQueued} hue={hue ?? 205} />}
           {/* Always last, under the agent's final message (31d). */}
           {limitWait && <LimitWaitNotice sessionId={sessionId} wait={limitWait} hue={hue ?? 205} />}
         </>

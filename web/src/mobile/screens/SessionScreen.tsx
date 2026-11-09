@@ -25,7 +25,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { isReadOnly, setupPending, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
-import { SetupBlock, SetupPending } from '../../panels/SetupBlock'
+import { SetupBlock, SetupPending, SetupQueue } from '../../panels/SetupBlock'
 import { SessionMenuSheet } from '../menu/SessionMenuSheet'
 import { GLINT_ACCENT_HUE } from '../../ui/TopGlint'
 import { getSocket } from '../../lib/socket'
@@ -167,6 +167,8 @@ function SessionView({ id }: { id: string }) {
   // opens the ⋯ sheet, which holds the rest of the ways out.
   const setup = session?.setup ?? null
   const pending = session != null && setupPending(session)
+  // Started, with messages still waiting for the first turn to end: queued turns at the bottom.
+  const setupQueued = setup && !pending && setup.queued.length > 0 ? setup : null
   const [moreOpen, setMoreOpen] = useState(false)
 
   const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
@@ -258,11 +260,18 @@ function SessionView({ id }: { id: string }) {
                 />
               )}
               <TranscriptTail session={session} offline={offline} />
+              {setupQueued && <SetupQueue setup={setupQueued} hue={tag?.hue ?? GLINT_ACCENT_HUE} surface="phone" />}
               {cleanup.shown && <WorktreeCleanupRow cleanup={cleanup} className="my-3" />}
             </>
           ) : undefined
         }
-        footerKey={pending && setup ? `setup:${setup.phase}:${setup.queued.length}|${tailKey}` : tailKey}
+        footerKey={
+          pending && setup
+            ? `setup:${setup.phase}:${setup.queued.length}|${tailKey}`
+            : setupQueued
+              ? `setup-queued:${setupQueued.queued.length}|${tailKey}`
+              : tailKey
+        }
         liveRow={liveRow}
         isWaiting={isWaiting}
         waitCaption={waitCaption}

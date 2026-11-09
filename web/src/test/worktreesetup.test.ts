@@ -213,11 +213,23 @@ describe('the words of a launch not started', () => {
 describe('a launch that just started', () => {
   const turn = (id: string, text: string, role: ChatMessage['role'] = 'user'): ChatMessage => ({ id, role, text, timestamp: '' })
 
-  it('puts the prompt and the queue in as sent turns, ahead of the first reply', () => {
+  it('puts the first prompt in as a sent turn ahead of the first reply, and leaves the queue to the server', () => {
     const held = [turn('r1', 'Looking at the tray.', 'assistant')]
     const out = withSetupTurns(held, setup({ queued: [{ text: 'Also the time.' }] }))
-    expect(out.map((m) => m.text)).toEqual(['Show a preview of the session.', 'Also the time.', 'Looking at the tray.'])
-    expect(out.slice(0, 2).every((m) => m.id.startsWith('local:'))).toBe(true)
+    expect(out.map((m) => m.text)).toEqual(['Show a preview of the session.', 'Looking at the tray.'])
+    expect(out[0].id.startsWith('local:')).toBe(true)
+  })
+
+  it('keeps the prompt first when a queued message’s echo is already held', () => {
+    const held = [turn('u2', 'Also the time.')]
+    const out = withSetupTurns(held, setup({ queued: [{ text: 'Also the time.' }] }))
+    expect(out.map((m) => m.text)).toEqual(['Show a preview of the session.', 'Also the time.'])
+    expect(out[1].id).toBe('u2')
+  })
+
+  it('carries the prompt’s attachments, and adds nothing for a launch with neither text nor attachments', () => {
+    expect(withSetupTurns([], setup({ attachments: ['a.png'] }))[0].images?.map((i) => i.ref)).toEqual(['a.png'])
+    expect(withSetupTurns([], setup({ prompt: '  ' }))).toEqual([])
   })
 
   it('does not repeat the launch’s own turn this tab already holds', () => {

@@ -165,9 +165,13 @@ export function setupRowNote(setup: Pick<SessionSetup, 'phase' | 'step'>): strin
   return setup.phase === 'failed' ? 'Couldn’t create the worktree.' : `Setting up a worktree · step ${setup.step} of ${SETUP_STEPS}`
 }
 
-/** The queued-turn bubble's caption (66c): the first prompt and the queue say when they go out. */
+/**
+ * The queued-turn bubble's caption (66c): the first prompt and the queue say
+ * when they go out. Once started, the queue waits for the first reply.
+ */
 export function queuedCaption(setup: Pick<SessionSetup, 'phase'>, first: boolean): string {
   if (setup.phase === 'failed') return first ? 'first prompt · kept, not sent' : 'queued · kept, not sent'
+  if (setup.phase === 'ready') return 'queued · sent after the first reply'
   return first ? 'first prompt · goes out when the session starts' : 'queued · sent when the session starts'
 }
 

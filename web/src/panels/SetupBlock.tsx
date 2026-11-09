@@ -10,7 +10,8 @@ import { ForkMark } from './WhereLine'
  * A worktree launch in the transcript (spec
  * 2026-11-09-worktree-setup-in-background-design; canvas 66a, 66c, 66d):
  * the setup block under the first prompt, and the prompt and the queue as
- * queued turns while the session has not started.
+ * queued turns while the session has not started — the queue still, at the
+ * bottom, until the first turn has ended.
  */
 
 export type SetupSurface = 'panel' | 'phone'
@@ -228,11 +229,25 @@ export function SetupPending({
   onMore?: () => void
 }) {
   const first = setup.prompt.trim() !== '' ? setup.prompt : null
-  const queued = setup.queued.map((q) => q.text).filter((text) => text.trim() !== '')
   return (
     <div className={`flex flex-col ${surface === 'phone' ? 'gap-3' : 'gap-[14px]'}`}>
       {first !== null && <QueuedTurn text={first} caption={queuedCaption(setup, true)} hue={hue} surface={surface} />}
       <SetupBlock sessionId={sessionId} setup={setup} surface={surface} onMore={onMore} />
+      <SetupQueue setup={setup} hue={hue} surface={surface} />
+    </div>
+  )
+}
+
+/**
+ * The messages queued while the worktree was made, as queued turns: under
+ * the setup block before the session starts, and at the bottom of the
+ * transcript after, until each is sent once the first turn has ended.
+ */
+export function SetupQueue({ setup, hue, surface = 'panel' }: { setup: SessionSetup; hue: number; surface?: SetupSurface }) {
+  const queued = setup.queued.map((q) => q.text).filter((text) => text.trim() !== '')
+  if (queued.length === 0) return null
+  return (
+    <div className={`flex flex-col ${surface === 'phone' ? 'gap-3' : 'gap-[14px]'}`}>
       {queued.map((text, i) => (
         <QueuedTurn key={i} text={text} caption={queuedCaption(setup, false)} hue={hue} surface={surface} />
       ))}

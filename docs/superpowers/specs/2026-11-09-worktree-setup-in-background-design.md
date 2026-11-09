@@ -106,8 +106,9 @@ raises a notification. NEEDS INPUT still wins the glance.
    every step change so every client follows.
 4. On success, starts the session in the worktree exactly as a launch does
    today — the title from the naming call, the subdirectory inside the
-   worktree when it exists — with the first prompt, then delivers the
-   queued messages in order.
+   worktree when it exists — with the first prompt, and is `ready` from
+   there. The queued messages go in, in order, once the first prompt's
+   turn has ended, as if the user had typed them after its reply.
 5. On failure — in any of the three steps, or after them: the `.mcp.json`
    decisions not written into the worktree, the session process not
    starting — rolls back, records the error in the error log
@@ -132,9 +133,13 @@ anything. The message is added to the session's queue and the answer is
 The queue is shown as the existing queued-turn bubble with the caption the
 design gives ("queued · sent when the session starts"; after a failure,
 "kept, not sent"). Queued messages cannot be removed one by one. They go
-out in order after the first prompt when the session starts. Each leaves
-the setup record only once it has been handed to the session, so a server
-that stops in between neither loses nor repeats one (our call).
+out in order after the first prompt's turn has ended: until then the
+started session keeps them in its `setup.queued`, drawn as queued turns at
+the bottom of the transcript ("queued · sent after the first reply"), and
+a message written meanwhile joins the end of them. A session ended before
+its first turn did gets none of them; the error log keeps their text. Each
+leaves the setup record only once it has been handed to the session, so a
+server that stops in between neither loses nor repeats one (our call).
 
 ### Ways out of NOT STARTED
 

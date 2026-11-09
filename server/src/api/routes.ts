@@ -616,7 +616,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   /**
    * The worktree launches' setups, run after the launch has answered. The
    * session starts the way any launch does, in the worktree; the queue goes
-   * in the way the composer's messages do.
+   * in the way the composer's messages do, once its first turn has ended.
    */
   const setups = new SetupService({
     store: setupStore, worktrees, errors: ctx.errors,
@@ -649,6 +649,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       const attachments = message.attachments?.length ? message.attachments : undefined;
       const delivery = await deliverToSession(id, message.text, attachments);
       if (delivery.uuid) publishSentTurn(id, delivery.uuid, message.text, attachments);
+    },
+    turnOf: (id) => {
+      const row = db.select({ endedAt: sessions.endedAt }).from(sessions).where(eq(sessions.id, id)).get();
+      if (!row || row.endedAt !== null) return 'gone';
+      return ctx.runner.busy(id) ? 'running' : 'over';
     },
     stop: (id) => ctx.runner.stop(id),
   });
