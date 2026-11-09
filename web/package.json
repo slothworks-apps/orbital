@@ -12,7 +12,9 @@
     "test:bundle": "vitest run --mode bundle src/test/mobilebundle.test.ts",
     "test": "vitest",
     "test:run": "vitest run",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "storybook": "storybook dev -p 6006 --no-open",
+    "build-storybook": "storybook build -o storybook-static"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
@@ -60,6 +62,8 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@storybook/addon-docs": "^10.6.6",
+    "@storybook/react-vite": "^10.6.6",
     "@tailwindcss/vite": "^4.0.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^7.0.1",
@@ -70,6 +74,7 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^30.1.2",
+    "storybook": "^10.6.6",
     "typescript": "~6.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.0.3"

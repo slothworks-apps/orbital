@@ -152,6 +152,7 @@ for deploying it.
 npm test -w server        # server test suite (Vitest)
 npm run test:run -w web   # web test suite (Vitest + Testing Library), single run
 npm run test -w web       # web test suite in watch mode
+npm run storybook -w web  # catalogue of the UI primitives (http://localhost:6006)
 npm test -w desktop       # desktop test suite (Vitest, no Electron launched)
 npm test                  # all three, in order
 ```

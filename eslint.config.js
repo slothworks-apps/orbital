@@ -21,6 +21,7 @@ export default tseslint.config(
       '**/node_modules/',
       '**/coverage/',
       'web/dist-mobile/',
+      'web/storybook-static/',
       'mobile/android/',
       'server/drizzle/',
       'desktop/release/',

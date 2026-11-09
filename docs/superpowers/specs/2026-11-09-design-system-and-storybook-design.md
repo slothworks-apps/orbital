@@ -2,11 +2,10 @@
 id: 2026-11-09-design-system-and-storybook-design
 title: Design system — a Storybook catalogue of the UI primitives, and the real components inside the design canvas
 type: spec
-status: draft
+status: active
 domain: web
 related:
   - 2026-10-29-colour-tokens-design
-  - 2026-10-01-map-themes-design
 tags:
   - web
   - design
@@ -57,11 +56,13 @@ Orbital's code exists already, so it starts from the code: Storybook over
 - One `<Name>.stories.tsx` next to each primitive in `web/src/ui`, titled
   `UI/<Name>`, showing its variants and states. Panels from `web/src/panels`
   follow as `Panels/<Name>` where they render without the store or a server.
-- A toolbar switch for the map theme (Planets, Desk) and, once a second one
-  exists, the colour theme, so every story is seen in each.
+- A toolbar switch for the colour theme (Deep Field, Albedo and the rest of
+  `COLOUR_THEMES`), applied with the app's own `applyColourTheme`, so every
+  story is seen in each. The map theme (Planets, Desk) changes how the map is
+  drawn, not the primitives, so it has no switch.
 - A short `<Name>.md` next to a primitive only where the choice between it and
   a neighbour is not obvious. Not a page per component by reflex.
-- `npm run storybook -w web`; a `storybook` CI job that builds it, so a story
+- `npm run storybook -w web`; a step of the `check (web)` CI job builds it, so a story
   broken by a refactor fails the PR.
 - The rule in `web/CLAUDE.md`: a new primitive, or a new variant of one, comes
   with its story; a feature uses the primitives in the catalogue and adds to

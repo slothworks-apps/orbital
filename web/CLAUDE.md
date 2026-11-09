@@ -111,6 +111,20 @@ and, through `shadow`, for drop shadows; a field, a well, a pill or a card
 is `space`, `panel` or `raised`. In Deep Field they look alike, in a light
 theme they are opposites.
 
+## The primitives have a catalogue
+
+`npm run storybook -w web` opens the catalogue of `src/ui`: every
+primitive with its variants and states, in each colour theme from the
+toolbar. Look there before styling something of your own — a feature is
+built from the primitives, and a missing variant is added to the primitive
+(next section), not drawn locally.
+
+A new primitive, or a new variant or size of one, comes with its story in
+`<Name>.stories.tsx` beside it, in the same change. Without it the catalogue
+goes stale and stops being the place to look. Stories carry no assertions
+and no snapshots (root `CLAUDE.md` → Tests); CI builds them, so one a
+refactor broke fails the PR (spec `2026-11-09-design-system-and-storybook-design`).
+
 ## `className` on a UI primitive is layout-only
 
 `Button`, `Panel`, `Input`, `Select` and friends take `className` for
