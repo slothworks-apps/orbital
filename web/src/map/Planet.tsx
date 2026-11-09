@@ -1873,8 +1873,9 @@ function PlanetBody({
       muteFade.value,
     )
     const idleShare = w.idle + w.needs_input
-    // A worktree launch not started: the body under 66b's dark wash.
-    const faint = w.setting_up + w.not_started
+    // A worktree launch not started: the body under 66b's dark wash, its
+    // share of the flat fill by weight and its strength by `faintOp`.
+    const faintShare = w.setting_up + w.not_started
     // Glows paint on a dark theme only (1l `--glow-k`); a light one draws an
     // edge and a shadow instead.
     const glowK = palette.glowK
@@ -1905,9 +1906,9 @@ function PlanetBody({
       // Bottom-to-top: flat ended fill, idle gradient, working gradient. The
       // dark wash of a planet not started is the ended fill without the
       // ended wrapper's dimming (66b `faintOp` over the body).
-      const alphas = stackAlphas([w.ended + faint, idleShare, w.working], bodyAlphas.current)
-      const flatShare = w.ended + faint
-      const flatOpacity = flatShare > 1e-6 ? (w.ended * DIMMED_OPACITY + faint) / flatShare : DIMMED_OPACITY
+      const flatShare = w.ended + faintShare
+      const alphas = stackAlphas([flatShare, idleShare, w.working], bodyAlphas.current)
+      const flatOpacity = flatShare > 1e-6 ? (w.ended * DIMMED_OPACITY + b.faint) / flatShare : DIMMED_OPACITY
       materials.bodyEnded.opacity = alphas[0] * flatOpacity * fade
       materials.bodyEnded.visible = alphas[0] > 0.001
       materials.bodyIdle.opacity = alphas[1] * fade
@@ -1937,7 +1938,7 @@ function PlanetBody({
       (w.working * BORDER_OPACITY_ACTIVE +
         idleShare * BORDER_OPACITY_IDLE +
         w.ended * BORDER_OPACITY_ENDED +
-        faint * BORDER_OPACITY_FAINT) *
+        faintShare * BORDER_OPACITY_FAINT) *
       b.dim *
       fade
 

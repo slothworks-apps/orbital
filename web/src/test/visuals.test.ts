@@ -16,6 +16,7 @@ import {
   LABEL_TYPE_MAX_MS,
   type PlanetState,
 } from '../map/visuals'
+import type { PlanetWeights } from '../map/transition'
 import {
   MOON_STATES as MIX_MOON_STATES,
   PLANET_STATES as MIX_PLANET_STATES,
@@ -52,6 +53,11 @@ import {
 } from '../map/transition'
 
 const PLANET_STATES: SessionStatus[] = ['working', 'idle', 'needs_input', 'ended']
+
+/** A planet's weights: the ones given, every other state at 0. */
+function planetWeights(patch: Partial<Record<PlanetState, number>>): PlanetWeights {
+  return { ...Object.fromEntries(MIX_PLANET_STATES.map((s) => [s, 0])), ...patch } as PlanetWeights
+}
 const MOON_STATES: Subagent['state'][] = [
   'materializing',
   'working',
@@ -316,17 +322,12 @@ describe('stateMix', () => {
 
 describe('blendPlanet', () => {
   /** A one-hot weight vector, i.e. a body at rest in `state`. */
-  function only(state: SessionStatus): Record<SessionStatus, number> {
-    return {
-      working: state === 'working' ? 1 : 0,
-      idle: state === 'idle' ? 1 : 0,
-      needs_input: state === 'needs_input' ? 1 : 0,
-      ended: state === 'ended' ? 1 : 0,
-    }
+  function only(state: PlanetState): PlanetWeights {
+    return planetWeights({ [state]: 1 })
   }
 
   it('at rest reproduces the state table exactly — the design values are untouched', () => {
-    for (const state of PLANET_STATES) {
+    for (const state of MIX_PLANET_STATES) {
       const v = planetVisuals(state, false)
       const b = blendPlanet(only(state), createPlanetBlend())
       expect(b.tickSpin).toBeCloseTo(v.tickSpin, 12)
@@ -339,11 +340,12 @@ describe('blendPlanet', () => {
       expect(b.corePulseSec).toBeCloseTo(v.corePulseSec, 12)
       expect(b.dim).toBe(v.dimmed ? DIMMED_OPACITY : 1)
       expect(b.ripple).toBe(v.rippleActive ? 1 : 0)
+      expect(b.faint).toBeCloseTo(v.faint, 12)
     }
   })
 
   it('continuous fields land between the two states halfway through', () => {
-    const half = { working: 0.5, idle: 0.5, needs_input: 0, ended: 0 }
+    const half = planetWeights({ working: 0.5, idle: 0.5, needs_input: 0, ended: 0 })
     const b = blendPlanet(half, createPlanetBlend())
     const working = planetVisuals('working', false)
     const idle = planetVisuals('idle', false)
@@ -354,7 +356,7 @@ describe('blendPlanet', () => {
   })
 
   it('the ended `opacity:.6` wrapper eases in rather than switching on', () => {
-    const b = blendPlanet({ working: 0, idle: 0.5, needs_input: 0, ended: 0.5 }, createPlanetBlend())
+    const b = blendPlanet(planetWeights({ working: 0, idle: 0.5, needs_input: 0, ended: 0.5 }), createPlanetBlend())
     expect(b.dim).toBeCloseTo(1 - 0.5 * (1 - DIMMED_OPACITY), 12)
     expect(b.dim).toBeGreaterThan(DIMMED_OPACITY)
     expect(b.dim).toBeLessThan(1)
@@ -363,16 +365,16 @@ describe('blendPlanet', () => {
   it('a blink period is weighted by pulse depth, so fading to a still state never strobes', () => {
     // working (blinks at 2.4s) → idle (does not blink): the depth fades out,
     // and the period must stay at 2.4s rather than being dragged toward 0.
-    const b = blendPlanet({ working: 0.25, idle: 0.75, needs_input: 0, ended: 0 }, createPlanetBlend())
+    const b = blendPlanet(planetWeights({ working: 0.25, idle: 0.75, needs_input: 0, ended: 0 }), createPlanetBlend())
     expect(b.corePulse).toBeCloseTo(0.25, 12)
     expect(b.corePulseSec).toBeCloseTo(2.4, 12)
 
     // Between two blinking states the period itself interpolates.
-    const both = blendPlanet({ working: 0.5, idle: 0, needs_input: 0.5, ended: 0 }, createPlanetBlend())
+    const both = blendPlanet(planetWeights({ working: 0.5, idle: 0, needs_input: 0.5, ended: 0 }), createPlanetBlend())
     expect(both.corePulseSec).toBeCloseTo((2.4 + 1.2) / 2, 12)
 
     // Nothing pulsing at all reports no period, not an infinitely fast one.
-    expect(blendPlanet({ working: 0, idle: 1, needs_input: 0, ended: 0 }, createPlanetBlend()).corePulseSec).toBe(0)
+    expect(blendPlanet(planetWeights({ working: 0, idle: 1, needs_input: 0, ended: 0 }), createPlanetBlend()).corePulseSec).toBe(0)
   })
 
   it('writes into the caller-owned object: the frame loop allocates nothing', () => {
@@ -383,7 +385,7 @@ describe('blendPlanet', () => {
 
 describe('planet tick rings crossfade rather than blending', () => {
   it('never invents an in-between tick count — the layer weights are what move', () => {
-    const half = { working: 0.5, idle: 0.5, needs_input: 0, ended: 0 }
+    const half = planetWeights({ working: 0.5, idle: 0.5, needs_input: 0, ended: 0 })
     const counts = PLANET_TICK_LAYERS.map((l) => l.count)
     // No layer's geometry depends on the weights at all.
     expect(counts).toEqual([60, 45, 30])
@@ -393,13 +395,10 @@ describe('planet tick rings crossfade rather than blending', () => {
   })
 
   it('at rest exactly one ring carries the full weight', () => {
-    for (const state of PLANET_STATES) {
-      const weights = {
-        working: state === 'working' ? 1 : 0,
-        idle: state === 'idle' ? 1 : 0,
-        needs_input: state === 'needs_input' ? 1 : 0,
-        ended: state === 'ended' ? 1 : 0,
-      }
+    for (const state of MIX_PLANET_STATES) {
+      // A state with no ring (setting up, not started) mounts none.
+      if (planetVisuals(state, false).tickOpacity === 0) continue
+      const weights = planetWeights({ [state]: 1 })
       const live = PLANET_TICK_LAYERS.map((l) => tickLayerWeight(l, weights)).filter((w) => w > 0)
       expect(live).toEqual([1])
     }

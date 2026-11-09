@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { SessionStatus, Subagent } from '../lib/types'
+import type { Subagent } from '../lib/types'
 import { DIMMED_OPACITY, MUTED_OPACITY, OFFLINE_OPACITY, moonVisuals, planetVisuals, type MoonVisuals, type PlanetState, type PlanetVisuals } from './visuals'
 
 /**
@@ -490,11 +490,8 @@ const PLANET_TABLE = {
   not_started: planetVisuals('not_started', false),
 } satisfies Record<PlanetState, PlanetVisuals>
 
-/**
- * A planet's state weights. The setup states are optional so a weight
- * vector of the four statuses alone still reads as one at rest in them.
- */
-export type PlanetWeights = Readonly<Record<SessionStatus, number>> & Partial<Readonly<Record<'setting_up' | 'not_started', number>>>
+/** A planet's state weights, one per state it can be drawn in. */
+export type PlanetWeights = Readonly<Record<PlanetState, number>>
 
 /** One crossfadeable tick-ring form: the fields that have no midpoint, plus which states wear it. */
 export interface TickLayer {
@@ -551,7 +548,7 @@ export const PLANET_TICK_LAYERS: readonly TickLayer[] = (() => {
 /** Summed weight of the states a tick layer covers — that layer's crossfade alpha. */
 export function tickLayerWeight(layer: TickLayer, weights: PlanetWeights): number {
   let sum = 0
-  for (const s of layer.states) sum += weights[s] ?? 0
+  for (const s of layer.states) sum += weights[s]
   return sum
 }
 
@@ -607,7 +604,7 @@ export function blendPlanet(weights: PlanetWeights, out: PlanetBlend): PlanetBle
   let faint = 0
 
   for (const state of PLANET_STATES) {
-    const w = weights[state] ?? 0
+    const w = weights[state]
     if (w === 0) continue
     const v = PLANET_TABLE[state]
     tickSpin += w * v.tickSpin
