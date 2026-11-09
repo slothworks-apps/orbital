@@ -4,6 +4,7 @@ import { reportError } from '../../lib/errors'
 import { tagColor, type ApiSession } from '../../lib/types'
 import { useMedia } from '../../store/media'
 import { useOrbital } from '../../store/store'
+import { reportClearFailure } from '../../store/sessionActions'
 import { patchSession } from '../session/patchSession'
 import { useMobile } from '../state'
 import { sessionSupports } from '../version'
@@ -137,7 +138,7 @@ export function SessionMenuSheet({
         useMobile.getState().openSession(result.sessionId)
       }
     } catch (err) {
-      reportError(err, 'Failed to clear session')
+      reportClearFailure(err)
       onClose()
     }
   }

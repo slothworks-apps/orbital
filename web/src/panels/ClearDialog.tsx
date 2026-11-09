@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
+import { reportClearFailure } from '../store/sessionActions'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { command, matches } from '../lib/keymap'
@@ -95,7 +96,7 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
         }
         onClose()
       } catch (err) {
-        reportError(err, 'Failed to clear session')
+        reportClearFailure(err)
       } finally {
         setPending(false)
       }

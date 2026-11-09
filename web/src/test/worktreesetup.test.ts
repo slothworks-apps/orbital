@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { api, ApiError } from '../lib/api'
+import { reportClearFailure } from '../store/sessionActions'
+import { useOrbital } from '../store/store'
 import type { SessionSetup, SetupPhase } from '@orbital/shared/worktree'
 import { pendingSetup, sessionStateKey, statePill, type ApiSession, type SessionStatus } from '../lib/types'
 import {
@@ -247,5 +250,13 @@ describe('a launch that just started', () => {
   it('does not repeat the launch’s own turn this tab already holds', () => {
     const held = [turn('local:1', 'Show a preview of the session.')]
     expect(withSetupTurns(held, setup()).map((m) => m.id)).toEqual(['local:1'])
+  })
+})
+
+describe('a Clear refused because the session is in setup', () => {
+  it('says so in words, not as the response body', () => {
+    vi.spyOn(api, 'reportErrorToServer').mockResolvedValue(undefined as never)
+    reportClearFailure(new ApiError('{"error":"in_setup"}', 409, '/api/sessions/s1/clear'))
+    expect(useOrbital.getState().toast?.message).toBe('This session has not started yet, so there is nothing to clear.')
   })
 })

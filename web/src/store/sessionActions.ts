@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api } from '../lib/api'
+import { api, ApiError, errorSentence } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { harnessUnfinished } from '../lib/harnessSession'
 import { useOrbital } from './store'
@@ -110,6 +110,21 @@ export function changeTag(id: string, tagId: number): void {
 }
 
 /**
+ * A Clear that failed, said and logged. A Mac refuses it with 409 `in_setup`
+ * for a worktree launch that has not started (spec
+ * 2026-11-09-worktree-setup-in-background-design § Discard): Clear is never
+ * offered there, but a dialog opened before the session was seen in setup
+ * can still send it, and the refusal is said in words, not as its body.
+ */
+export function reportClearFailure(err: unknown): void {
+  if (err instanceof ApiError && err.status === 409 && errorSentence(err, '') === 'in_setup') {
+    reportError(new ApiError('This session has not started yet, so there is nothing to clear.', err.status, err.url), '')
+    return
+  }
+  reportError(err, 'Failed to clear session')
+}
+
+/**
  * Clear and start over. "Don't ask again" skips straight to what the
  * dialog's only action does: clear and start new, and open the new session.
  * Ending without a successor is End session's job (spec
@@ -125,7 +140,7 @@ export function askToClear(id: string): void {
       .then((result) => {
         if (result.sessionId) void useOrbital.getState().select(result.sessionId)
       })
-      .catch((err) => reportError(err, 'Failed to clear session'))
+      .catch(reportClearFailure)
     return
   }
   state.setDialog('clear', id)
