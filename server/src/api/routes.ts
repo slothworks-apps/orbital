@@ -599,8 +599,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const worktrees = ctx.worktrees ?? new WorktreeService({
     ctx, trees: ctx.trees, settings: ctx.settings, nameBranch: ctx.nameBranch, errors: ctx.errors,
   });
-  // A removal End left running finishes before the server goes.
-  app.addHook('onClose', () => worktrees.settled());
+  // A removal End left running finishes before the server goes: `preClose`,
+  // since `onClose` hooks run last-registered-first, after the db is closed.
+  app.addHook('preClose', () => worktrees.settled());
 
   app.get('/api/sessions', (req) => {
     const q = req.query as Record<string, string>;
@@ -2446,7 +2447,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       path: worktreePath,
       endSession: 'always',
       end,
-      later: { stopped: stoppedForRemoval },
+      stoppedLater: stoppedForRemoval,
     });
     if (res.ok) return { ok: true } satisfies EndSessionResult;
     if (!res.ended) return reply.code(409).send({ error: res.error });

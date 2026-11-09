@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useOrbital } from '../store/store'
 import { api } from './api'
 import { isDemo } from './demo'
 import type { ApiSession } from './types'
@@ -17,7 +18,9 @@ import { isWorktreeState } from './worktree'
  * what the answer depends on moves: the branch and its PR (a push, a merge),
  * and the status settling into one that is not `working` (a session that
  * ends stops needing to be ended first; a turn that finishes may have
- * committed). Never as a turn starts: a working session's answer is not
+ * committed), and a removal End left running failing (a `worktree_failed`
+ * record for the session: the tree read as gone meanwhile is back). Never
+ * as a turn starts: a working session's answer is not
  * shown, and a session flipping in and out of `working` all day would ask
  * every time. A failed read is null: the offer is a convenience, and nothing
  * is offered on a guess.
@@ -54,9 +57,15 @@ export function useSessionWorktree(
       })
   }, [asks, id])
 
-  // The branch and its PR, as one key: a change in either asks again.
+  // The branch and its PR, and the session's newest failed removal, as one
+  // key: a change in any asks again.
   const pr = session?.branch?.pr
-  const key = [session?.git?.ref, pr?.number, pr?.state].join('|')
+  const failed = useOrbital((s) => {
+    let newest = 0
+    for (const e of s.errors) if (e.kind === 'worktree_failed' && e.sessionId === id && e.id > newest) newest = e.id
+    return newest
+  })
+  const key = [session?.git?.ref, pr?.number, pr?.state, failed].join('|')
 
   useEffect(() => {
     setLoaded(false)

@@ -324,9 +324,14 @@ The local branch is never deleted.
    long enough that the confirmation held the user up. The server then
    waits for the process and removes the worktree on its own. Until it is
    gone, the worktree's state reads `null`: no row, strip or ⋯ entry offers
-   it a second time. A removal git refuses is recorded in the error log,
-   whose record raises the desktop's error toast, and the worktree is
-   offered again. The answer is 200 `{ ok: true }`, or `worktreeRemoved:
+   it a second time, and a second End meanwhile (the Mac and a phone at
+   once) answers `not_worktree`. A session working in the tree again by
+   then — continued from history, or started in the folder — keeps it: the
+   removal is skipped and recorded. A removal git refuses is recorded in the
+   error log, whose record raises the desktop's error toast; a
+   `worktree_failed` record for the session makes the client read the
+   worktree again, so the strip and the ⋯ entry offer it again where the
+   user is looking. The answer is 200 `{ ok: true }`, or `worktreeRemoved:
    false` with `not_worktree` for a session no longer in a worktree. A Mac
    before this answered after git, with `worktreeRemoved: true` or
    `worktree_failed`; the web still reads both.
@@ -380,6 +385,11 @@ phone's New Session posts to the same `POST /api/sessions`.
   itself.
   Tapping it opens a sheet with the same two choices. The phone's End
   confirmation gains the same row as `EndDialog`.
+- **A removal that fails after End answered:** the phone raises no toast
+  for the Mac's error-log records, on purpose (they are the Mac's). Its
+  signal is the cleanup row coming back: the same `worktree_failed` record
+  makes it read the worktree again. A phone before that read waits for the
+  screen to be opened again.
 - **Allowlist:**
   - `spawn` group: `GET /api/worktree/options`, `POST /api/worktree/fetch`;
   - `sessions` group: `GET /api/sessions/:id/worktree`, `POST

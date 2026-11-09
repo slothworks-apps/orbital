@@ -424,6 +424,19 @@ describe('removing the worktree', () => {
     }
   });
 
+  it('removes once when two Ends arrive together', async () => {
+    const { app, sessionId, path } = await launched('feat/twice');
+    try {
+      const end = () => app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/end`, payload: { removeWorktree: 'clean', worktreePath: path } });
+      const answers = (await Promise.all([end(), end()])).map((r) => r.json());
+      // The first removes; the second finds it already on its way out.
+      expect(answers).toEqual(expect.arrayContaining([{ ok: true }, expect.objectContaining({ ok: true, error: 'not_worktree' })]));
+      await vi.waitFor(() => expect(existsSync(path)).toBe(false));
+    } finally {
+      await app.close();
+    }
+  });
+
   it('says so when End was asked to remove a worktree the session does not work in', async () => {
     const repo = makeRepo();
     const { app } = await serverWith('feat/x');
