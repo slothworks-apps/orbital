@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- New session → With harness…: start a session straight on a harness template from the phone, with the template’s inputs and an optional note for the first step. Needs Orbital 0.49.0 or later on the Mac and Harness turned on there.
 
 ## [0.24.3] — 2026-11-07
 ### Changed

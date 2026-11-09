@@ -2301,6 +2301,194 @@ describe('POST /api/sessions with a browser-minted session id', () => {
   });
 });
 
+describe('POST /api/sessions with a harness', () => {
+  const CLIENT_ID = '7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b';
+  const harnessSteps = [
+    { id: 'read', title: 'Read the task', instructions: 'Read {{task}}.', mode: 'auto' as const, doneWhen: 'it is understood' },
+    { id: 'build', title: 'Build it', instructions: 'Build.', mode: 'gate' as const, doneWhen: 'it works' },
+  ];
+
+  /**
+   * A real Runner over an SDK fake that records every user message it is fed
+   * and answers nothing, and a real harness behind the routes: the point is
+   * what the session's first turn was, and that a refused launch spawned
+   * nothing and wrote nothing.
+   */
+  function makeHarnessLaunchApp(opts: { enabled?: boolean } = {}) {
+    const db = openTmpDb('harness-launch');
+    const hub = new Hub();
+    const stored = new Map<string, string>([['harness_enabled', opts.enabled === false ? 'false' : 'true']]);
+    const settings = { get: (k: string) => stored.get(k) ?? '', set: (k: string, v: string) => void stored.set(k, v) };
+    const claudeDirs = testClaudeDirs(db, settings, '/nonexistent', { list: async () => [] });
+    /** Each user message the CLI was handed: its text blocks, and the uuid it is written under. */
+    const turns: { id: string; text: string; uuid?: string }[] = [];
+    const runner = new Runner({
+      hub,
+      queryFn: (({ prompt, options }: any) => {
+        async function* gen(): AsyncGenerator<any> {
+          for await (const msg of prompt) {
+            const text = (msg.message.content as any[]).filter((b) => b.type === 'text').map((b) => b.text).join('');
+            turns.push({ id: options.sessionId, text, uuid: msg.uuid });
+          }
+        }
+        return gen() as any;
+      }) as any,
+    });
+    const harness = new HarnessService({
+      db, isEnabled: () => stored.get('harness_enabled') === 'true',
+      cwdOf: (id) => db.select({ cwd: sessions.cwd }).from(sessions).where(eq(sessions.id, id)).get()?.cwd,
+      decisionPending: () => false, backgroundWork: () => false, isWaiting: () => false, send: () => null,
+      askWatcher: async () => 'STOP', askDrafter: async () => '', askReviewer: async () => '',
+      git: async () => ({ ok: false, output: 'not a git repository' }), publish: () => {},
+    });
+    const nameFromHarness = vi.fn(async () => false);
+    const app = Fastify();
+    registerRoutes(app, {
+      harness, db, runner, hub, claudeDirs,
+      registry: { get: () => undefined, all: () => [], rescan: () => {}, drop: () => {} },
+      transcriptPath: (id, projectDir) => join('/nonexistent', projectDir, `${id}.jsonl`),
+      subagents: new SubagentStore(),
+      backgroundTasks: new BackgroundTaskStore(),
+      terminals: new TerminalStore({ shell: { file: '/bin/sh', args: [] } }),
+      recentTools: new RecentToolsStore(),
+      git: gitStore,
+      ide: ideStore,
+      branchStatus: branchStatusStore,
+      subagentTranscripts: new SubagentTranscripts(),
+      errors: new ErrorLog({ db, hub }),
+      titler: { ...stubTitler(), nameFromHarness },
+      narrator: new Narrator({ db, queryFn: noNarrateQuery, model: () => '' }),
+      images: { put: () => null, putBytes: () => null, read: () => null, entry: () => null, bytes: () => null }, imagesDir: '/nonexistent',
+      files: { putBytes: () => null },
+      remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null, entry: () => null, bytes: () => null }, '/nonexistent', settings),
+      settings,
+      mcpFor: () => noMcp,
+      retention: retentionFor(db),
+    });
+    const made = harness.createTemplate({
+      name: 'ClickUp task', description: '', tags: [],
+      inputs: [{ key: 'task', label: 'Task link' }, { key: 'notes', label: 'Notes', hint: 'optional' }],
+      steps: harnessSteps,
+    });
+    if (!made.ok) throw new Error(made.error);
+    const launch = (payload: Record<string, unknown>) => app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '/p', prompt: '', permissionMode: 'acceptEdits', sessionId: CLIENT_ID, ...payload },
+    });
+    return {
+      app, db, runner, harness, turns, nameFromHarness, launch, templateId: made.value.id,
+      close: () => { runner.dispose(); db.$client.close(); },
+    };
+  }
+
+  /** Lets the fake CLI take what the runner queued for it. */
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+
+  it('starts the session on the checklist: the kickoff is its first and only turn, recorded as the harness\'s', async () => {
+    const { db, harness, turns, nameFromHarness, launch, templateId, close } = makeHarnessLaunchApp();
+    const res = await launch({ harness: { templateId, inputs: { task: 'https://app.clickup.com/t/1' }, lucky: false } });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toEqual({ sessionId: CLIENT_ID });
+    await settle();
+    expect(turns).toHaveLength(1);
+    expect(turns[0].text).toMatch(/^This session follows the Orbital harness "ClickUp task"/);
+    expect(turns[0].text).toContain('Read https://app.clickup.com/t/1.');
+    expect(turns[0].text).not.toContain('A note from the user');
+    const h = harness.get(CLIENT_ID);
+    expect(h).toMatchObject({ templateId, inputs: { task: 'https://app.clickup.com/t/1', notes: '' } });
+    // The kickoff is marked as Orbital's under the uuid it went out with, and began step 1.
+    expect([...harness.messagesOf(CLIENT_ID)]).toEqual([[turns[0].uuid, { kind: 'kickoff', step: 0 }]]);
+    expect(h?.state[0]).toMatchObject({ status: 'active', startMessageUuid: turns[0].uuid });
+    expect(nameFromHarness).toHaveBeenCalledWith(CLIENT_ID, expect.stringContaining('Harness: ClickUp task'));
+    expect(db.select({ id: sessions.id }).from(sessions).all()).toEqual([{ id: CLIENT_ID }]);
+    close();
+  });
+
+  it('appends a prompt to the kickoff as the user\'s note, in the same one turn', async () => {
+    const { turns, launch, templateId, close } = makeHarnessLaunchApp();
+    const res = await launch({ prompt: '  Mind the mobile layout.  ', harness: { templateId, inputs: { task: 'T-1' }, lucky: false } });
+    expect(res.statusCode).toBe(201);
+    await settle();
+    expect(turns).toHaveLength(1);
+    expect(turns[0].text).toMatch(/^This session follows the Orbital harness/);
+    expect(turns[0].text.endsWith('\n\nA note from the user for step 1:\n\nMind the mobile layout.')).toBe(true);
+    close();
+  });
+
+  it('applies Feeling lucky only where it differs from the template\'s default', async () => {
+    const { harness, launch, templateId, close } = makeHarnessLaunchApp();
+    await launch({ harness: { templateId, inputs: { task: 'T-1' }, lucky: true } });
+    expect(harness.get(CLIENT_ID)?.options.lucky).toBe(true);
+    expect(harness.events(CLIENT_ID).map((e) => e.kind)).toContain('options');
+    close();
+  });
+
+  it('refuses a missing input, an unknown template, a draft and another project\'s, before anything spawns', async () => {
+    const { db, runner, harness, turns, launch, templateId, close } = makeHarnessLaunchApp();
+    const draft = harness.createTemplate({ name: 'Draft', description: '', tags: [], inputs: [], steps: harnessSteps, draft: true });
+    const elsewhere = harness.createTemplate({
+      name: 'Billing', description: '', tags: [], inputs: [], steps: harnessSteps, scope: { kind: 'project', root: '/work/billing' },
+    });
+    if (!draft.ok || !elsewhere.ok) throw new Error('templates');
+    for (const [body, status, error] of [
+      [{ templateId, inputs: { task: '  ' }, lucky: false }, 400, 'Task link is required'],
+      [{ templateId: String(templateId), inputs: {}, lucky: false }, 400, 'templateId must be a number'],
+      [{ templateId: 999, inputs: {}, lucky: false }, 404, 'template not found'],
+      [{ templateId: draft.value.id, inputs: {}, lucky: false }, 404, 'template not found'],
+      [{ templateId: elsewhere.value.id, inputs: {}, lucky: false }, 404, 'template not found'],
+    ] as const) {
+      const res = await launch({ harness: body });
+      expect(res.statusCode, error).toBe(status);
+      expect(res.json()).toEqual({ error });
+    }
+    expect(runner.active()).toEqual([]);
+    expect(db.select({ id: sessions.id }).from(sessions).all()).toEqual([]);
+    expect(harness.get(CLIENT_ID)).toBeNull();
+    expect(turns).toEqual([]);
+    close();
+  });
+
+  it('accepts a template of the repository a worktree belongs to', async () => {
+    const repo = realpathSync(makeTmpDir('launch-repo'));
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'x'], { cwd: repo });
+    const tree = join(repo, '.claude', 'worktrees', 'tray');
+    execFileSync('git', ['worktree', 'add', '-q', tree], { cwd: repo });
+    const { harness, launch, close } = makeHarnessLaunchApp();
+    const scoped = harness.createTemplate({
+      name: 'Repo only', description: '', tags: [], inputs: [], steps: harnessSteps, scope: { kind: 'project', root: repo },
+    });
+    if (!scoped.ok) throw new Error(scoped.error);
+    const res = await launch({ cwd: tree, harness: { templateId: scoped.value.id, inputs: {}, lucky: false } });
+    expect(res.statusCode).toBe(201);
+    expect(harness.get(CLIENT_ID)?.templateId).toBe(scoped.value.id);
+    close();
+  });
+
+  it('403s while the feature is off, and starts nothing', async () => {
+    const { db, runner, launch, templateId, close } = makeHarnessLaunchApp({ enabled: false });
+    const res = await launch({ harness: { templateId, inputs: { task: 'T-1' }, lucky: false } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ error: 'harness_disabled' });
+    expect(runner.active()).toEqual([]);
+    expect(db.select({ id: sessions.id }).from(sessions).all()).toEqual([]);
+    close();
+  });
+
+  it('a repeated launch gets the first one\'s answer: one harness, one kickoff', async () => {
+    const { harness, turns, launch, templateId, close } = makeHarnessLaunchApp();
+    const body = { prompt: 'note', harness: { templateId, inputs: { task: 'T-1' }, lucky: false } };
+    const [first, again] = await Promise.all([launch(body), launch(body)]);
+    const later = await launch(body);
+    for (const res of [first, again, later]) expect(res.json()).toEqual({ sessionId: CLIENT_ID });
+    await settle();
+    expect(turns).toHaveLength(1);
+    expect(harness.messagesOf(CLIENT_ID).size).toBe(1);
+    expect(harness.events(CLIENT_ID).filter((e) => e.kind === 'attached')).toHaveLength(1);
+    close();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // claude_code_version (task 3)
 // ---------------------------------------------------------------------------

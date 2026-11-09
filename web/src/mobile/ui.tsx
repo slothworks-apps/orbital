@@ -69,13 +69,20 @@ type ButtonProps = {
  * `tone="light"` is the confirming action that is no accent action — Remove,
  * Leave group, Update <device> (canvas 50i, 50s): filled with the bright
  * ink, dark text, no bloom.
+ *
+ * `explains` is the disabled primary whose label is the reason it cannot be
+ * pressed (canvas `Feature - New session harness` 65d START: "Add a task
+ * link to start"): a faint fill with the label in a readable ink, rather
+ * than the whole button faded.
  */
 export function PrimaryButton({
-  children, onClick, disabled, type = 'button', variant = 'screen', ready = true, tone = 'accent',
-}: ButtonProps & { ready?: boolean; tone?: 'accent' | 'light' }) {
+  children, onClick, disabled, type = 'button', variant = 'screen', ready = true, tone = 'accent', explains = false,
+}: ButtonProps & { ready?: boolean; tone?: 'accent' | 'light'; explains?: boolean }) {
   const fill = tone === 'light'
     ? 'bg-ink-100 text-space disabled:opacity-40'
-    : 'bg-accent text-space-deep disabled:opacity-35 disabled:shadow-none'
+    : explains
+      ? 'bg-accent text-space-deep disabled:bg-accent/25 disabled:text-ink-100/60 disabled:shadow-none'
+      : 'bg-accent text-space-deep disabled:opacity-35 disabled:shadow-none'
   return (
     <button
       type={type}

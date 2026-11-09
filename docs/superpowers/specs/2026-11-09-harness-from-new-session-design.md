@@ -1,7 +1,7 @@
 ---
 id: 2026-11-09-harness-from-new-session-design
 title: Harness from the New session dialog — a session that starts on its checklist
-status: active
+status: done
 type: spec
 domain: sessions
 related:

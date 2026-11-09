@@ -271,7 +271,7 @@ function howToTick(options: HarnessOptions): string {
  * the template's own text, the same in every session that follows it, so
  * it would name them all alike.
  */
-export function namingSubject(h: SessionHarness, inputs: HarnessInput[]): string {
+export function namingSubject(h: Pick<SessionHarness, 'name' | 'steps' | 'inputs' | 'state'>, inputs: HarnessInput[]): string {
   const given = inputs
     .filter((input) => h.inputs[input.key]?.trim())
     .map((input) => `${input.label}: ${h.inputs[input.key]}`);

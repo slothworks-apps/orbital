@@ -11,8 +11,10 @@ import { realpathSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { DEFAULT_DRAFT_MODEL, DRAFT_MODELS, INTERVIEW_PROMPT, MAX_EVENTS_PAGE, type Deliver, type TemplateBody } from '../harness/service.js';
 import { projectRootOf } from '../harness/project.js';
+import { expandHome } from '../paths.js';
 import { isScope } from '../harness/logic.js';
 import { NAME_SESSIONS_KEY } from '../titler/titler.js';
+import type { HarnessTemplate } from '../harness/types.js';
 import type { ChatMessage, PermissionMode, SessionPurpose } from '../types.js';
 import type { RouteContext } from './routes.js';
 
@@ -26,6 +28,55 @@ export type LaunchSession = (opts: {
 
 /** Moves a session's harness into another and sends it the current step. */
 export type CarryHarness = (fromId: string, toId: string) => Promise<{ ok: true } | { ok: false; status: number; error: string }>;
+
+type Refusal = { ok: false; status: number; error: string };
+
+/** A launch's harness, checked before anything spawns (spec 2026-11-09-harness-from-new-session-design § The server). */
+export interface LaunchHarnessPlan {
+  templateId: number;
+  inputs: Record<string, string>;
+  /** Present only where it differs from the template's default. */
+  lucky?: boolean;
+  /** What the session is named from, and its worktree's branch. */
+  subject: string;
+}
+
+/**
+ * `POST /api/sessions` with `harness`: the session starts on the checklist,
+ * its kickoff the first turn. The launch route calls these in order —
+ * `check` before anything is written, `attach` just before the spawn (so the
+ * session never runs a moment without its harness, and is never named from
+ * the kickoff's text), `started` once the session exists; `discard` undoes
+ * an `attach` whose spawn failed.
+ */
+export interface LaunchHarness {
+  check(raw: unknown, cwd: string): { ok: true; plan: LaunchHarnessPlan } | Refusal;
+  /** Attaches the harness and answers the first prompt: the kickoff, and the user's `prompt` as a note after it. */
+  attach(sessionId: string, plan: LaunchHarnessPlan, prompt: string): { ok: true; text: string } | Refusal;
+  /** The first prompt went out under `uuid`; `named`: the session already has a name (its worktree's). */
+  started(sessionId: string, plan: LaunchHarnessPlan, uuid: string, text: string, named: boolean): Promise<void>;
+  discard(sessionId: string): void;
+}
+
+/** The header the user's own words follow the kickoff under, in a launch's first prompt. */
+export const LAUNCH_NOTE_HEADER = 'A note from the user for step 1:';
+
+/** A launch's first prompt: the kickoff, then what the user typed, as one message (§ The first message). */
+export function launchPrompt(kickoff: string, prompt: string): string {
+  const note = prompt.trim();
+  return note ? `${kickoff}\n\n${LAUNCH_NOTE_HEADER}\n\n${note}` : kickoff;
+}
+
+/** The inputs a body carries, strings only. */
+function inputValues(raw: unknown): Record<string, string> {
+  const inputs = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return Object.fromEntries(Object.entries(inputs).filter(([, v]) => typeof v === 'string')) as Record<string, string>;
+}
+
+/** The first input left empty that is required: every input is, unless its hint says it is optional (30c). */
+function missingInput(template: HarnessTemplate | undefined, values: Record<string, string>): HarnessTemplate['inputs'][number] | undefined {
+  return template?.inputs.find((input) => !values[input.key]?.trim() && !/optional/i.test(input.hint ?? ''));
+}
 
 const isDraftModel = (v: unknown): v is string => typeof v === 'string' && (DRAFT_MODELS as readonly string[]).includes(v);
 
@@ -62,7 +113,7 @@ export function registerHarnessRoutes(
   deliver: Deliver,
   readTranscript: (id: string) => ChatMessage[] | null,
   launch?: LaunchSession,
-): { carryHarness: CarryHarness } {
+): { carryHarness: CarryHarness; launchHarness: LaunchHarness } {
   const { harness } = ctx;
   // A review that ends minutes later may find the session asleep; this path revives it.
   harness.useDelivery(deliver);
@@ -80,6 +131,23 @@ export function registerHarnessRoutes(
     if (q.scope === 'global') return { templates: harness.listTemplates({ scope: 'global' }) };
     if (q.project) return { templates: harness.listTemplates({ scope: { project: projectRootOf(q.project) } }) };
     return { templates: harness.listTemplates() };
+  });
+
+  /**
+   * What New session offers for a directory no session runs in yet: the
+   * start view's list for it, and the template of the latest harness in the
+   * same project while it is still offered (spec
+   * 2026-11-09-harness-from-new-session-design). In the `sessions` group of
+   * the allowlist, unlike the route above: a phone that may launch sessions
+   * sees what it can launch with.
+   */
+  app.get('/api/sessions/harness-templates', (req, reply) => {
+    if (!enabled()) return reply.code(403).send({ error: 'harness_disabled' });
+    const { cwd } = req.query as { cwd?: unknown };
+    if (typeof cwd !== 'string' || !cwd.trim()) return reply.code(400).send({ error: 'cwd is required' });
+    const offer = harness.templatesForCwd(launchRoot(cwd));
+    const last = offer.project ? harness.lastTemplateIn(offer.project.root) : null;
+    return { ...offer, lastUsedId: offer.templates.some((t) => t.id === last) ? last : null };
   });
 
   /** The projects sessions ran in and templates belong to: the scope picker and the filter chips (30j, 30m). */
@@ -200,13 +268,8 @@ export function registerHarnessRoutes(
     const { id } = req.params as { id: string };
     const body = (req.body ?? {}) as { templateId?: unknown; inputs?: unknown };
     if (typeof body.templateId !== 'number') return reply.code(400).send({ error: 'templateId must be a number' });
-    const inputs = body.inputs && typeof body.inputs === 'object' ? (body.inputs as Record<string, unknown>) : {};
-    const values = Object.fromEntries(
-      Object.entries(inputs).filter(([, v]) => typeof v === 'string'),
-    ) as Record<string, string>;
-    // Every input is required unless its hint says it is optional (30c).
-    const template = harness.getTemplate(body.templateId);
-    const missing = template?.inputs.find((input) => !values[input.key]?.trim() && !/optional/i.test(input.hint ?? ''));
+    const values = inputValues(body.inputs);
+    const missing = missingInput(harness.getTemplate(body.templateId), values);
     if (missing) return reply.code(400).send({ error: `${missing.label} is required` });
     const started = startedByHarness(id);
     const result = harness.attach(id, body.templateId, values);
@@ -307,7 +370,75 @@ export function registerHarnessRoutes(
     return { harness: harness.get(id) };
   });
 
-  return { carryHarness };
+  const launchHarness: LaunchHarness = {
+    check(raw, cwd) {
+      if (!enabled()) return { ok: false, status: 403, error: 'harness_disabled' };
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return { ok: false, status: 400, error: 'harness must be { templateId, inputs, lucky }' };
+      }
+      const body = raw as { templateId?: unknown; inputs?: unknown; lucky?: unknown };
+      if (typeof body.templateId !== 'number') return { ok: false, status: 400, error: 'templateId must be a number' };
+      if (body.lucky !== undefined && typeof body.lucky !== 'boolean') return { ok: false, status: 400, error: 'lucky must be a boolean' };
+      const values = inputValues(body.inputs);
+      // Only what the start view offers this directory: a draft or another
+      // project's template is not there, so it is not found here either.
+      const template = harness.getTemplate(body.templateId);
+      const root = projectRootOf(launchRoot(cwd));
+      const offered = template && !template.draft && (template.scope.kind === 'global' || template.scope.root === root);
+      if (!offered) return { ok: false, status: 404, error: 'template not found' };
+      const missing = missingInput(template, values);
+      if (missing) return { ok: false, status: 400, error: `${missing.label} is required` };
+      const preview = harness.preview(template.id, values);
+      if (!preview.ok) return preview;
+      return {
+        ok: true,
+        plan: {
+          templateId: template.id, inputs: values, subject: preview.value.subject,
+          ...(typeof body.lucky === 'boolean' && body.lucky !== template.options.lucky ? { lucky: body.lucky } : {}),
+        },
+      };
+    },
+    attach(sessionId, plan, prompt) {
+      const result = harness.attach(sessionId, plan.templateId, plan.inputs);
+      if (!result.ok) return result;
+      if (plan.lucky !== undefined) {
+        const tuned = harness.setOptions(sessionId, { lucky: plan.lucky });
+        if (!tuned.ok) {
+          harness.discard(sessionId);
+          return tuned;
+        }
+      }
+      const text = launchPrompt(result.value.kickoff, prompt);
+      // Before the spawn, so the session's echo of it never reads as the user's.
+      harness.noteSent(sessionId, text);
+      return { ok: true, text };
+    },
+    async started(sessionId, plan, uuid, text, named) {
+      harness.recordSent(sessionId, uuid, 'kickoff', 0, text);
+      await harness.stepStarted(sessionId, 0, uuid);
+      if (!named) nameFromHarness(sessionId, plan.subject);
+    },
+    discard(sessionId) {
+      harness.discard(sessionId);
+      harness.forget(sessionId);
+    },
+  };
+
+  return { carryHarness, launchHarness };
+
+  /**
+   * The directory a launch's templates are read for, as a session's cwd is
+   * matched against them: expanded, through symlinks; a worktree's resolves
+   * to its repository through `projectRootOf` in the service.
+   */
+  function launchRoot(cwd: string): string {
+    const expanded = expandHome(cwd);
+    try {
+      return realpathSync(expanded);
+    } catch {
+      return expanded;
+    }
+  }
 
   async function carryHarness(fromId: string, toId: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
     const started = startedByHarness(toId);

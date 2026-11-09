@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
-import type { ApiSession, OrbitalModel, Tag } from '../lib/types'
+import type { ApiSession, GroupMember, HarnessTemplate, OrbitalModel, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 
 // Same shape as modelcards.test.tsx's fixture, so the two never disagree
@@ -1132,5 +1132,148 @@ describe('NewSessionDialog — the .mcp.json question', () => {
     await openAndLaunch()
     await waitFor(() => expect(api.createSession).toHaveBeenCalled())
     expect(api.createSession).toHaveBeenCalledWith(expect.not.objectContaining({ mcpjson: expect.anything() }))
+  })
+})
+
+describe('NewSessionDialog — with a harness (canvas 65a)', () => {
+  const template = (over: Partial<HarnessTemplate> & Pick<HarnessTemplate, 'id' | 'name'>): HarnessTemplate => ({
+    description: '',
+    tags: [],
+    inputs: [],
+    steps: [{ id: 's1', title: 'Read the task', instructions: '', mode: 'auto', doneWhen: '' }],
+    options: { commitPerStep: true, maxAutoRounds: 3, maxIdleNudges: 2, lucky: false } as HarnessTemplate['options'],
+    scope: { kind: 'global' },
+    draft: false,
+    createdAt: 0,
+    updatedAt: 0,
+    ...over,
+  })
+  const FIX = template({
+    id: 7,
+    name: 'Bug fix',
+    scope: { kind: 'project', root: '/w/orbital', name: 'orbital' },
+    inputs: [
+      { key: 'task', label: 'Task link', hint: 'Linear or GitHub issue' },
+      { key: 'where', label: 'Where', hint: 'optional · a folder' },
+    ],
+  })
+  const DOCS = template({ id: 9, name: 'Docs pass' })
+
+  beforeEach(() => {
+    vi.mocked(api.listHarnessTemplatesForLaunch).mockResolvedValue({
+      project: { root: '/w/orbital', name: 'orbital' },
+      templates: [FIX, DOCS],
+      lastUsedId: 7,
+    })
+    vi.mocked(api.createSession).mockResolvedValue('s1')
+  })
+
+  const openStepTwo = async () => {
+    resetStore({ settings: { default_project_dir: '/w/orbital', harness_enabled: 'true' } })
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /with harness…/i }))
+    await screen.findByRole('radio', { name: /bug fix/i })
+  }
+
+  it('offers no With harness… with the Harness switch off', async () => {
+    resetStore({ settings: { default_project_dir: '/w/orbital' } })
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /with harness/i })).toBeNull()
+  })
+
+  it('preselects the last used template and holds Launch while a required input is empty', async () => {
+    await openStepTwo()
+    expect(api.listHarnessTemplatesForLaunch).toHaveBeenCalledWith('/w/orbital', undefined)
+    expect(screen.getByRole('radio', { name: /bug fix/i })).toHaveAttribute('aria-checked', 'true')
+
+    const launch = screen.getByRole('button', { name: /launch with harness/i })
+    expect(launch).toBeDisabled()
+    expect(screen.getByText('Fill Task link to launch')).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Enter', metaKey: true })
+    expect(api.createSession).not.toHaveBeenCalled()
+  })
+
+  it('launches with the harness, its inputs, Feeling lucky and the note', async () => {
+    await openStepTwo()
+    replaceField(screen.getByRole('textbox', { name: /note for step 1/i }), 'start in parse.ts')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Task link' }), { target: { value: ' https://x/ORB-1 ' } })
+    fireEvent.click(screen.getByRole('switch', { name: /feeling lucky/i }))
+
+    fireEvent.keyDown(document, { key: 'Enter', metaKey: true })
+
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: '/w/orbital',
+          prompt: 'start in parse.ts',
+          harness: { templateId: 7, inputs: { task: 'https://x/ORB-1' }, lucky: true },
+        }),
+      ),
+    )
+  })
+
+  it('launches with an empty prompt when the template carries the task', async () => {
+    await openStepTwo()
+    fireEvent.click(screen.getByRole('radio', { name: /docs pass/i }))
+    fireEvent.click(screen.getByRole('button', { name: /launch with harness/i }))
+
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: '', harness: { templateId: 9, inputs: {}, lucky: false } }),
+      ),
+    )
+  })
+
+  it('goes back to step 1 on esc with the prompt and the inputs kept, and step 1 launches without a harness', async () => {
+    resetStore({ settings: { default_project_dir: '/w/orbital', harness_enabled: 'true' } })
+    const onClose = vi.fn()
+    render(<NewSessionDialog open onClose={onClose} />)
+    replaceField(screen.getByRole('textbox', { name: /first prompt/i }), 'look at the parser')
+    fireEvent.click(screen.getByRole('button', { name: /with harness…/i }))
+    await screen.findByRole('radio', { name: /bug fix/i })
+    expect(fieldValue(screen.getByRole('textbox', { name: /note for step 1/i }))).toBe('look at the parser')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Task link' }), { target: { value: 'https://x/ORB-2' } })
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(await screen.findByRole('dialog', { name: 'New session' })).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(fieldValue(screen.getByRole('textbox', { name: /first prompt/i }))).toBe('look at the parser')
+
+    fireEvent.click(screen.getByRole('button', { name: /with harness…/i }))
+    expect(await screen.findByRole('textbox', { name: 'Task link' })).toHaveValue('https://x/ORB-2')
+
+    fireEvent.click(screen.getByRole('button', { name: /back to new session/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /launch session/i }))
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled())
+    expect(api.createSession).toHaveBeenCalledWith(expect.not.objectContaining({ harness: expect.anything() }))
+  })
+
+  it('says another device has to be updated when its Orbital has no templates route', async () => {
+    const { ApiError } = await vi.importActual<typeof import('../lib/api')>('../lib/api')
+    vi.mocked(api.listHarnessTemplatesForLaunch).mockRejectedValue(new ApiError('Not Found', 404))
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/orbital', lastModel: null, lastAt: null }])
+    const member = (patch: Partial<GroupMember>): GroupMember => ({
+      id: 'm', kind: 'desktop', name: 'm', os: 'macos', links: true, addedAt: 0, addedVersion: 1, primary: false,
+      self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null, tooOld: false,
+      ...patch,
+    })
+    // The dialog opens on the device the last launch went to.
+    localStorage.setItem('orbital.newSession.device', 'studio')
+    resetStore({
+      settings: { harness_enabled: 'true' },
+      remote: {
+        group: {
+          members: [member({ id: 'self', name: 'here', self: true, state: 'self' }), member({ id: 'studio', name: 'studio-mbp' })],
+        },
+      } as unknown as OrbitalState['remote'],
+    })
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByLabelText(/project directory/i)).toHaveValue('/w/orbital'))
+    fireEvent.click(screen.getByRole('button', { name: /with harness…/i }))
+
+    expect(await screen.findByText(/Update Orbital on studio-mbp/)).toBeInTheDocument()
+    expect(api.listHarnessTemplatesForLaunch).toHaveBeenCalledWith('/w/orbital', 'studio')
+    localStorage.removeItem('orbital.newSession.device')
   })
 })

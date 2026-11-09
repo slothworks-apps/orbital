@@ -51,6 +51,13 @@ export const MAC_FEATURES = {
    * older Mac all three are left out.
    */
   worktreeLaunch: '0.47.0',
+  /**
+   * Start on a harness from New session: `harness` on `POST /api/sessions` and `GET
+   * /api/sessions/harness-templates` (spec 2026-11-09-harness-from-new-session-design § Phone).
+   * Against an older Mac, which would ignore the field and start a plain session, *With
+   * harness…* is not offered.
+   */
+  harnessLaunch: '0.49.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

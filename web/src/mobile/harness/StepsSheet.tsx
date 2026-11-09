@@ -26,7 +26,7 @@ export const SEGMENT_INK: Record<SegmentTone, string> = {
  * The desktop's `MARKER` decides fill and stroke per kind — the rail the
  * canvas says it reuses — except the pending border, which 10b draws its own.
  */
-function RailMarker({ kind, gate }: { kind: StepKind; gate: boolean }) {
+export function RailMarker({ kind, gate }: { kind: StepKind; gate: boolean }) {
   const m = MARKER[kind]
   const pending = kind === 'pending' || kind === 'pendingGate'
   return (

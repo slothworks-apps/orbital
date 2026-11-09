@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { TunnelError } from '@orbital/shared/remote/client'
 import { ApiError } from '../lib/api'
-import type { OrbitalModel, SessionDefaults } from '../lib/types'
+import { DEFAULT_HARNESS_OPTIONS, type HarnessTemplate, type OrbitalModel, type SessionDefaults } from '../lib/types'
 import {
+  harnessLaunch,
+  harnessStartBlock,
+  launchRequest,
   noSuchDirectory,
+  offersHarness,
+  templateSheetLines,
   preselectClaudeDir,
   preselectMode,
   preselectModel,
@@ -108,5 +113,96 @@ describe('startFailureLine', () => {
   it('says something even for an error with no words', () => {
     expect(startFailureLine(new ApiError('', 500), null)).toBe("Couldn't start the session — HTTP 500.")
     expect(startFailureLine('boom', null)).toBe("Couldn't start the session — boom.")
+  })
+})
+
+const template = (id: number, patch: Partial<HarnessTemplate> = {}): HarnessTemplate => ({
+  id,
+  name: `T${id}`,
+  description: '',
+  tags: [],
+  inputs: [],
+  steps: [],
+  options: DEFAULT_HARNESS_OPTIONS,
+  scope: { kind: 'global' },
+  draft: false,
+  createdAt: 0,
+  updatedAt: 0,
+  ...patch,
+})
+
+describe('offersHarness', () => {
+  const on = { harness_enabled: 'true' }
+
+  it('offers With harness… only from a Mac that accepts a harness on launch', () => {
+    expect(offersHarness(on, '0.49.0')).toBe(true)
+    expect(offersHarness(on, '0.48.9')).toBe(false)
+    // No hello yet: nothing is asked of a device not yet known.
+    expect(offersHarness(on, null)).toBe(false)
+  })
+
+  it('needs the Harness switch on', () => {
+    expect(offersHarness({}, '0.49.0')).toBe(false)
+    expect(offersHarness({ harness_enabled: 'false' }, '0.49.0')).toBe(false)
+  })
+})
+
+describe('harnessStartBlock', () => {
+  const task = template(1, { inputs: [{ key: 'task', label: 'Task link', hint: 'Linear or GitHub issue' }] })
+
+  it('names the empty required input in the button', () => {
+    expect(harnessStartBlock({ templates: [task], template: task, inputs: {} })).toBe('Add a task link to start')
+    expect(harnessStartBlock({ templates: [task], template: task, inputs: { task: '   ' } })).toBe('Add a task link to start')
+    expect(harnessStartBlock({ templates: [task], template: task, inputs: { task: 'ORB-412' } })).toBeNull()
+  })
+
+  it('skips an input whose hint says optional, and keeps an acronym', () => {
+    const t = template(2, {
+      inputs: [
+        { key: 'note', label: 'Notes', hint: 'optional' },
+        { key: 'pr', label: 'PR URL' },
+        { key: 'area', label: 'Area' },
+      ],
+    })
+    expect(harnessStartBlock({ templates: [t], template: t, inputs: {} })).toBe('Add a PR URL to start')
+    expect(harnessStartBlock({ templates: [t], template: t, inputs: { pr: 'x' } })).toBe('Add an area to start')
+  })
+
+  it('says there is nothing to start with when no template is offered', () => {
+    expect(harnessStartBlock({ templates: [], template: null, inputs: {} })).toBe('No template to start with')
+    expect(harnessStartBlock({ templates: [task], template: null, inputs: {} })).toBe('Pick a template to start')
+  })
+})
+
+describe('launchRequest with a harness', () => {
+  const base = { cwd: '~/web', prompt: '', files: [], mode: 'acceptEdits' as const, model: null, claudeDirId: null, refs: [], machine: 'build' }
+
+  it('carries the harness, the template inputs only, with an empty prompt', () => {
+    const t = template(7, { inputs: [{ key: 'task', label: 'Task link' }] })
+    const body = launchRequest({ ...base, harness: harnessLaunch(t, { task: ' ORB-412 ', stale: 'x' }, true) })
+    expect(body).toMatchObject({ prompt: '', machine: 'build', harness: { templateId: 7, inputs: { task: 'ORB-412' }, lucky: true } })
+  })
+
+  it('leaves the field out of a plain launch', () => {
+    expect(launchRequest(base)).not.toHaveProperty('harness')
+  })
+})
+
+describe('templateSheetLines', () => {
+  const project = { root: '/w/orbital', name: 'orbital' }
+  const own = template(1, { name: 'Fix a bug', scope: { kind: 'project', root: '/w/orbital', name: 'orbital' } })
+  const global = template(2, { name: 'Release' })
+
+  it("lists this project's templates first, then the global ones, under their captions", () => {
+    const lines = templateSheetLines([global, own], project, 1, '')
+    expect(lines.map((l) => (l.kind === 'caption' ? l.label : l.template.id))).toEqual(['ORBITAL · THIS PROJECT', 1, 'GLOBAL', 2])
+    expect(lines[1]).toMatchObject({ meta: '0 steps · 0 gates · last used here' })
+  })
+
+  it('drops a group the search empties', () => {
+    expect(templateSheetLines([global, own], project, null, 'rel').map((l) => (l.kind === 'caption' ? l.label : l.template.id))).toEqual([
+      'GLOBAL',
+      2,
+    ])
   })
 })

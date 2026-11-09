@@ -50,6 +50,8 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/sessions', 'sessions'],
   ['GET', '/api/sessions/count', 'sessions'],
   ['GET', '/api/sessions/defaults', 'sessions'],
+  // What New session can start a session on; a phone that launches sees it (spec 2026-11-09-harness-from-new-session-design).
+  ['GET', '/api/sessions/harness-templates', 'sessions'],
   ['GET', '/api/sessions/:id', 'sessions'],
   ['PATCH', '/api/sessions/:id', 'sessions'],
   ['GET', '/api/sessions/:id/messages', 'sessions'],

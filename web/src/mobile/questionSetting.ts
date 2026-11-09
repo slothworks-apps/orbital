@@ -1,14 +1,20 @@
 import { api } from '../lib/api'
 import { useOrbital } from '../store/store'
+import { HARNESS_ENABLED_KEY } from '../lib/experimental'
 import { channelSettingRead } from './update/channel'
 
-/** The Mac setting the question cards obey (spec 2026-10-21-question-card-go-back-design § Setting). */
-const KEY = 'questions_review_before_send'
+/**
+ * The Mac settings the phone takes: the one the question cards obey (spec
+ * 2026-10-21-question-card-go-back-design § Setting), and the Harness
+ * switch, which offers New session's *With harness…* (spec
+ * 2026-11-09-harness-from-new-session-design § Phone).
+ */
+const KEYS = ['questions_review_before_send', HARNESS_ENABLED_KEY] as const
 
 /**
- * Reads the Mac's `questions_review_before_send` into the phone's settings.
- * The phone holds no settings of its own otherwise, so only this key is
- * taken. Best-effort: a Mac too old to have the key, or a pairing without
+ * Reads the Mac's `questions_review_before_send` and `harness_enabled` into
+ * the phone's settings. The phone holds no settings of its own otherwise, so
+ * only these keys are taken; an absent `harness_enabled` reads as off. Best-effort: a Mac too old to have the key, or a pairing without
  * the settings grant, leaves it absent, and absent reads as on — the review
  * needs nothing from the Mac (the answer POST is unchanged). In a group the
  * read goes to a Mac that shares the group's settings, so every Mac's
@@ -26,10 +32,12 @@ export function refreshQuestionSetting(): void {
     .then((settings) => {
       channelSettingRead(settings)
       useOrbital.setState((state) => {
-        if (state.settings[KEY] === settings[KEY]) return {}
+        if (KEYS.every((key) => state.settings[key] === settings[key])) return {}
         const next = { ...state.settings }
-        if (settings[KEY] === undefined) delete next[KEY]
-        else next[KEY] = settings[KEY]
+        for (const key of KEYS) {
+          if (settings[key] === undefined) delete next[key]
+          else next[key] = settings[key]
+        }
         return { settings: next }
       })
     })

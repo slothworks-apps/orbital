@@ -13,7 +13,7 @@ import { mkdirSync, realpathSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectRootOf } from '../src/harness/project.js';
 import { statusOf } from '../src/api/shape.js';
-import { sessionHarnesses as sessionHarnessesTable } from '../src/db/schema.js';
+import { sessionHarnesses as sessionHarnessesTable, sessions as sessionsTable } from '../src/db/schema.js';
 const MAX_AUTO_ROUNDS = DEFAULT_OPTIONS.maxAutoRounds;
 const MAX_IDLE_NUDGES = DEFAULT_OPTIONS.maxIdleNudges;
 const rec = (summary = '') => ({ summary, decisions: [], openQuestions: [] });
@@ -778,6 +778,82 @@ describe('template scope and drafts', () => {
     expect(forSession.templates.map((t: { name: string }) => t.name)).toEqual(['Orbital only', 'New component']);
     const projects = (await app.inject({ method: 'GET', url: '/api/harness/projects' })).json().projects;
     expect(projects).toEqual([{ root: '/work/orbital', name: 'orbital', lastAt: null, templates: 1 }]);
+  });
+});
+
+describe('the templates New session offers a directory', () => {
+  const body = (name: string, over: Record<string, unknown> = {}) => ({ name, description: '', tags: [], inputs: [], steps, ...over });
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' });
+
+  function makeApp(enabled = true) {
+    const made = makeService();
+    const app = Fastify();
+    registerHarnessRoutes(app, {
+      harness: made.service, errors: { record: vi.fn() },
+      settings: { get: (k: string) => (k === 'harness_enabled' && enabled ? 'true' : ''), set: () => {} },
+    } as never, vi.fn(), () => null);
+    const list = (cwd: string) => app.inject({ method: 'GET', url: `/api/sessions/harness-templates?${new URLSearchParams({ cwd })}` });
+    /** A session in `cwd` that ran `templateId` as its harness at `at`. */
+    const ran = (id: string, cwd: string, templateId: number, at: number) => {
+      made.db.insert(sessionsTable).values({ id, projectDir: '', cwd, source: 'web', lastAt: at }).run();
+      made.db.insert(sessionHarnessesTable).values({
+        sessionId: id, templateId, name: 'x', steps, inputs: {}, state: [], createdAt: at, updatedAt: at,
+      }).run();
+    };
+    return { ...made, app, list, ran };
+  }
+
+  /** A repository with a linked worktree under it, and another repository beside it. */
+  function repos() {
+    const base = realpathSync(makeTmpDir('offer'));
+    const repo = join(base, 'orbital');
+    const other = join(base, 'billing');
+    for (const dir of [repo, other]) {
+      mkdirSync(dir);
+      git(dir, 'init', '-q');
+      git(dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'x');
+    }
+    const tree = join(repo, '.claude', 'worktrees', 'tray');
+    git(repo, 'worktree', 'add', '-q', tree);
+    return { repo, other, tree };
+  }
+
+  it('lists the project\'s saved templates first, then global ones, never a draft or another project\'s', async () => {
+    const { app, service, list } = makeApp();
+    const { repo, other, tree } = repos();
+    service.createTemplate(body('Orbital only', { scope: { kind: 'project', root: repo } }));
+    service.createTemplate(body('Orbital draft', { scope: { kind: 'project', root: repo }, draft: true }));
+    service.createTemplate(body('Billing only', { scope: { kind: 'project', root: other } }));
+    // A worktree's directory is its repository's project.
+    for (const cwd of [repo, tree]) {
+      const offer = (await list(cwd)).json();
+      expect(offer.project).toEqual({ root: repo, name: 'orbital' });
+      expect(offer.templates.map((t: { name: string }) => t.name)).toEqual(['Orbital only', 'New component']);
+      expect(offer.lastUsedId).toBeNull();
+    }
+  });
+
+  it('names the template of the latest harness in the same project, while it is still offered', async () => {
+    const { app, service, list, ran, templateId } = makeApp();
+    const { repo, other, tree } = repos();
+    const own = service.createTemplate(body('Orbital only', { scope: { kind: 'project', root: repo } }));
+    const billing = service.createTemplate(body('Billing only', { scope: { kind: 'project', root: other } }));
+    if (!own.ok || !billing.ok) throw new Error('templates');
+    ran('older', repo, templateId, 100);
+    ran('newer-in-a-worktree', tree, own.value.id, 200);
+    // Newest of all, but in another project.
+    ran('elsewhere', other, billing.value.id, 300);
+    expect((await list(repo)).json().lastUsedId).toBe(own.value.id);
+    expect((await list(other)).json().lastUsedId).toBe(billing.value.id);
+    // Once that template is no longer offered, nothing is preselected.
+    service.updateTemplate(own.value.id, body('Orbital only', { draft: true }));
+    expect((await list(tree)).json().lastUsedId).toBeNull();
+  });
+
+  it('403s while the feature is off and 400s without a directory', async () => {
+    expect((await makeApp(false).list('/work/orbital')).statusCode).toBe(403);
+    const { app } = makeApp();
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/harness-templates' })).statusCode).toBe(400);
   });
 });
 

@@ -2180,7 +2180,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // reload. Appended before the request, not after: the session's first
     // reply can land while the request is still in flight, and the prompt
     // has to sit above it.
-    if (body.prompt || images?.length) {
+    // A harness launch's first turn is the kickoff with the prompt appended,
+    // a text only the server has: its `harness_message` brings the row, and
+    // an empty transcript is held so that event is not dropped.
+    if (body.harness) {
+      set((state) => ({ transcripts: { ...state.transcripts, [sessionId]: state.transcripts[sessionId] ?? [] } }))
+    } else if (body.prompt || images?.length) {
       const turn = optimisticTurn(body.prompt, images)
       set((state) => ({
         transcripts: { ...state.transcripts, [sessionId]: [turn, ...(state.transcripts[sessionId] ?? [])] },
