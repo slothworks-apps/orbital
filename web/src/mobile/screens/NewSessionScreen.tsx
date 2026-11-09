@@ -35,7 +35,6 @@ import { recentDirectories, worktreeLaunchError } from '../../lib/worktree'
 import { NewSessionWorktree } from './NewSessionWorktree'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
 import { LOCAL_DEVICE } from '../../lib/devices'
-import { apiImagePath } from '../../lib/images'
 import { replacedByLaunch, useNewSessionPrefill } from '../../store/setupActions'
 
 /** The device sheet's ages are in minutes at the finest. */
@@ -138,14 +137,14 @@ export function NewSessionScreen() {
   const cwdPrefilled = useRef(carried === null)
   /** A carried model and Claude directory hold while the device is the one they were carried for. */
   const keepsCarried = useRef(carried !== null)
-  // The carried attachments, as done chips: they are stored on the Mac already.
+  // The carried attachments, as done chips: they are stored on the session's
+  // Mac already, and only there — another device picked drops them.
   const adoptedRef = useRef(false)
+  const carriedChips = useRef<string[]>([])
   useEffect(() => {
     if (!carried || adoptedRef.current) return
     adoptedRef.current = true
-    for (const ref of carried.attachments) {
-      attachments.adoptStored({ entry: { ref, w: null, h: null, bytes: 0 }, name: 'attachment', previewUrl: apiImagePath(ref) })
-    }
+    carriedChips.current = attachments.adoptRefs(carried.attachments)
   }, [carried, attachments])
   /**
    * The `.mcp.json` question (spec 2026-10-08-mcpjson-approval-design; canvas
@@ -598,6 +597,10 @@ export function NewSessionScreen() {
             value={machine}
             onPick={(id) => {
               keepsCarried.current = false
+              if (id !== machine) {
+                for (const chip of carriedChips.current) attachments.remove(chip)
+                carriedChips.current = []
+              }
               setPickedDevice(id)
               setDeviceSheet(false)
             }}

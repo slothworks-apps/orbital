@@ -62,7 +62,6 @@ import { useWorktreeChoice } from '../lib/useWorktreeChoice'
 import { useLaunchAttempt } from '../lib/useLaunchAttempt'
 import { recentDirectories, worktreeLaunchError, worktreeSummary } from '../lib/worktree'
 import { WorktreeGroup } from './WorktreeGroup'
-import { apiImagePath } from '../lib/images'
 import type { NewSessionPrefill } from '../lib/setup'
 import { replacedByLaunch, useNewSessionPrefill } from '../store/setupActions'
 
@@ -427,9 +426,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setClaudeDirId(p.claudeDirId)
       setClaudeDirPrefilled({ id: p.claudeDirId, from: 'planet', planet: p.title })
     }
-    for (const ref of p.attachments) {
-      attachments.adoptStored({ entry: { ref, w: null, h: null, bytes: 0 }, name: 'attachment', previewUrl: apiImagePath(ref) })
-    }
+    attachments.adoptRefs(p.attachments)
   }
 
   // Reset + prefill from settings on the false -> true transition only (not
