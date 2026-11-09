@@ -41,6 +41,9 @@ import {
   easeOut,
   labelRestY,
   oscillate,
+  PROGRESS_FIGURE_GAP_PX,
+  PROGRESS_FIGURE_TRACKING_EM,
+  progressFigurePx,
   truncateLabel,
   typedLabel,
   LIMIT_PILL_BORDER_PX,
@@ -290,6 +293,8 @@ const LABEL_COLOR_ACTIVE = swatch('ink-200', 0.85)
 const LABEL_COLOR_DIMMED = swatch('ink-900', 0.6)
 /** Family line under the title (canvas 4a). Subordinate to the name in both states. */
 const LABEL_MODEL_COLOR = swatch('ink-900', 0.7)
+/** 67e: `rgba(160,190,225,.72)`. */
+const PROGRESS_FIGURE_COLOR = swatch('ink-900', 0.72)
 
 /**
  * Hover-expanded label (idea doc `expand-a-planet-label-on-hover`). The
@@ -580,6 +585,8 @@ export interface PlanetProps {
   dated?: boolean
   /** The login pill under the name (`ScenePlanet.loginPill`), drawn as the limit's is. */
   loginPill?: string | null
+  /** The progress list's figure after the name (`ScenePlanet.progressFigure`, canvas 67e), or null. */
+  progressFigure?: string | null
   /**
    * The session's device is offline (`ScenePlanet.offline`): the planet keeps
    * its last state at `OFFLINE_OPACITY` and holds still — no spin, no blink,
@@ -1539,6 +1546,7 @@ function PlanetBody({
   secondLine = null,
   dated = false,
   loginPill = null,
+  progressFigure = null,
   offline = false,
   deviceOff = false,
   labelTitlePx = 11,
@@ -2507,6 +2515,21 @@ function PlanetBody({
                   </span>
                 )}
                 {truncateLabel(session.title)}
+                {progressFigure && (
+                  // 67e: the figure after the cut name, in the second line's
+                  // muted ink; it hides with the label and never takes a colour.
+                  <span
+                    data-progress-figure
+                    style={{
+                      marginLeft: dirMark ? PROGRESS_FIGURE_GAP_PX - MAP_MARK_GAP_PX : PROGRESS_FIGURE_GAP_PX,
+                      fontSize: progressFigurePx(labelTitlePx),
+                      letterSpacing: `${PROGRESS_FIGURE_TRACKING_EM}em`,
+                      color: dimmedLabel ? LABEL_COLOR_DIMMED : PROGRESS_FIGURE_COLOR,
+                    }}
+                  >
+                    {progressFigure}
+                  </span>
+                )}
               </span>
               {limitPill !== null ? (
                 // `Feature - Plan limits` 31b/31d: a session waiting for a
@@ -2643,6 +2666,19 @@ function PlanetBody({
                 <span ref={overlayCursorRef} style={{ display: 'none' }}>
                   ▌
                 </span>
+                {/* 67e: hovering brings the whole label back, the figure with it. */}
+                {progressFigure && (
+                  <span
+                    style={{
+                      marginLeft: PROGRESS_FIGURE_GAP_PX,
+                      fontSize: progressFigurePx(labelTitlePx),
+                      letterSpacing: `${PROGRESS_FIGURE_TRACKING_EM}em`,
+                      color: PROGRESS_FIGURE_COLOR,
+                    }}
+                  >
+                    {progressFigure}
+                  </span>
+                )}
               </span>
             </Html>
           )}

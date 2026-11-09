@@ -128,6 +128,7 @@ export function useSceneModel(): SceneModel {
           harnessEventsMore: {},
           harnessRemoved: {},
           harnessPanel: null,
+          progressPanel: null,
           harnessTemplatesFocus: null,
           ui: {
             selectedId,

@@ -491,6 +491,11 @@ export const api = {
      * `worktree_invalid_branch` or 500 `worktree_failed` (`worktreeLaunchError`).
      */
     worktree?: WorktreeLaunch
+    /**
+     * Start with a progress list (spec 2026-11-09-progress-list-design). Only
+     * while the Labs setting is on: otherwise 403 `progress_list_disabled`.
+     */
+    progressList?: boolean
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId

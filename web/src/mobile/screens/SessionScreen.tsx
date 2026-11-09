@@ -11,6 +11,7 @@
  *   header row 1, last         session/SessionMenuButton.tsx     T4.1
  *   header row 2, first        session/StateLine.tsx             F2 (words: stateWords.ts)
  *   header row 2, after state  session/HarnessProgress.tsx       T1.2
+ *     or the progress list     progress/ProgressReadout.tsx      67g (its sheet: progress/ProgressSheet.tsx)
  *   header row 2, after that   session/MoonsChip.tsx             T3.1
  *   header row 2, right        session/ModelSwitch.tsx, ModeSwitch.tsx
  *   transcript tail            session/TranscriptTail.tsx        F2: GateCard, LimitNotice, MenuOutcome, divider
@@ -18,6 +19,7 @@
  *     limit notice + its key   session/LimitNotice.tsx           T5.1
  *     ✓ after End / Clear      menu/MenuOutcome.tsx              T4.1
  *   harness rows               session/harnessRows.ts            F2 (T1.3 adds the cached copy)
+ *   progress list rows         progress/progressRows.ts          67g, the desktop's rows (67d)
  *   tool rows: chips, images   session/TranscriptChip.tsx        Z1, through `PhoneToolRowContext`
  *   path and image presses     files/open.ts (`installFileOpen`) T2.1
  *   composer focus + hint      `focusComposer` (state)           T1.1 calls it on Reopen
@@ -43,6 +45,9 @@ import { useHarnessRows } from '../session/harnessRows'
 import { ModelSwitch } from '../session/ModelSwitch'
 import { ModeSwitch } from '../session/ModeSwitch'
 import { MoonsChip } from '../session/MoonsChip'
+import { ProgressReadout } from '../progress/ProgressReadout'
+import { ProgressSheetHost } from '../progress/ProgressSheet'
+import { useProgressRows } from '../progress/progressRows'
 import { SessionMenuButton } from '../session/SessionMenuButton'
 import { StateLine } from '../session/StateLine'
 import { usePhoneToolRow } from '../session/TranscriptChip'
@@ -134,7 +139,7 @@ function SessionView({ id }: { id: string }) {
     return added.length
   }, [loadOlder, id])
 
-  const shown = useHarnessRows(session, messages, exhausted, ready)
+  const shown = useProgressRows(session, useHarnessRows(session, messages, exhausted, ready))
 
   // A transcript chip opens its subagent or task over this session (canvas
   // 10g); a moon without a `toolUseId` has no transcript to open.
@@ -191,6 +196,7 @@ function SessionView({ id }: { id: string }) {
         <div className="flex h-11 min-w-0 items-center gap-0.5 pl-2.5">
           <StateLine session={session} offline={offline} />
           <HarnessProgress session={session} offline={offline} />
+          <ProgressReadout session={session} offline={offline} />
           <MoonsChip session={session} offline={offline} />
           <span aria-hidden className="flex-1" />
           <ModelSwitch session={session} offline={offline} />
@@ -251,6 +257,7 @@ function SessionView({ id }: { id: string }) {
       </PhoneToolRowContext.Provider>
       </LoginNoticeContext.Provider>
       <SheetPresence>{cleanup.sheet && <WorktreeCleanupSheet cleanup={cleanup} />}</SheetPresence>
+      {session && <ProgressSheetHost session={session} />}
     </MobileScreen>
   )
 }

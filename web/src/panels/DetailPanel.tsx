@@ -71,6 +71,7 @@ import { useMcpUi } from '../store/mcp'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { HarnessPill } from './HarnessPill'
+import { ProgressPill } from './ProgressPill'
 import { DevicePill } from './DevicePill'
 import { WorktreeCleanupStrip } from './WorktreeCleanup'
 import { useSessionWorktree } from '../lib/useSessionWorktree'
@@ -88,7 +89,7 @@ import { COMPACTING_PLACEHOLDER, compactConfirmCount, compactingOf, formatElapse
 import { useAsOfNow } from '../lib/asOfClock'
 import { useNow } from '../lib/useNow'
 import { useCompactionUi } from '../store/compaction'
-import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
+import { harnessEnabled, progressListEnabled, walkthroughEnabled } from '../lib/experimental'
 import { TerminalChip } from '../terminal/TerminalEntry'
 import { useSideSlotWidth } from '../terminal/useTerminalHost'
 import { canTakeOver, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
@@ -546,6 +547,14 @@ export function DetailPanel({
     },
     harnessEnabled(settings) && shown?.source === 'web'
   )
+  // ⌘⇧P toggles the progress list, as its pill does — once the agent has written one.
+  useCommand(
+    'session.progress',
+    () => {
+      if (shown) useOrbital.getState().openProgress(shown.id)
+    },
+    progressListEnabled(settings) && shown?.progress != null
+  )
   useCommand(
     'session.end',
     () => setDialog('end'),
@@ -831,6 +840,16 @@ export function DetailPanel({
     )}
     {session && (
       <HarnessPill
+        session={session}
+        stateRowRef={stateRowRef}
+        edge={standalone && !subagentPanelOpen ? 'inside' : 'over'}
+      />
+    )}
+    {/* The progress list's handle (canvas `Feature - Progress list` 67b), in
+        the harness pill's place: a harness attached freezes the list, so the
+        two are never shown together. */}
+    {session && (
+      <ProgressPill
         session={session}
         stateRowRef={stateRowRef}
         edge={standalone && !subagentPanelOpen ? 'inside' : 'over'}

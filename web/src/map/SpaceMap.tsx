@@ -1333,6 +1333,7 @@ export function SpaceMap() {
               secondLine={planet.secondLine}
               dated={planet.dated}
               loginPill={planet.loginPill}
+              progressFigure={planet.progressFigure}
               offline={planet.offline}
               deviceOff={planet.deviceOff}
               labelTitlePx={labelFont.title}

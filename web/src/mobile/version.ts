@@ -51,6 +51,12 @@ export const MAC_FEATURES = {
    * older Mac all three are left out.
    */
   worktreeLaunch: '0.47.0',
+  /**
+   * The progress list: `progress` on the session (spec 2026-11-09-progress-list-design § Phone). An
+   * older Mac never sends it; the header readout, its sheet and the session list's figure are
+   * left out against one all the same.
+   */
+  progressList: '0.49.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

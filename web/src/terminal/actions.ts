@@ -17,9 +17,9 @@ export function placementIn(settings: Record<string, string>): TerminalPlacement
   return inSessionWindow ? 'dock' : terminalPlacement(settings)
 }
 
-/** A subagent, ▣ output or harness holds the side slot. */
+/** A subagent, ▣ output, harness or progress list holds the side slot. */
 export function agentSlotOpen(state: ReturnType<typeof useOrbital.getState>): boolean {
-  return state.subagentPanel !== null || state.taskOutput !== null || state.harnessPanel !== null
+  return state.subagentPanel !== null || state.taskOutput !== null || state.harnessPanel !== null || state.progressPanel !== null
 }
 
 /**
@@ -33,6 +33,7 @@ function reclaimSideSlot(): void {
   orbital.closeSubagent()
   orbital.closeTaskOutput()
   orbital.closeHarness()
+  orbital.closeProgress()
 }
 
 /** Whether the session's terminal is on screen, not merely shown and waiting behind an agent's panel. */

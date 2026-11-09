@@ -713,9 +713,18 @@ const DeskCard = memo(function DeskCard({
             </div>
           </div>
 
-          {(meta || planet.dated) && (
-            <div className="-mt-1 truncate pl-4 font-mono fs-10.5 text-ink-900/60">
-              {planet.dated ? <WithAge text={meta} machine={s.machine} /> : meta}
+          {(meta || planet.dated || planet.progressFigure) && (
+            <div className="-mt-1 flex gap-3 pl-4 font-mono fs-10.5">
+              <span className="min-w-0 flex-1 truncate text-ink-900/60">
+                {planet.dated ? <WithAge text={meta} machine={s.machine} /> : meta}
+              </span>
+              {/* 67e: the progress list's figure ends the row and keeps its
+                  width; the branch is cut first. */}
+              {planet.progressFigure && (
+                <span data-progress-figure className="flex-none text-ink-500/78">
+                  {planet.progressFigure}
+                </span>
+              )}
             </div>
           )}
 

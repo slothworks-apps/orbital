@@ -44,8 +44,11 @@ function FullFrame({ inWindow, children }: { inWindow: boolean; children: ReactN
   )
 }
 
-/** The header row's frame for the slot (30b), as the subagent panel draws its own (11b, 22b, 25b). */
-function slotChrome({ inWindow, swap, back, close }: { inWindow: boolean; swap: boolean; back: ReactNode; close: ReactNode }): Chrome {
+/**
+ * The header row's frame for the slot (30b), as the subagent panel draws its
+ * own (11b, 22b, 25b). The progress list's panel takes the same (67c).
+ */
+export function slotChrome({ inWindow, swap, back, close }: { inWindow: boolean; swap: boolean; back: ReactNode; close: ReactNode }): Chrome {
   return {
     inWindow,
     close: swap ? null : close,

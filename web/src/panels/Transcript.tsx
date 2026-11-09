@@ -4,6 +4,8 @@ import { recordedFailureFor, useOrbital } from '../store/store'
 import type { BackgroundTask, ChatMessage, HarnessEvent, SessionHarness, Subagent } from '../lib/types'
 import { harnessEnabled } from '../lib/experimental'
 import { withHarnessRows } from '../lib/harnessSession'
+import { withProgressRows } from '../lib/progressList'
+import { useProgressFold, useProgressFrozen } from '../lib/useProgressList'
 import { readHarnessOnce } from './HarnessPill'
 import { Button } from '../ui/Button'
 import { TranscriptView, pairMessages, type ScrollObserverFactory } from './TranscriptView'
@@ -203,10 +205,19 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       void useOrbital.getState().loadOlderHarnessEvents(sessionId)
     }
   }, [moreEvents, oldestEventAt, since, sessionId])
+  // The progress list in the transcript (canvas 67d): its tool's calls as
+  // dashed rows, state changes as nothing, and the freeze where a harness
+  // took over.
+  const progress = useProgressFold(sessionId)
+  const { frozenAt } = useProgressFrozen(sessionId)
   const shown = useMemo(() => {
     const harnesses = [harness, removedHarness].filter((h): h is SessionHarness => h != null)
-    return withHarnessRows(messages, harnessEvents, harnesses, since)
-  }, [messages, harnessEvents, harness, removedHarness, since])
+    return withProgressRows(withHarnessRows(messages, harnessEvents, harnesses, since), progress, frozenAt)
+  }, [messages, harnessEvents, harness, removedHarness, since, progress, frozenAt])
+  const openProgress = useCallback(() => {
+    // Beside, not toggled: a second press leaves it open.
+    if (useOrbital.getState().progressPanel?.sessionId !== sessionId) useOrbital.getState().openProgress(sessionId)
+  }, [sessionId])
 
   // `TranscriptView` resets its own windowing/scroll state off `resetKey`,
   // but "exhausted" is this session's pagination state, not the view's, so
@@ -272,6 +283,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       onOpenSubagent={handleOpenSubagent}
       backgroundTasks={backgroundTasks}
       onOpenTaskOutput={handleOpenTaskOutput}
+      onOpenProgressList={openProgress}
       compaction={compaction}
       rewind={rewind}
       // Back at the bottom, the next thing to do is usually to reply (canvas

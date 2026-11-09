@@ -468,6 +468,15 @@ export const LABEL_TITLE_TRACKING_EM = 0.06
 export const LABEL_FAMILY_TRACKING_EM = 0.1
 /** Gap between the title and the family line, CSS px (canvas 4a: 5px below the title). */
 export const LABEL_FAMILY_GAP_PX = 5
+
+/**
+ * The progress list's figure after the name (canvas `Feature - Progress list`
+ * 67e): `gap:7px`, 10px against the name's 11px, .04em. Scaled with the name
+ * when Appearance scales labels.
+ */
+export const PROGRESS_FIGURE_GAP_PX = 7
+export const PROGRESS_FIGURE_TRACKING_EM = 0.04
+export const progressFigurePx = (titlePx: number): number => (titlePx * 10) / 11
 /** JetBrains Mono is monospaced: every glyph advances 600/1000 of an em. */
 const MONO_ADVANCE_EM = 0.6
 /**
@@ -494,9 +503,13 @@ export function restingLabelSizePx(
   title: string,
   family: string | null,
   font: { title: number; family: number },
-  limitPill: string | null = null
+  limitPill: string | null = null,
+  progressFigure: string | null = null,
 ): { width: number; height: number } {
-  const titleWidth = monoWidthPx(truncateLabel(title).length, font.title, LABEL_TITLE_TRACKING_EM)
+  const figurePx = progressFigurePx(font.title)
+  const titleWidth =
+    monoWidthPx(truncateLabel(title).length, font.title, LABEL_TITLE_TRACKING_EM) +
+    (progressFigure ? PROGRESS_FIGURE_GAP_PX + monoWidthPx(progressFigure.length, figurePx, PROGRESS_FIGURE_TRACKING_EM) : 0)
   const titleHeight = font.title * MONO_LINE_HEIGHT_EM
   // A waiting session's pill takes the family line's place (31b).
   if (limitPill !== null) {

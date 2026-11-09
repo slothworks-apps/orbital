@@ -514,7 +514,8 @@ export function UtilityStrip({
             'harness',
             <Tooltip
               variant="name"
-              title="Start a harness"
+              // 67h 8: a harness freezes the session's progress list, and the button says so.
+              title={session?.progress ? 'Start a harness · the progress list freezes' : 'Start a harness'}
               shortcut="session.harness"
               align="right"
               delayMs={PIN_TOOLTIP_DELAY_MS}

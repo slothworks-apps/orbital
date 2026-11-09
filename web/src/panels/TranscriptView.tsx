@@ -19,6 +19,7 @@ import { useCommand } from '../lib/commands'
 import { MessageView } from './MessageView'
 import { NoticeRow } from './NoticeRow'
 import { HarnessTranscriptRow } from './HarnessTranscriptRow'
+import { ProgressTranscriptRow } from './ProgressTranscriptRow'
 import { CompactionMark } from './CompactionMark'
 import { compactionOrdinals, newestFailedCompactionId } from '../lib/compaction'
 import { QuestionCard } from './QuestionCard'
@@ -259,7 +260,7 @@ function isSystemDivider(group: TranscriptGroup): boolean {
   if (group.kind === 'model-divider') return true
   if (group.kind !== 'message') return false
   const role = group.item.message.role
-  return role === 'rewind' || role === 'compaction' || role === 'harness'
+  return role === 'rewind' || role === 'compaction' || role === 'harness' || role === 'progress'
 }
 
 /**
@@ -407,6 +408,11 @@ export interface TranscriptViewProps {
    */
   backgroundTasks?: BackgroundTask[]
   onOpenTaskOutput?: (task: BackgroundTask) => void
+  /**
+   * Opens the session's progress list beside the transcript, for a frozen
+   * list's `open beside ›` (canvas 67d). Absent, the row only unfolds.
+   */
+  onOpenProgressList?: () => void
   /** Pick mode is on (spec 2026-09-29-rewind-design § Behaviour 2). Absent, the transcript is exactly as it always was. */
   rewind?: TranscriptRewind
   /** Which surface the jump-to-bottom indicator is sized and inked for (canvas 43a/43b/43c). */
@@ -727,6 +733,7 @@ export function TranscriptView({
   onOpenSubagent,
   backgroundTasks,
   onOpenTaskOutput,
+  onOpenProgressList,
   compaction,
   rewind,
   surface = 'panel',
@@ -1259,6 +1266,9 @@ export function TranscriptView({
         ) : group.item.message.role === 'harness' ? (
           // Orbital's own line (canvas 30b): never `MessageView`, never a bubble.
           <HarnessTranscriptRow message={group.item.message} />
+        ) : group.item.message.role === 'progress' ? (
+          // The progress list's dashed row (canvas 67d): never a tool row's JSON.
+          <ProgressTranscriptRow message={group.item.message} onOpenList={onOpenProgressList} />
         ) : group.item.message.role === 'notice' && group.item.message.notice?.kind === 'limit_reset' ? (
           // `Feature - Plan limits` 31d AFTER: where a limit wait fired, the
           // notice row folds into a divider; the message it sent follows as

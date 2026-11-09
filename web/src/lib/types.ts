@@ -3,6 +3,7 @@ import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ce
 import type { MachineRef } from '@orbital/shared/remote/device'
 import { asksForHuman, gateWaits, loginLost } from '@orbital/shared/parked'
 import type { LiveHookNotice } from '@orbital/shared/hookNotice'
+import type { ProgressRow } from './progressList'
 
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
@@ -31,6 +32,12 @@ export interface SessionDefaults {
   claudeDirs?: ClaudeDirName[]
   defaultClaudeDir?: number
   lastClaudeDir?: number | null
+  /**
+   * Whether New session offers the progress list switch: the Labs setting,
+   * which the phone cannot read (spec 2026-11-09-progress-list-design).
+   * Absent from a Mac older than the feature.
+   */
+  progressListEnabled?: boolean
 }
 
 /**
@@ -775,8 +782,14 @@ export interface ChatMessage {
    * `harness` is client-only, never on the wire: an event of the session's
    * harness log laid into the transcript where it happened, its line in
    * `text` (`withHarnessRows`, canvas 30b). A dashed ◆ row.
+   *
+   * `progress` is client-only too: a call of the progress list's tool that
+   * wrote, changed or replaced the list, or Orbital's mark where a harness
+   * froze it, its facts in `progressRow` (`withProgressRows`, canvas 67d).
    */
-  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice' | 'compaction' | 'rewind' | 'harness'
+  role: 'user' | 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'notice' | 'compaction' | 'rewind' | 'harness' | 'progress'
+  /** `progress` rows only (client-only): what the row says. */
+  progressRow?: ProgressRow
   /**
    * The transcript entry this message came from — what a rewind names. On
    * every message read from the file and every live one whose frame carried

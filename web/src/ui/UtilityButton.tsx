@@ -236,6 +236,22 @@ export function HarnessGlyph() {
   )
 }
 
+/**
+ * Progress list: three lines, the last one short and faint (canvas `Feature -
+ * Progress list` 67b–67d). On the pill, the list's header and its transcript
+ * rows, where the harness has its ● or ◆, so the two never read alike.
+ */
+export function ProgressGlyph() {
+  const line = 'absolute left-0 block rounded-[1px] bg-current'
+  return (
+    <span aria-hidden className="relative block flex-none" style={{ width: '9px', height: '8px' }}>
+      <span className={line} style={{ top: 0, width: '9px', height: '1.4px' }} />
+      <span className={line} style={{ top: '3.3px', width: '9px', height: '1.4px' }} />
+      <span className={line} style={{ top: '6.6px', width: '5px', height: '1.4px', opacity: 0.55 }} />
+    </span>
+  )
+}
+
 /** Walkthrough: three bars stepping up — the staircase is the walkthrough's mark everywhere (canvas 21f). */
 export function WalkthroughGlyph() {
   return (
