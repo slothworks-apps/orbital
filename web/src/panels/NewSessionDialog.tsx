@@ -360,9 +360,20 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       })
   }, [])
 
+  /**
+   * The chips a Without a worktree prefill carried, and the device whose
+   * store holds their refs: another device has no such images.
+   */
+  const carried = useRef<{ device: string; chips: string[] } | null>(null)
+  const removeChip = useRef<(id: string) => void>(() => {})
+
   /** Switching device swaps the recent directories and resets the field to that device's last one (50g). */
   const switchDevice = useCallback(
     (id: string) => {
+      if (carried.current && carried.current.device !== id) {
+        for (const chip of carried.current.chips) removeChip.current(chip)
+        carried.current = null
+      }
       setDevice(id)
       setChooserOpen(false)
       setProjects([])
@@ -392,6 +403,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // 418 px well is too small a thing to aim at while holding a file"), so the
   // ref goes to `Dialog`.
   const attachments = useAttachments(null)
+  removeChip.current = attachments.remove
   const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files, folders) =>
     attachments.accept(files, 'file', folders),
   )
@@ -426,7 +438,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setClaudeDirId(p.claudeDirId)
       setClaudeDirPrefilled({ id: p.claudeDirId, from: 'planet', planet: p.title })
     }
-    attachments.adoptRefs(p.attachments)
+    carried.current = { device: on, chips: attachments.adoptRefs(p.attachments) }
   }
 
   // Reset + prefill from settings on the false -> true transition only (not
@@ -442,6 +454,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       const opening = openingLaunch(settings, planet, tags)
       const startCwd = planet || startDevice === LOCAL_DEVICE ? opening.cwd : ''
       setDevice(startDevice)
+      carried.current = null
       setChooserOpen(false)
       setCwd(startCwd)
       setPermissionMode(opening.permissionMode)
