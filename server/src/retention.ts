@@ -30,8 +30,8 @@
 import { and, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { OrbitalDb } from './db/database.js';
 import {
-  backgroundTasks, compactionFailures, narrations, pendingRewinds, permissionWaits, rewinds, sessions, sessionTags,
-  sweptSessions,
+  backgroundTasks, compactionFailures, narrations, pendingRewinds, permissionWaits, rewinds, sessions, sessionSetups,
+  sessionTags, sweptSessions,
 } from './db/schema.js';
 
 /** The "off" value, stored verbatim so the row reads as what the UI shows. */
@@ -96,6 +96,29 @@ export function countSweepable(db: OrbitalDb, cutoff: number | null): number {
 }
 
 /**
+ * Deletes the sessions' rows and every row that hangs off them, as one
+ * transaction — the sweep's, or a discard of a session that never started.
+ */
+export function deleteSessions(db: OrbitalDb, ids: string[]): void {
+  if (ids.length === 0) return;
+  db.transaction((tx) => deleteSessionRows(tx, ids));
+}
+
+type Tx = Parameters<Parameters<OrbitalDb['transaction']>[0]>[0];
+
+function deleteSessionRows(tx: Tx, ids: string[]): void {
+  tx.delete(sessionTags).where(inArray(sessionTags.sessionId, ids)).run();
+  tx.delete(compactionFailures).where(inArray(compactionFailures.sessionId, ids)).run();
+  tx.delete(backgroundTasks).where(inArray(backgroundTasks.sessionId, ids)).run();
+  tx.delete(pendingRewinds).where(inArray(pendingRewinds.sessionId, ids)).run();
+  tx.delete(rewinds).where(inArray(rewinds.sessionId, ids)).run();
+  tx.delete(narrations).where(inArray(narrations.sessionId, ids)).run();
+  tx.delete(permissionWaits).where(inArray(permissionWaits.sessionId, ids)).run();
+  tx.delete(sessionSetups).where(inArray(sessionSetups.sessionId, ids)).run();
+  tx.delete(sessions).where(inArray(sessions.id, ids)).run();
+}
+
+/**
  * Delete every session older than the cutoff and return their ids, so the
  * caller can publish one `remove` per row and the open maps drop them
  * without a reload.
@@ -120,14 +143,7 @@ export function sweepSessions(db: OrbitalDb, cutoff: number | null, now: number)
   if (doomed.length === 0) return [];
 
   db.transaction((tx) => {
-    tx.delete(sessionTags).where(inArray(sessionTags.sessionId, doomed)).run();
-    tx.delete(compactionFailures).where(inArray(compactionFailures.sessionId, doomed)).run();
-    tx.delete(backgroundTasks).where(inArray(backgroundTasks.sessionId, doomed)).run();
-    tx.delete(pendingRewinds).where(inArray(pendingRewinds.sessionId, doomed)).run();
-    tx.delete(rewinds).where(inArray(rewinds.sessionId, doomed)).run();
-    tx.delete(narrations).where(inArray(narrations.sessionId, doomed)).run();
-    tx.delete(permissionWaits).where(inArray(permissionWaits.sessionId, doomed)).run();
-    tx.delete(sessions).where(inArray(sessions.id, doomed)).run();
+    deleteSessionRows(tx, doomed);
     // Stamped with `now`, not with the session's own `lastAt`: the question
     // the indexer asks later is "has this transcript been written to since we
     // swept it", and the sweep is what has to be dated for that to work.
