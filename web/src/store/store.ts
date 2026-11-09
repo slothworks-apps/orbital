@@ -54,6 +54,7 @@ import type {
   SessionStatus,
   SessionHarness,
   HarnessEvent,
+  HarnessLaunch,
   HarnessMessageKind,
   Subagent,
   Tag,
@@ -700,6 +701,8 @@ export interface OrbitalActions {
     machine?: string
     /** Start in a new linked worktree (`api.createSession`). */
     worktree?: WorktreeLaunch
+    /** Start on a harness (`api.createSession`). */
+    harness?: HarnessLaunch
     /**
      * The id this launch goes out under; omitted, a fresh one. A launch sent
      * again after its answer was lost passes the first attempt's
