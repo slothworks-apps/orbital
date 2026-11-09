@@ -7,7 +7,7 @@ import { swatch } from '../lib/palette'
  * prompt and queue (canvas 66c `qb()`, 66d). One shape; each family keeps
  * the edge, fill, ink and caption its artboard draws.
  */
-export type QueuedBubbleKind = 'limit' | 'setup'
+type QueuedBubbleKind = 'limit' | 'setup'
 export type QueuedBubbleSurface = 'panel' | 'phone'
 
 interface Look {
