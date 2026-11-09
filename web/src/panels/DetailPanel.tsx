@@ -1225,7 +1225,8 @@ export function DetailPanel({
                 so it lines up with the context gauge, and 11c made it
                 optional: button-only drew it into the utility strip above and
                 gives the transcript the 42px back. */}
-            {statsVariant === 'bar' && <SessionStatsRow session={session} className="mt-3.5" />}
+            {/* 66c: a session not started yet has nothing to measure. */}
+            {statsVariant === 'bar' && !setupWords && <SessionStatsRow session={session} className="mt-3.5" />}
           </>
         )}
       </div>
