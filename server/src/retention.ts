@@ -23,11 +23,14 @@
  *   only while this server holds it, and deleting the row under a live
  *   process would leave the Runner writing to a session that no longer
  *   exists.
+ * - **A session that has not started is exempt** — one whose worktree is
+ *   being set up, or could not be: its first prompt and queue live only in
+ *   its setup record, and a sweep would discard them for the user.
  * - **A session with no `lastAt` is exempt.** There is no date to compare, and
  *   guessing one would delete on a null rather than on an age.
  */
 
-import { and, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, inArray, isNull, lt, ne, notExists, sql } from 'drizzle-orm';
 import type { OrbitalDb } from './db/database.js';
 import {
   backgroundTasks, compactionFailures, narrations, pendingRewinds, permissionWaits, rewinds, sessions, sessionSetups,
@@ -72,11 +75,15 @@ export function retentionCutoff(days: number | null, now: number): number | null
  * `lastAt IS NULL` needs no clause of its own: `NULL < cutoff` evaluates to
  * NULL in SQLite, which is not true, so an undated session never matches.
  */
-function sweepable(cutoff: number) {
+function sweepable(cutoff: number, db: OrbitalDb) {
   return and(
     lt(sessions.lastAt, cutoff),
     isNull(sessions.pinnedAt),
     isNull(sessions.runnerStatus),
+    // A session that has not started yet keeps its first prompt nowhere
+    // else; a clock does not discard it for the user.
+    notExists(db.select({ one: sql`1` }).from(sessionSetups)
+      .where(and(sql`${sessionSetups.sessionId} = ${sessions.id}`, ne(sessionSetups.phase, 'ready')))),
   );
 }
 
@@ -90,7 +97,7 @@ export function countSweepable(db: OrbitalDb, cutoff: number | null): number {
   const row = db
     .select({ total: sql<number>`COUNT(*)` })
     .from(sessions)
-    .where(sweepable(cutoff))
+    .where(sweepable(cutoff, db))
     .get();
   return row?.total ?? 0;
 }
@@ -138,7 +145,7 @@ export function sweepSessions(db: OrbitalDb, cutoff: number | null, now: number)
   const doomed = db
     .select({ id: sessions.id })
     .from(sessions)
-    .where(sweepable(cutoff))
+    .where(sweepable(cutoff, db))
     .all()
     .map((row) => row.id);
   if (doomed.length === 0) return [];

@@ -1707,8 +1707,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         if (listed.length >= limit) break;
         const status = statusOf(ctx, row);
         if (status === 'ended' && !input.includeArchived) continue;
+        const setup = setupStore.pending(row.id) ? setupStore.get(row.id)?.phase : undefined;
         listed.push({
           id: row.id, title: row.title, cwd: row.cwd, source: row.source, status,
+          // `idle` alone would read as a session done with its work.
+          ...(setup ? { setup: setup === 'failed' ? 'not_started' as const : 'setting_up' as const } : {}),
           alive: ctx.runner.status(row.id) !== undefined || ctx.registry.get(row.id) !== undefined,
           pinned: row.pinned_at !== null,
           lastAt: row.last_at === null ? null : new Date(row.last_at).toISOString(),
@@ -1732,6 +1735,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         // An Orbital session a terminal resumed is held there all the same.
         if (sourceOf(ctx, row) !== 'web' && status !== 'ended') { refuse('a terminal session that is still running'); continue; }
         if (!force && row.pinned_at !== null) { refuse('pinned by the user; pass force to archive it anyway'); continue; }
+        // A session that never ran is not archived but discarded, its first
+        // prompt and queue with it (ADR a-session-ends-only-when-the-user-ends-it).
+        if (setupStore.pending(id)) {
+          if (!force) { refuse('not started yet: archiving would discard it and its first prompt; pass force only when the user asked for exactly that'); continue; }
+          discardSession(id);
+          outcomes.push({ id, result: 'discarded' });
+          continue;
+        }
         if (!force && (status === 'working' || status === 'needs_input')) {
           refuse(`${status === 'working' ? 'working' : 'waiting for the user\'s input'}; pass force to archive it anyway`);
           continue;

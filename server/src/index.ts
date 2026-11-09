@@ -1136,6 +1136,8 @@ export async function buildServer(overrides: {
     const now = Date.now();
     const cutoff = retentionCutoff(parseRetentionDays(settingsStore.get(RETENTION_KEY)), now);
     const swept = sweepSessions(db, cutoff, now);
+    // Their setup rows went with them; a queue still being handed over stops.
+    setups.forget(swept);
     for (const id of swept) hub.publish('sessions', { event: 'remove', sessionId: id });
     return swept;
   }
