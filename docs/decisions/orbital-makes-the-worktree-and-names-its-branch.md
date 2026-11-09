@@ -7,6 +7,7 @@ domain: sessions
 related:
   - 2026-11-02-work-in-a-worktree-design
   - a-session-has-a-home-and-a-working-tree
+  - a-worktree-launch-answers-before-its-worktree-exists
 tags:
   - git
   - worktree
@@ -14,6 +15,13 @@ tags:
 ---
 
 # Orbital makes the worktree and names its branch before the session starts
+
+## Superseded in part
+
+2026-11-09: [[a-worktree-launch-answers-before-its-worktree-exists]]. The
+worktree is made after `POST /api/sessions` answers, not inside it, and
+Orbital stores a record of the setup in its database. The rest below
+still holds.
 
 ## The problem
 
