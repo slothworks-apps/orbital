@@ -118,8 +118,8 @@ describe('the phone’s list', () => {
 })
 
 describe('what a launch not started offers', () => {
-  it('while setting up: its labels at once, Copy first prompt, and Discard as the one deliberate row', () => {
-    expect(menuFor(inPhase('checkout'), false).items).toEqual(['rename', 'tag', 'pin', 'copy-prompt', 'discard'])
+  it('while setting up: its labels at once, and Discard as the one deliberate row', () => {
+    expect(menuFor(inPhase('checkout'), false).items).toEqual(['rename', 'tag', 'pin', 'discard'])
   })
 
   it('once failed: the ways out first, never Clear or End', () => {
@@ -136,7 +136,7 @@ describe('what a launch not started offers', () => {
   it('gives the desktop menu the same set, Discard in the deliberate group and no name to regenerate', () => {
     const actions = (s: ApiSession) =>
       contextMenuGroups(s, { offline: false, detachable: false }).map((group) => group.map((row) => row.action))
-    expect(actions(inPhase('naming'))).toEqual([['open'], ['rename', 'tag', 'pin', 'copy-prompt', 'copy-path'], ['discard']])
+    expect(actions(inPhase('naming'))).toEqual([['open'], ['rename', 'tag', 'pin', 'copy-path'], ['discard']])
     expect(actions(inPhase('failed'))).toEqual([
       ['open'],
       ['retry', 'without-worktree', 'copy-prompt', 'error-log', 'pin', 'copy-path'],

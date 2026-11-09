@@ -58,7 +58,8 @@ export function menuFor(
   macTakesOver = false,
 ): MenuShape {
   const setup = setupStateKey(session)
-  if (setup === 'setting_up') return { items: ['rename', 'tag', 'pin', 'copy-prompt', 'discard'], terminalNote: false, inert: asleep }
+  // 66d `itemsPrep`: Copy first prompt waits for NOT STARTED and the discard dialog.
+  if (setup === 'setting_up') return { items: ['rename', 'tag', 'pin', 'discard'], terminalNote: false, inert: asleep }
   if (setup === 'not_started') {
     return { items: ['retry', 'without-worktree', 'copy-prompt', 'error-log', 'pin', 'discard'], terminalNote: false, inert: asleep }
   }
