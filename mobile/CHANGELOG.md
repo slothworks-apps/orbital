@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- A session started on the Mac with a progress list shows how far it has got in its header and in the session list; tapping the figure opens the whole list.
 
 ## [0.24.3] — 2026-11-07
 ### Changed

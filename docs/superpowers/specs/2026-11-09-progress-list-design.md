@@ -178,3 +178,12 @@ harness step uses) and the `progress-calls` route, which is on
 - Editing the list from the UI.
 - Progress on the sidebar row.
 - Turning a list on in a running session.
+- The far-zoom behaviour of 67e (name cut first, the figure alone at the
+  farthest zoom, collisions): the map's labels do not change with zoom
+  today, so the figure follows the shortened name at every zoom. Doing 67e
+  in full changes every planet's label and needs its own decision.
+- The "With harness…" path of 67f: the desktop New session dialog has no
+  such button, so a harness is attached after launch, which freezes the
+  list.
+- Starting a session with a progress list from the phone; 67g has no
+  switch for it.
