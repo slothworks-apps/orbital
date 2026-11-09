@@ -9,7 +9,7 @@ import type { EndAnswer } from '../lib/worktree'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Checkbox } from '../ui/Checkbox'
-import { setupPending } from '../lib/types'
+import { pendingSetup } from '../lib/types'
 import { discardSentence } from '../lib/setup'
 import { copySetupPrompt, discardSetup } from '../store/setupActions'
 
@@ -71,7 +71,7 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
    * Discard; canvas 66c DISCARD, 66d). Held from the open on, so a setup
    * that gets ready meanwhile does not swap the dialog under the pointer.
    */
-  const pendingNow = session !== undefined && setupPending(session)
+  const pendingNow = session !== undefined && pendingSetup(session) !== null
   /** Set when the session started under the discard form: the End form takes over, saying why. */
   const [startedNote, setStartedNote] = useState(false)
   useEffect(() => {

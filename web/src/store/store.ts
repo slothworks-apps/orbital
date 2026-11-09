@@ -26,7 +26,7 @@ import { withViewTransition } from '../lib/viewTransition'
 import { moveTagTo } from '../lib/tagFilter'
 import { nextTagHue } from '../lib/tagHues'
 import { focusSession } from '../lib/desktop'
-import { MAX_SUBAGENT_MESSAGES, setupPending, shownStatus } from '../lib/types'
+import { MAX_SUBAGENT_MESSAGES, pendingSetup, shownStatus } from '../lib/types'
 import type { SessionSetup } from '@orbital/shared/worktree'
 import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
 import { historyEndedOutOfList, withDetailHistory, withHeldHistory } from '../lib/listedHistory'
@@ -2430,7 +2430,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // `setup.queued` lists it. So does one started whose queue still waits
     // for its first turn to end: the message joins the end of it.
     const queues =
-      Boolean(session?.limitWait) || (session != null && (setupPending(session) || (session.setup?.queued.length ?? 0) > 0))
+      Boolean(session?.limitWait) || (session != null && (pendingSetup(session) !== null || (session.setup?.queued.length ?? 0) > 0))
 
     set((state) => ({
       ...(queues
@@ -3397,7 +3397,7 @@ function sessionsEventPatch(
     // nothing yet either, so its first prompt goes in as a sent turn the echo
     // replaces. The queue stays where it was drawn, at the bottom, until the
     // server sends each once the first turn has ended; its echo lands then.
-    const started = held?.setup && setupPending(held) && !setupPending(msg.session) ? held.setup : null
+    const started = held && !pendingSetup(msg.session) ? pendingSetup(held) : null
     const seeded =
       started && (msg.session.id in state.transcripts || state.ui.selectedId === msg.session.id)
         ? { transcripts: { ...state.transcripts, [msg.session.id]: withSetupTurns(state.transcripts[msg.session.id] ?? [], started) } }
@@ -4241,7 +4241,7 @@ export function statusCounts(
     // A worktree launch not started yet reads `idle` on the wire, but is
     // neither idle nor anything else here: the readout counts it by its own
     // words (`readoutSegments`).
-    if (matchesSidebarFilters(session, state.ui) && !setupPending(session)) counts[shownStatus(session)] += 1
+    if (matchesSidebarFilters(session, state.ui) && !pendingSetup(session)) counts[shownStatus(session)] += 1
   }
   return counts
 }

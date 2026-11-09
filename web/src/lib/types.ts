@@ -327,7 +327,7 @@ export interface ApiSession {
    * A worktree launch's setup (spec 2026-11-09-worktree-setup-in-background-design):
    * present only for a session launched into a worktree by a Mac that sets it
    * up in the background. While it is there and not `ready` the session has
-   * no process and `status` reads `idle`; `setupPending` and
+   * no process and `status` reads `idle`; `pendingSetup` and
    * `sessionStateKey` take it first. Optional: absent from an older Mac and
    * from the fixtures.
    */
@@ -1381,11 +1381,12 @@ export type SessionStateKey =
   | 'ended'
 
 /**
- * Whether a worktree launch has not started its session yet: SETTING UP or
- * NOT STARTED. The session has no process meanwhile, whatever `status` says.
+ * The setup of a worktree launch that has not started its session yet
+ * (SETTING UP or NOT STARTED), null otherwise. The session has no process
+ * meanwhile, whatever `status` says.
  */
-export const setupPending = (session: Pick<ApiSession, 'setup'>): boolean =>
-  session.setup != null && session.setup.phase !== 'ready'
+export const pendingSetup = (session: Pick<ApiSession, 'setup'>): SessionSetup | null =>
+  session.setup != null && session.setup.phase !== 'ready' ? session.setup : null
 
 /**
  * SETTING UP while the worktree is being made, NOT STARTED once making it

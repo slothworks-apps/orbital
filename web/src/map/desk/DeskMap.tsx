@@ -15,7 +15,7 @@ import {
   gateWaits,
   isReadOnly,
   sessionStateKey,
-  setupPending,
+  pendingSetup,
   statePill,
   tagTextColor,
   type PendingDecision,
@@ -595,7 +595,7 @@ const DeskCard = memo(function DeskCard({
     (key === 'working' ? 'WORKING' : key === 'idle' ? 'IDLE' : key === 'setting_up' ? 'SETTING UP' : null)
   // A worktree launch not started yet: the card says which step, or that it
   // did not start, where the latest tool call would be (canvas 66b).
-  const setup = s.setup && setupPending(s) ? s.setup : null
+  const setup = pendingSetup(s)
   const colour = stateColor(key)
   const tools = s.recentTools ?? []
   const last = tools.length ? tools[tools.length - 1] : null

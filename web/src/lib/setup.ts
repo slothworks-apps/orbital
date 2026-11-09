@@ -1,7 +1,7 @@
 import { WORKTREES_DIR, type SessionSetup } from '@orbital/shared/worktree'
 import { deviceOf } from './devices'
 import { homePath } from './format'
-import type { ApiSession, PermissionMode } from './types'
+import type { ApiSession, GitLocation, PermissionMode } from './types'
 
 /**
  * A worktree made in the background (spec
@@ -12,10 +12,23 @@ import type { ApiSession, PermissionMode } from './types'
  */
 
 /** How many steps setup has: naming the branch, checking out, copying local files. */
-export const SETUP_STEPS = 3
+const SETUP_STEPS = 3
+
+/**
+ * The step a setup still running is on. A phase this bundle does not know
+ * (a newer Mac's, sent to an older phone) reads as setting up, at the step
+ * the wire says.
+ */
+function runningStep(setup: Pick<SessionSetup, 'phase' | 'step'>): 1 | 2 | 3 {
+  const phase: string = setup.phase
+  if (phase === 'naming') return 1
+  if (phase === 'checkout') return 2
+  if (phase === 'copy') return 3
+  return setup.step === 2 || setup.step === 3 ? setup.step : 1
+}
 
 /** The first prompt, then each queued message, as they are listed (the order they go out in). */
-export function setupTexts(setup: Pick<SessionSetup, 'prompt' | 'queued'>): string[] {
+function setupTexts(setup: Pick<SessionSetup, 'prompt' | 'queued'>): string[] {
   return [setup.prompt, ...setup.queued.map((q) => q.text)].filter((text) => text.trim() !== '')
 }
 
@@ -44,7 +57,7 @@ export function discardSentence(setup: Pick<SessionSetup, 'phase' | 'queued'>): 
 }
 
 /** How long setup took, as the ready block says it: "14 s", "2 min 05 s". */
-export function readyInLabel(ms: number): string {
+function readyInLabel(ms: number): string {
   const s = Math.max(1, Math.round(ms / 1000))
   if (s < 60) return `${s} s`
   return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`
@@ -81,69 +94,77 @@ export function setupBlock(setup: SessionSetup): SetupBlockModel {
   const branch = (tone: SetupLine['tone']): SetupLine => ({ glyph: '✓', text: 'Branch ', mono: setup.branch ?? '', tone })
   // Until the directory is reserved its leaf is not known (66c 1).
   const path = homePath(setup.path ?? `${setup.launch.cwd}/${WORKTREES_DIR}/…`)
-  switch (setup.phase) {
-    case 'naming':
-      return {
-        failed: false,
-        title: 'Setting up a worktree',
-        right: `step 1 of ${SETUP_STEPS}`,
-        lines: [
+  if (setup.phase === 'ready')
+    return {
+      failed: false,
+      title: 'Worktree ready',
+      right: setup.readyInMs != null ? `ready in ${readyInLabel(setup.readyInMs)}` : null,
+      lines: [branch('done'), { glyph: '✓', text: 'Checked out', tone: 'done' }, { glyph: '✓', text: 'Copied local files', tone: 'done' }],
+      path,
+    }
+  if (setup.phase === 'failed') {
+    const n = setup.queued.length
+    const kept =
+      n === 0
+        ? 'Nothing was left on disk. Your prompt is kept.'
+        : `Nothing was left on disk. Your prompt and ${plural(n, 'queued message')} are kept.`
+    return {
+      failed: true,
+      title: 'Couldn’t create the worktree',
+      right: null,
+      lines: [
+        { glyph: '!', text: setup.message ?? 'Git refused to create the worktree.', tone: 'error' },
+        { glyph: '', text: kept, tone: 'pending' },
+      ],
+      path: null,
+    }
+  }
+  // Setting up — and any phase this bundle does not know yet, which an older
+  // phone reads as still running rather than failing to draw the block.
+  const step = runningStep(setup)
+  const lines: SetupLine[] =
+    step === 1
+      ? [
           { glyph: '•', text: 'Naming the branch', tone: 'now' },
           { glyph: '○', text: 'Check out the repository', tone: 'pending' },
           { glyph: '○', text: 'Copy local files', tone: 'pending' },
-        ],
-        path,
-      }
-    case 'checkout':
-      return {
-        failed: false,
-        title: 'Setting up a worktree',
-        right: `step 2 of ${SETUP_STEPS}`,
-        lines: [
-          branch('done'),
-          { glyph: '•', text: 'Checking out the repository', tone: 'now' },
-          { glyph: '○', text: 'Copy local files', tone: 'pending' },
-        ],
-        path,
-      }
-    case 'copy':
-      return {
-        failed: false,
-        title: 'Setting up a worktree',
-        right: `step 3 of ${SETUP_STEPS}`,
-        lines: [
-          branch('done'),
-          { glyph: '✓', text: 'Checked out', tone: 'done' },
-          { glyph: '•', text: 'Copying local files', tone: 'now' },
-        ],
-        path,
-      }
-    case 'ready':
-      return {
-        failed: false,
-        title: 'Worktree ready',
-        right: setup.readyInMs != null ? `ready in ${readyInLabel(setup.readyInMs)}` : null,
-        lines: [branch('done'), { glyph: '✓', text: 'Checked out', tone: 'done' }, { glyph: '✓', text: 'Copied local files', tone: 'done' }],
-        path,
-      }
-    case 'failed': {
-      const n = setup.queued.length
-      const kept =
-        n === 0
-          ? 'Nothing was left on disk. Your prompt is kept.'
-          : `Nothing was left on disk. Your prompt and ${plural(n, 'queued message')} are kept.`
-      return {
-        failed: true,
-        title: 'Couldn’t create the worktree',
-        right: null,
-        lines: [
-          { glyph: '!', text: setup.message ?? 'Git refused to create the worktree.', tone: 'error' },
-          { glyph: '', text: kept, tone: 'pending' },
-        ],
-        path: null,
-      }
-    }
-  }
+        ]
+      : step === 2
+        ? [
+            branch('done'),
+            { glyph: '•', text: 'Checking out the repository', tone: 'now' },
+            { glyph: '○', text: 'Copy local files', tone: 'pending' },
+          ]
+        : [
+            branch('done'),
+            { glyph: '✓', text: 'Checked out', tone: 'done' },
+            { glyph: '•', text: 'Copying local files', tone: 'now' },
+          ]
+  return { failed: false, title: 'Setting up a worktree', right: `step ${step} of ${SETUP_STEPS}`, lines, path }
+}
+
+/**
+ * What a session's transcript holds of its setup (66a, 66c, 66d): the setup,
+ * whether the session has not started (its prompt, the block and its queue
+ * stand in for the transcript), the setup once started while messages still
+ * wait for the first turn to end, and the part of the footer's key it owns.
+ */
+export function setupTranscript(session: Pick<ApiSession, 'setup'> | null | undefined): {
+  setup: SessionSetup | null
+  pending: boolean
+  setupQueued: SessionSetup | null
+  footerKey: string | undefined
+} {
+  const setup = session?.setup ?? null
+  const pending = setup !== null && setup.phase !== 'ready'
+  const setupQueued = setup && !pending && setup.queued.length > 0 ? setup : null
+  const footerKey =
+    setup && pending
+      ? `setup:${setup.phase}:${setup.queued.length}`
+      : setupQueued
+        ? `setup-queued:${setupQueued.queued.length}`
+        : undefined
+  return { setup, pending, setupQueued, footerKey }
 }
 
 /** The branch where a session's header, card and row name it: italic while it is not known (66a). */
@@ -153,16 +174,28 @@ export function setupBranch(setup: Pick<SessionSetup, 'phase' | 'branch'>): { te
   return { text: setup.branch, italic: false }
 }
 
+/**
+ * Where a session not started yet will work, as the headers read it: the
+ * branch it is getting as a plain branch — its checkout does not exist yet —
+ * or what stands in for one, which is drawn italic and muted (66c `panel()`
+ * `brStyle`, `brInk`; 66d).
+ */
+export function setupGit(setup: Pick<SessionSetup, 'phase' | 'branch'>): { git: GitLocation; standIn: boolean } {
+  const { text, italic } = setupBranch(setup)
+  return { git: { ref: text, detached: false, worktree: false, defaultBranch: false }, standIn: italic }
+}
+
 /** The Desk card's tool line (66b): the step, or that it did not start. */
 export function setupToolLine(setup: Pick<SessionSetup, 'phase' | 'step'>): { name: string; arg: string } {
   if (setup.phase === 'failed') return { name: 'Not started', arg: 'couldn’t create the worktree' }
-  const doing = setup.phase === 'naming' ? 'naming the branch' : setup.phase === 'checkout' ? 'checking out' : 'copying local files'
-  return { name: 'Setting up', arg: `step ${setup.step} of ${SETUP_STEPS} · ${doing}` }
+  const step = runningStep(setup)
+  const doing = step === 1 ? 'naming the branch' : step === 2 ? 'checking out' : 'copying local files'
+  return { name: 'Setting up', arg: `step ${step} of ${SETUP_STEPS} · ${doing}` }
 }
 
 /** The phone row's note (66d). */
 export function setupRowNote(setup: Pick<SessionSetup, 'phase' | 'step'>): string {
-  return setup.phase === 'failed' ? 'Couldn’t create the worktree.' : `Setting up a worktree · step ${setup.step} of ${SETUP_STEPS}`
+  return setup.phase === 'failed' ? 'Couldn’t create the worktree.' : `Setting up a worktree · step ${runningStep(setup)} of ${SETUP_STEPS}`
 }
 
 /**

@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
 import { toggleTag } from '../../lib/tagFilter'
 import { sessionViewTransitionName, withViewTransition } from '../../lib/viewTransition'
-import { isReadOnly, setupPending, tagColor, type ApiSession, type Tag } from '../../lib/types'
+import { isReadOnly, pendingSetup, tagColor, type ApiSession, type Tag } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { ClaudeDirMark, useClaudeDirMark } from '../../ui/ClaudeDirMark'
 import { useOrbital } from '../../store/store'
@@ -521,7 +521,8 @@ function SessionRow({
   const dirMark = useClaudeDirMark(session.claudeDirId)
   const waitLine = group === 'limit' ? limitLine(session, offline || asleep, mac, now) : null
   // Canvas 66d: which step a worktree launch is at, or that it did not start.
-  const setupLine = session.setup && setupPending(session) ? setupRowNote(session.setup) : null
+  const notStarted = pendingSetup(session)
+  const setupLine = notStarted ? setupRowNote(notStarted) : null
   const idle = group === 'idle'
   // A gate carries no elapsed time (10a); asleep, NEEDS INPUT shows none either (9a). The limit
   // row shows its last activity like every other row (spec § 8, Decision 9).

@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode, RefObject } from 'react'
 import { api } from '../lib/api'
 import { detachSession, hasDesktopBridge, openInMainWindow } from '../lib/desktop'
 import { shortenPath } from '../lib/format'
 import { useCommand } from '../lib/commands'
 import { headerLineChanges, headerPullRequest, useOrbital } from '../store/store'
-import { setupPending, workingDirOf } from '../lib/types'
-import { discardLabel, setupBranch } from '../lib/setup'
-import type { ApiSession, GitLocation, WalkthroughSummary } from '../lib/types'
+import { pendingSetup, workingDirOf } from '../lib/types'
+import { discardLabel, setupGit } from '../lib/setup'
+import type { ApiSession, WalkthroughSummary } from '../lib/types'
 import { MENU_SEPARATOR, MenuButton } from '../ui/Menu'
 import type { MenuEntry } from '../ui/Menu'
 import { PinButton } from '../ui/PinButton'
@@ -306,15 +306,6 @@ export interface UtilityStripProps {
 }
 
 /**
- * Where a worktree launch not started yet will work: the branch it is
- * getting, or what stands in for one (canvas 66a), read as a plain branch —
- * the checkout it names does not exist yet.
- */
-function setupGit(setup: NonNullable<ApiSession['setup']>): GitLocation {
-  return { ref: setupBranch(setup).text, detached: false, worktree: false, defaultBranch: false }
-}
-
-/**
  * The detail header's row 1 (canvas `Feature - Detail header` 9d, actions per
  * `Feature - Header actions` 23a): the path, then the strip — which folds
  * stats, clear and detach behind a ⋯ when the path runs out of room (23c
@@ -347,7 +338,9 @@ export function UtilityStrip({
 
   // A worktree launch not started yet has nothing to measure, steer or
   // clear (canvas 66c STRIP): left out, not greyed. End stays, as discard.
-  const setup = session?.setup && setupPending(session) ? session.setup : null
+  const setup = session ? pendingSetup(session) : null
+  // Where it will work: the branch it is getting, or what stands in for one (66c `panel()`).
+  const settingUpGit = useMemo(() => (setup ? setupGit(setup) : null), [setup])
   const present: StripPresence = {
     stats: Boolean(session) && statsVariant === 'button' && !setup,
     harness: harness === null && !setup,
@@ -454,7 +447,8 @@ export function UtilityStrip({
         ref={cellRef}
         path={session ? shortenPath(workingDirOf(session)) : ''}
         fullPath={session ? workingDirOf(session) : ''}
-        git={setup ? setupGit(setup) : (session?.git ?? null)}
+        git={settingUpGit?.git ?? session?.git ?? null}
+        standIn={settingUpGit?.standIn}
         sessionId={session?.id ?? null}
         panelWidthPx={pathBudgetPx}
         cellWidthPx={cellPx}

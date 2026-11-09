@@ -24,9 +24,9 @@
  *   worktree cleanup row       where/WorktreeCleanup.tsx         under an ended session's tail (canvas 63g)
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { isReadOnly, setupPending, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
+import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
 import { SetupBlock, SetupPending, SetupQueue } from '../../panels/SetupBlock'
-import { SessionMenuSheet } from '../menu/SessionMenuSheet'
+import { setupTranscript } from '../../lib/setup'
 import { GLINT_ACCENT_HUE } from '../../ui/TopGlint'
 import { getSocket } from '../../lib/socket'
 import { ReplyMediaSession } from '../../panels/ReplyMedia'
@@ -163,13 +163,9 @@ function SessionView({ id }: { id: string }) {
 
   // A worktree launch (spec 2026-11-09-worktree-setup-in-background-design;
   // canvas 66d): before it starts, its prompt, the block and its queue from
-  // `setup`; after, the block under the first turn. More… in a failed block
-  // opens the ⋯ sheet, which holds the rest of the ways out.
-  const setup = session?.setup ?? null
-  const pending = session != null && setupPending(session)
-  // Started, with messages still waiting for the first turn to end: queued turns at the bottom.
-  const setupQueued = setup && !pending && setup.queued.length > 0 ? setup : null
-  const [moreOpen, setMoreOpen] = useState(false)
+  // `setup`; after, the block under the first turn, and messages still
+  // waiting for the first turn to end as queued turns at the bottom.
+  const { setup, pending, setupQueued, footerKey: setupKey } = setupTranscript(session)
 
   const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
   const phoneRows = usePhoneToolRow(id, tagHue, offline)
@@ -256,7 +252,6 @@ function SessionView({ id }: { id: string }) {
                   setup={setup}
                   hue={tag?.hue ?? GLINT_ACCENT_HUE}
                   surface="phone"
-                  onMore={() => setMoreOpen(true)}
                 />
               )}
               <TranscriptTail session={session} offline={offline} />
@@ -265,13 +260,7 @@ function SessionView({ id }: { id: string }) {
             </>
           ) : undefined
         }
-        footerKey={
-          pending && setup
-            ? `setup:${setup.phase}:${setup.queued.length}|${tailKey}`
-            : setupQueued
-              ? `setup-queued:${setupQueued.queued.length}|${tailKey}`
-              : tailKey
-        }
+        footerKey={setupKey ? `${setupKey}|${tailKey}` : tailKey}
         liveRow={liveRow}
         isWaiting={isWaiting}
         waitCaption={waitCaption}
@@ -281,9 +270,6 @@ function SessionView({ id }: { id: string }) {
       </PhoneToolRowContext.Provider>
       </LoginNoticeContext.Provider>
       <SheetPresence>{cleanup.sheet && <WorktreeCleanupSheet cleanup={cleanup} />}</SheetPresence>
-      <SheetPresence>
-        {moreOpen && session && <SessionMenuSheet session={session} offline={offline} onClose={() => setMoreOpen(false)} />}
-      </SheetPresence>
     </MobileScreen>
   )
 }

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionSetup, SetupPhase } from '@orbital/shared/worktree'
-import { sessionStateKey, setupPending, statePill, type ApiSession, type SessionStatus } from '../lib/types'
+import { pendingSetup, sessionStateKey, statePill, type ApiSession, type SessionStatus } from '../lib/types'
 import {
   discardSentence,
   setupAttachments,
   setupBlock,
   setupPromptText,
+  setupRowNote,
+  setupToolLine,
   withoutWorktreePrefill,
 } from '../lib/setup'
 import { menuFor } from '../lib/sessionMenu'
@@ -48,15 +50,15 @@ describe('a worktree launch’s state', () => {
   it('reads SETTING UP through the three steps and NOT STARTED once failed, whatever the idle status says', () => {
     for (const phase of ['naming', 'checkout', 'copy'] as const) {
       expect(sessionStateKey(inPhase(phase))).toBe('setting_up')
-      expect(setupPending(inPhase(phase))).toBe(true)
+      expect(pendingSetup(inPhase(phase))).not.toBeNull()
     }
     expect(sessionStateKey(inPhase('failed'))).toBe('not_started')
-    expect(setupPending(inPhase('failed'))).toBe(true)
+    expect(pendingSetup(inPhase('failed'))).not.toBeNull()
   })
 
   it('takes the session’s own state once ready, and is unchanged without a setup', () => {
     expect(sessionStateKey(inPhase('ready', { status: 'working' }))).toBe('working')
-    expect(setupPending(inPhase('ready'))).toBe(false)
+    expect(pendingSetup(inPhase('ready'))).toBeNull()
     expect(sessionStateKey(session('plain'))).toBe('idle')
   })
 
@@ -175,6 +177,16 @@ describe('the words of a launch not started', () => {
       'The disk is full.',
       'Nothing was left on disk. Your prompt and 1 queued message are kept.',
     ])
+  })
+
+  it('reads a phase a newer Mac adds as still setting up, at the step the wire says', () => {
+    const unknown = setup({ phase: 'verifying' as SetupPhase, step: 3 })
+    const block = setupBlock(unknown)
+    expect(block.failed).toBe(false)
+    expect(block.right).toBe('step 3 of 3')
+    expect(block.lines.map((l) => l.tone)).toEqual(['done', 'done', 'now'])
+    expect(setupToolLine(unknown)).toEqual({ name: 'Setting up', arg: 'step 3 of 3 · copying local files' })
+    expect(setupRowNote(setup({ phase: 'verifying' as SetupPhase, step: 7 as never }))).toBe('Setting up a worktree · step 1 of 3')
   })
 
   it('opens New Session with the launch’s settings and the whole text, to replace this session', () => {

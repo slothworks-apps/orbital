@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState } from 'react'
-import { setupPending, type ApiSession, type GitLocation } from '../../lib/types'
-import { setupBranch } from '../../lib/setup'
+import { pendingSetup, type ApiSession, type GitLocation } from '../../lib/types'
+import { setupGit } from '../../lib/setup'
 import { treesCompactText, treesCountText, treesHeadText, whereFormOf } from '../../lib/whereForm'
 import { FullTextTip } from '../FullTextTip'
 import { basename } from '../format'
@@ -93,10 +93,9 @@ export function WhereLine({
   const header = variant === 'header'
   // A worktree launch not started yet: the branch it is getting, or what
   // stands in for one, in italics while it is not a branch (canvas 66d).
-  const setup = session.setup && setupPending(session) ? setupBranch(session.setup) : null
-  const git: GitLocation | null = setup
-    ? { ref: setup.text, detached: false, worktree: false, defaultBranch: false }
-    : (session.git ?? null)
+  const notStarted = pendingSetup(session)
+  const setup = notStarted ? setupGit(notStarted) : null
+  const git: GitLocation | null = setup ? setup.git : (session.git ?? null)
   const form = whereFormOf(git, session.otherTrees)
   const inWorktree = git?.worktree ?? false
   const project = basename(session.cwd)
@@ -146,7 +145,7 @@ export function WhereLine({
           {sep}
           <span className="flex min-w-0 items-center" style={{ gap: MARK_GAP_PX }}>
             {inWorktree ? <TreeMark /> : <span aria-hidden>⎇</span>}
-            <span className={['truncate', setup?.italic ? 'italic' : ''].join(' ')}>{fit.branch}</span>
+            <span className={['truncate', setup?.standIn ? 'italic' : ''].join(' ')}>{fit.branch}</span>
           </span>
         </>
       )}

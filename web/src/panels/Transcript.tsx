@@ -19,7 +19,7 @@ import { useMedia } from '../store/media'
 import { ReplyMediaSession } from './ReplyMedia'
 import { pickRewindTarget, useRewindUi } from '../store/rewind'
 import { rewindTargetIds } from '../lib/rewind'
-import { setupPending } from '../lib/types'
+import { setupTranscript } from '../lib/setup'
 import { SetupBlock, SetupPending, SetupQueue } from './SetupBlock'
 
 /** Stable empty array — a fresh `[]` fallback on every selector call would
@@ -246,11 +246,9 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   // A worktree launch (spec 2026-11-09-worktree-setup-in-background-design):
   // before it starts the transcript is its prompt, its setup block and its
   // queue, all from `setup`; after, the block stays under the first turn.
-  const setup = session?.setup ?? null
-  const pending = session != null && setupPending(session)
-  // Started, with messages still waiting for the first turn to end: they
+  // Started, with messages still waiting for the first turn to end, they
   // stay queued turns at the bottom until the server sends each.
-  const setupQueued = setup && !pending && setup.queued.length > 0 ? setup : null
+  const { setup, pending, setupQueued, footerKey: setupKey } = setupTranscript(session)
 
   // An offline device whose history was never read while it was up: one
   // quiet line where the transcript would be, never an error. Its styling is
@@ -295,11 +293,8 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       isWaiting={waitingBehind(liveNotice)}
       waitCaption={liveNotice ? (count) => <HookWaitCaption hook={waitedFor(liveNotice)} count={count} /> : undefined}
       footerKey={
-        pending && setup
-          ? `setup:${setup.phase}:${setup.queued.length}`
-          : setupQueued
-          ? `setup-queued:${setupQueued.queued.length}`
-          : compacting
+        setupKey ??
+        (compacting
           ? 'compacting'
           : pendingHidden !== null
             ? 'rewind-pending'
@@ -307,7 +302,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
               ? `limit-wait:${limitWait.queued.length}`
               : liveNotice
                 ? `live-notice:${liveNotice.id}:${liveNotice.text}`
-                : undefined
+                : undefined)
       }
       footer={
         <>

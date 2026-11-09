@@ -91,7 +91,7 @@ import { useCompactionUi } from '../store/compaction'
 import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
 import { TerminalChip } from '../terminal/TerminalEntry'
 import { useSideSlotWidth } from '../terminal/useTerminalHost'
-import { canTakeOver, gateWaits, isReadOnly, sessionStateKey, setupPending, tagColor } from '../lib/types'
+import { canTakeOver, gateWaits, isReadOnly, pendingSetup, sessionStateKey, tagColor } from '../lib/types'
 import { setupComposer } from '../lib/setup'
 import { limitWaitStatus } from '../lib/limits'
 import { loginWaitLabels } from '../lib/profileLogin'
@@ -536,7 +536,7 @@ export function DetailPanel({
     () => {
       if (shown) askToClear(shown.id)
     },
-    shown?.source === 'web' && !setupPending(shown)
+    shown?.source === 'web' && !pendingSetup(shown)
   )
   // ⌘⇧H toggles the harness panel, as the pill and the strip button do;
   // terminal sessions cannot take a harness.
@@ -545,7 +545,7 @@ export function DetailPanel({
     () => {
       if (shown) useOrbital.getState().openHarness(shown.id)
     },
-    harnessEnabled(settings) && shown?.source === 'web' && !setupPending(shown)
+    harnessEnabled(settings) && shown?.source === 'web' && !pendingSetup(shown)
   )
   useCommand(
     'session.end',
@@ -702,7 +702,8 @@ export function DetailPanel({
   // mark on the row and the refusal at the composer cannot drift apart.
   const isTerminalLive = session ? isReadOnly(session) : false
   // A worktree launch not started yet queues what is written (canvas 66c `composer`).
-  const setupWords = session?.setup && setupPending(session) ? setupComposer(session.setup) : null
+  const notStarted = session ? pendingSetup(session) : null
+  const setupWords = notStarted ? setupComposer(notStarted) : null
   const promptPlaceholder =
     setupWords?.placeholder ?? (session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…')
 
