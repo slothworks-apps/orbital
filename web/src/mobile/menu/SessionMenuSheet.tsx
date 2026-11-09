@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { api } from '../../lib/api'
+import { api, ApiError } from '../../lib/api'
 import { reportError } from '../../lib/errors'
 import { tagColor, type ApiSession } from '../../lib/types'
 import { useMedia } from '../../store/media'
@@ -155,8 +155,11 @@ export function SessionMenuSheet({
       // The session is gone: back to the list it was opened from.
       if (useMobile.getState().sessionId === id) useMobile.getState().goBack()
     } catch (err) {
-      reportError(err, 'Failed to discard the session')
       setBusy(false)
+      // 409: the worktree got ready while the sheet was open; a session that
+      // ran is ended, not discarded.
+      if (err instanceof ApiError && err.status === 409) setView('end')
+      else reportError(err, 'Failed to discard the session')
     }
   }
 

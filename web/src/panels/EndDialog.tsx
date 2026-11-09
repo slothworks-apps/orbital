@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { EndWithWorktreeRequest } from '@orbital/shared/worktree'
 import { useOrbital } from '../store/store'
 import { reportError } from '../lib/errors'
+import { ApiError } from '../lib/api'
 import { command, matches } from '../lib/keymap'
 import { useEndWorktreeRow } from '../lib/useEndWorktreeRow'
 import type { EndAnswer } from '../lib/worktree'
@@ -71,11 +72,16 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
    * that gets ready meanwhile does not swap the dialog under the pointer.
    */
   const pendingNow = session !== undefined && setupPending(session)
+  /** Set when the session started under the discard form: the End form takes over, saying why. */
+  const [startedNote, setStartedNote] = useState(false)
+  useEffect(() => {
+    if (!open) setStartedNote(false)
+  }, [open])
   const [latched, setLatched] = useState(false)
   useEffect(() => {
     setLatched(open && (latched || pendingNow))
   }, [open, pendingNow, latched])
-  const discards = open && (latched || pendingNow)
+  const discards = open && !startedNote && (latched || pendingNow)
 
   // Canvas 63h: a session in a linked worktree gets one more row — every
   // worktree but one another live session is still in (C3).
@@ -94,7 +100,14 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
       await discardSetup(targetId)
       onClose()
     } catch (err) {
-      reportError(err, 'Failed to discard the session')
+      // 409: the worktree got ready while the dialog was open, and a session
+      // that ran is ended, not discarded.
+      if (err instanceof ApiError && err.status === 409) {
+        setLatched(false)
+        setStartedNote(true)
+      } else {
+        reportError(err, 'Failed to discard the session')
+      }
     } finally {
       setPending(false)
     }
@@ -201,6 +214,9 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
       <p className={`${session?.title ? 'mt-0.5' : ''} fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]`}>
         {session?.title ? 'Stops' : 'This session stops'} and moves to history — the transcript stays readable there.
       </p>
+      {startedNote && (
+        <p className="mt-2 fs-12 leading-[1.45] text-ink-900/70">Its worktree got ready meanwhile and the session started.</p>
+      )}
       {row.offered && row.copy && (
         // 63h: 14px under the sentence, 11px/13px inside a 10px radius, the
         // well fill under a .12 hairline; the box is the row's checkbox.
