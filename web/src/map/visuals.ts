@@ -151,7 +151,7 @@ const SETUP_CORE_REST = 0.5
  * loop's blink takes a core from 1 down to `1 - BLINK_DEPTH · depth`, so
  * this lands its trough on `SETUP_CORE_REST`.
  */
-export const SETUP_BREATH_DEPTH = (1 - SETUP_CORE_REST) / BLINK_DEPTH
+const SETUP_BREATH_DEPTH = (1 - SETUP_CORE_REST) / BLINK_DEPTH
 
 /**
  * Whole-body opacity of a planet (and its moons) that does not match the

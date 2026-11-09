@@ -1,13 +1,13 @@
 import { sessionStateKey, shownStatus, type ApiSession, type SessionStateKey, type SessionStatus } from '../lib/types'
 
 /** One `N WORD` segment of the map's aggregate readout. */
-export interface ReadoutSegment {
+interface ReadoutSegment {
   key: SessionStateKey
   text: string
 }
 
 /** What the readout counts a planet by: whether it is drawn as counted, and its session. */
-export interface ReadoutPlanet {
+interface ReadoutPlanet {
   muted?: boolean
   deviceOff?: boolean
   session: ApiSession
