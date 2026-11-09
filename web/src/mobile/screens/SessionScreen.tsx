@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
 import { SetupBlock, SetupPending, SetupQueue } from '../../panels/SetupBlock'
 import { setupTranscript } from '../../lib/setup'
+import { startWithoutWorktreeOnPhone } from '../menu/withoutWorktree'
 import { GLINT_ACCENT_HUE } from '../../ui/TopGlint'
 import { getSocket } from '../../lib/socket'
 import { ReplyMediaSession } from '../../panels/ReplyMedia'
@@ -252,6 +253,7 @@ function SessionView({ id }: { id: string }) {
                   setup={setup}
                   hue={tag?.hue ?? GLINT_ACCENT_HUE}
                   surface="phone"
+                  onWithoutWorktree={() => startWithoutWorktreeOnPhone(id)}
                 />
               )}
               <TranscriptTail session={session} offline={offline} />

@@ -4,6 +4,8 @@ import { queuedCaption, setupBlock, type SetupLine } from '../lib/setup'
 import { swatch } from '../lib/palette'
 import { useOrbital } from '../store/store'
 import { copySetupPrompt, retrySetup, startWithoutWorktree } from '../store/setupActions'
+import { Button } from '../ui/Button'
+import { QueuedBubble, type QueuedBubbleSurface } from '../ui/QueuedBubble'
 import { ForkMark } from './WhereLine'
 
 /**
@@ -14,7 +16,7 @@ import { ForkMark } from './WhereLine'
  * bottom, until the first turn has ended.
  */
 
-export type SetupSurface = 'panel' | 'phone'
+type SetupSurface = QueuedBubbleSurface
 
 /** 66c: the block's fixed height per surface, so nothing below it moves when it changes. */
 const BLOCK_PX: Record<SetupSurface, number> = { panel: 132, phone: 172 }
@@ -30,94 +32,64 @@ const LINE_INK: Record<SetupLine['tone'], { text: string; glyph: string; mono: s
   error: { text: 'text-ink-100', glyph: 'text-danger-pale', mono: 'text-ink-500/80' },
 }
 
-function BlockButton({
-  surface,
-  primary = false,
-  onClick,
-  children,
-}: {
-  surface: SetupSurface
-  primary?: boolean
-  onClick: () => void
-  children: string
-}) {
-  const tone = primary
-    ? 'border-accent bg-accent font-bold text-space-deep'
-    : `bg-transparent font-semibold ${surface === 'phone' ? 'border-line/22 text-ink-100' : 'border-line/20 text-ink-200/90'}`
-  // 66c `act()`: 24px chips on the desktop, 44px halves on the phone.
-  const size = surface === 'phone' ? 'h-11 flex-1 rounded-[12px] px-3 fs-14' : 'h-6 flex-none rounded-[6px] px-[9px] fs-11.5'
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`cursor-pointer whitespace-nowrap border border-solid ${size} ${tone}`}
-    >
-      {children}
-    </button>
-  )
-}
-
 /**
  * The setup block (canvas 66c): one fixed-height box — its title, three
  * lines, and a bottom row with the worktree's path or, once it failed, the
  * ways out. It keeps its place for the life of the session; once ready it
- * says how long setup took.
+ * says how long setup took. Discarding is never here: it is the strip's end
+ * button on the desktop and the ⋯ sheet's last row on the phone.
  */
 export function SetupBlock({
   sessionId,
   setup,
   surface = 'panel',
-  onMore,
+  onWithoutWorktree,
 }: {
   sessionId: string
   setup: SessionSetup
   surface?: SetupSurface
-  /** The phone's More…, which opens the ⋯ sheet with the rest of the ways out. */
-  onMore?: () => void
+  /** Without a worktree, where it opens New Session — the phone's screen; the desktop's dialog by default. */
+  onWithoutWorktree?: () => void
 }) {
   const model = setupBlock(setup)
   const setDialog = useOrbital((s) => s.setDialog)
   const [copied, setCopied] = useState(false)
-  const settingUp = setup.phase !== 'failed' && setup.phase !== 'ready'
-  const discard = () => setDialog('end', sessionId)
+  const phone = surface === 'phone'
+  const withoutWorktree = onWithoutWorktree ?? (() => startWithoutWorktree(sessionId))
+  // 66c `sb()`: Try again, Without a worktree and Copy prompt as 24px chips;
+  // 66d: only the first two, as 44px halves — Copy first prompt is in the ⋯ sheet.
+  const button = phone
+    ? ({ size: 'block-half', className: 'flex-1', quiet: 'outline-touch' } as const)
+    : ({ size: 'block-chip', className: 'flex-none', quiet: 'outline-soft' } as const)
   const actions = model.failed ? (
-    surface === 'phone' ? (
-      <>
-        <BlockButton surface={surface} primary onClick={() => retrySetup(sessionId)}>
-          Try again
-        </BlockButton>
-        {onMore && (
-          <BlockButton surface={surface} onClick={onMore}>
-            More…
-          </BlockButton>
-        )}
-      </>
-    ) : (
-      <>
-        <BlockButton surface={surface} primary onClick={() => retrySetup(sessionId)}>
-          Try again
-        </BlockButton>
-        <BlockButton surface={surface} onClick={() => startWithoutWorktree(sessionId)}>
-          Without a worktree
-        </BlockButton>
-        <BlockButton surface={surface} onClick={() => void copySetupPrompt(sessionId).then(setCopied)}>
+    <>
+      <Button variant="primary-plain" size={button.size} className={button.className} onClick={() => retrySetup(sessionId)}>
+        Try again
+      </Button>
+      <Button variant={button.quiet} size={button.size} className={button.className} onClick={withoutWorktree}>
+        Without a worktree
+      </Button>
+      {!phone && (
+        // Below the width the three chips need, Copy prompt gives way: the
+        // context menu and the discard dialog offer it too.
+        <Button
+          variant={button.quiet}
+          size={button.size}
+          className="flex-none @max-[31em]:hidden"
+          onClick={() => void copySetupPrompt(sessionId).then(setCopied)}
+        >
           {copied ? 'Copied' : 'Copy prompt'}
-        </BlockButton>
-        <BlockButton surface={surface} onClick={discard}>
-          Discard…
-        </BlockButton>
-      </>
-    )
-  ) : settingUp && surface === 'panel' ? (
-    <BlockButton surface={surface} onClick={discard}>
-      Cancel and discard…
-    </BlockButton>
+        </Button>
+      )}
+    </>
   ) : null
 
   return (
     <div
       data-setup-block={setup.phase}
-      className="box-border flex flex-none flex-col overflow-hidden rounded-[8px] border border-line/14 bg-space/45"
+      // A query container sized in the chips' own type, so the row knows
+      // when they no longer fit at any text size (`fs-11.5` is 66c's chip).
+      className="@container box-border flex flex-none flex-col overflow-hidden rounded-[8px] border border-line/14 bg-space/45 fs-11.5"
       style={{ height: BLOCK_PX[surface] }}
     >
       <div
@@ -130,7 +102,9 @@ export function SetupBlock({
         <span className="min-w-0 truncate">{model.title}</span>
         <span aria-hidden className="flex-1" />
         {model.failed ? (
-          // "Detail" opens the error log, which holds this failure's full output.
+          // "Detail" opens the error log, which holds this failure's full
+          // output. The phone keeps no error log, so it has none.
+          !phone && (
           <button
             type="button"
             onClick={() => setDialog('errors')}
@@ -138,6 +112,7 @@ export function SetupBlock({
           >
             Detail
           </button>
+          )
         ) : (
           model.right && <span className="fs-10.5 text-ink-900/55">{model.right}</span>
         )}
@@ -146,7 +121,7 @@ export function SetupBlock({
         data-selectable
         className={[
           'flex min-h-0 flex-1 flex-col gap-0.5 px-2.5 py-[7px] leading-[1.45]',
-          surface === 'phone' ? 'fs-13.5' : 'fs-12',
+          phone ? 'fs-13.5' : 'fs-12',
         ].join(' ')}
       >
         {model.lines.map((line, i) => {
@@ -167,7 +142,7 @@ export function SetupBlock({
       <div
         className={[
           'flex flex-none items-center gap-1.5 border-t border-line/8',
-          surface === 'phone' ? 'px-2' : 'px-2.5',
+          phone ? 'px-2' : 'px-2.5',
         ].join(' ')}
         style={{ height: ACTION_ROW_PX[surface] }}
       >
@@ -176,35 +151,6 @@ export function SetupBlock({
         </span>
         {actions}
       </div>
-    </div>
-  )
-}
-
-/**
- * A turn that has not gone out (canvas 66c QUEUED): the queued-turn bubble
- * as built — dashed in the tag hue — with a mono caption and no time.
- */
-export function QueuedTurn({ text, caption, hue, surface = 'panel' }: { text: string; caption: string; hue: number; surface?: SetupSurface }) {
-  return (
-    <div data-setup-queued className="flex w-full flex-none flex-col items-end gap-[5px]">
-      <div
-        data-selectable
-        className={[
-          'max-w-[86%] whitespace-pre-wrap border border-dashed px-3.5 py-2.5 leading-[1.5] text-ink-100/86 [text-wrap:pretty]',
-          surface === 'phone' ? 'rounded-[16px_16px_5px_16px] fs-14.5' : 'rounded-[12px_12px_4px_12px] fs-13',
-        ].join(' ')}
-        style={{ borderColor: `oklch(var(--tb-l) var(--tb-c) ${hue} / .4)` }}
-      >
-        {text}
-      </div>
-      <span
-        className={[
-          'min-h-3.5 whitespace-nowrap font-mono tracking-[0.04em] text-ink-900/60',
-          surface === 'phone' ? 'fs-10' : 'fs-9.5',
-        ].join(' ')}
-      >
-        {caption}
-      </span>
     </div>
   )
 }
@@ -220,19 +166,19 @@ export function SetupPending({
   setup,
   hue,
   surface = 'panel',
-  onMore,
+  onWithoutWorktree,
 }: {
   sessionId: string
   setup: SessionSetup
   hue: number
   surface?: SetupSurface
-  onMore?: () => void
+  onWithoutWorktree?: () => void
 }) {
   const first = setup.prompt.trim() !== '' ? setup.prompt : null
   return (
     <div className={`flex flex-col ${surface === 'phone' ? 'gap-3' : 'gap-[14px]'}`}>
-      {first !== null && <QueuedTurn text={first} caption={queuedCaption(setup, true)} hue={hue} surface={surface} />}
-      <SetupBlock sessionId={sessionId} setup={setup} surface={surface} onMore={onMore} />
+      {first !== null && <QueuedBubble kind="setup" surface={surface} text={first} caption={queuedCaption(setup, true)} hue={hue} />}
+      <SetupBlock sessionId={sessionId} setup={setup} surface={surface} onWithoutWorktree={onWithoutWorktree} />
       <SetupQueue setup={setup} hue={hue} surface={surface} />
     </div>
   )
@@ -249,7 +195,7 @@ export function SetupQueue({ setup, hue, surface = 'panel' }: { setup: SessionSe
   return (
     <div className={`flex flex-col ${surface === 'phone' ? 'gap-3' : 'gap-[14px]'}`}>
       {queued.map((text, i) => (
-        <QueuedTurn key={i} text={text} caption={queuedCaption(setup, false)} hue={hue} surface={surface} />
+        <QueuedBubble key={i} kind="setup" surface={surface} text={text} caption={queuedCaption(setup, false)} hue={hue} />
       ))}
     </div>
   )

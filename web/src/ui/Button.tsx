@@ -30,7 +30,9 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'ink'
     | 'dashed-link'
     | 'muted-chip'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action' | 'labs' | 'labs-row'
+    | 'outline-soft'
+    | 'outline-touch'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action' | 'labs' | 'labs-row' | 'block-chip' | 'block-half'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -118,6 +120,11 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   // hover. Disabled at 55% while its request is in flight.
   'muted-chip':
     'cursor-pointer bg-transparent text-ink-900/60 border border-transparent hover:border-line/18 hover:bg-line/10 hover:text-ink-100',
+  // `Feature - Worktree in background` 66c `act('…', 'sec')`: the setup
+  // block's quieter ways out, `rgba(150,205,255,.2)` edge, `rgba(220,235,255,.9)` ink.
+  'outline-soft': 'bg-transparent text-ink-200/90 font-semibold border border-line/20 hover:bg-line/8',
+  // 66d `act('…', 'sec')` on the phone: `rgba(150,205,255,.22)` edge, the bright ink.
+  'outline-touch': 'bg-transparent text-ink-100 font-semibold border border-line/22 active:bg-line/8',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -186,6 +193,10 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   // extension folder: 7px/12px at 12.5px; and a paired browser's Unpair, 5px/10px at 12px.
   labs: 'px-3 py-[7px] fs-12.5',
   'labs-row': 'px-2.5 py-[5px] fs-12 leading-(--text-xs--line-height)',
+  // 66c `act()`: the setup block's 24px chips, 9px sides at 11.5px, on one line.
+  'block-chip': 'h-6 whitespace-nowrap px-[9px] fs-11.5',
+  // 66d `act()`: the phone block's 44px halves, 12px sides at 14px.
+  'block-half': 'h-11 whitespace-nowrap px-3 fs-14',
 }
 
 export function Button({
@@ -215,8 +226,10 @@ export function Button({
               ? 'rounded-[9px]'
             : size === 'row-action'
               ? 'rounded-[5px]'
-            : size === 'choice-touch'
+            : size === 'choice-touch' || size === 'block-half'
               ? 'rounded-[12px]'
+            : size === 'block-chip'
+              ? 'rounded-[6px]'
               : 'rounded-lg'
   // The same for the family: the strip chip is mono, and two font utilities
   // on one element would be settled by stylesheet order.
