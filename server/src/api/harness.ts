@@ -53,8 +53,11 @@ export interface LaunchHarness {
   check(raw: unknown, cwd: string): { ok: true; plan: LaunchHarnessPlan } | Refusal;
   /** Attaches the harness and answers the first prompt: the kickoff, and the user's `prompt` as a note after it. */
   attach(sessionId: string, plan: LaunchHarnessPlan, prompt: string): { ok: true; text: string } | Refusal;
-  /** The first prompt went out under `uuid`; `named`: the session already has a name (its worktree's). */
-  started(sessionId: string, plan: LaunchHarnessPlan, uuid: string, text: string, named: boolean): Promise<void>;
+  /**
+   * The first prompt went out under `uuid` with the launch's `attachments`
+   * (image refs); `named`: the session already has a name (its worktree's).
+   */
+  started(sessionId: string, plan: LaunchHarnessPlan, uuid: string, text: string, named: boolean, attachments?: string[]): Promise<void>;
   discard(sessionId: string): void;
 }
 
@@ -137,9 +140,9 @@ export function registerHarnessRoutes(
    * What New session offers for a directory no session runs in yet: the
    * start view's list for it, and the template of the latest harness in the
    * same project while it is still offered (spec
-   * 2026-11-09-harness-from-new-session-design). In the `sessions` group of
-   * the allowlist, unlike the route above: a phone that may launch sessions
-   * sees what it can launch with.
+   * 2026-11-09-harness-from-new-session-design). In the `spawn` group of
+   * the allowlist with the launch it serves, unlike the route above: a phone
+   * that may launch sessions sees what it can launch with.
    */
   app.get('/api/sessions/harness-templates', (req, reply) => {
     if (!enabled()) return reply.code(403).send({ error: 'harness_disabled' });
@@ -413,8 +416,10 @@ export function registerHarnessRoutes(
       harness.noteSent(sessionId, text);
       return { ok: true, text };
     },
-    async started(sessionId, plan, uuid, text, named) {
-      harness.recordSent(sessionId, uuid, 'kickoff', 0, text);
+    async started(sessionId, plan, uuid, text, named, attachments) {
+      // The kickoff's live row shows the images the launch sent with it, as a composer's turn does.
+      const images = (attachments ?? []).flatMap((ref) => ctx.images.entry(ref) ?? []);
+      harness.recordSent(sessionId, uuid, 'kickoff', 0, text, images);
       await harness.stepStarted(sessionId, 0, uuid);
       if (!named) nameFromHarness(sessionId, plan.subject);
     },

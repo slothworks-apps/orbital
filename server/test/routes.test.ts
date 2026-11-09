@@ -2340,7 +2340,9 @@ describe('POST /api/sessions with a harness', () => {
       decisionPending: () => false, backgroundWork: () => false, isWaiting: () => false, send: () => null,
       askWatcher: async () => 'STOP', askDrafter: async () => '', askReviewer: async () => '',
       git: async () => ({ ok: false, output: 'not a git repository' }), publish: () => {},
+      publishMessage: (sessionId, message) => void published.push({ sessionId, message }),
     });
+    const published: { sessionId: string; message: unknown }[] = [];
     const nameFromHarness = vi.fn(async () => false);
     const app = Fastify();
     registerRoutes(app, {
@@ -2358,7 +2360,9 @@ describe('POST /api/sessions with a harness', () => {
       errors: new ErrorLog({ db, hub }),
       titler: { ...stubTitler(), nameFromHarness },
       narrator: new Narrator({ db, queryFn: noNarrateQuery, model: () => '' }),
-      images: { put: () => null, putBytes: () => null, read: () => null, entry: () => null, bytes: () => null }, imagesDir: '/nonexistent',
+      // Every ref names a stored image, so a launch's attachments come back as entries.
+      images: { put: () => null, putBytes: () => null, read: () => null, entry: (ref: string) => ({ ref, w: 4, h: 3, bytes: 10 }), bytes: () => null },
+      imagesDir: '/nonexistent',
       files: { putBytes: () => null },
       remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null, entry: () => null, bytes: () => null }, '/nonexistent', settings),
       settings,
@@ -2376,7 +2380,7 @@ describe('POST /api/sessions with a harness', () => {
       payload: { cwd: '/p', prompt: '', permissionMode: 'acceptEdits', sessionId: CLIENT_ID, ...payload },
     });
     return {
-      app, db, runner, harness, turns, nameFromHarness, launch, templateId: made.value.id,
+      app, db, runner, harness, turns, nameFromHarness, launch, published, templateId: made.value.id,
       close: () => { runner.dispose(); db.$client.close(); },
     };
   }
@@ -2412,6 +2416,32 @@ describe('POST /api/sessions with a harness', () => {
     expect(turns).toHaveLength(1);
     expect(turns[0].text).toMatch(/^This session follows the Orbital harness/);
     expect(turns[0].text.endsWith('\n\nA note from the user for step 1:\n\nMind the mobile layout.')).toBe(true);
+    close();
+  });
+
+  it('carries the launch\'s images on the kickoff\'s harness_message, and none without attachments', async () => {
+    const ref = `${'a'.repeat(64)}.png`;
+    const { published, launch, templateId, close } = makeHarnessLaunchApp();
+    await launch({ attachments: [ref], harness: { templateId, inputs: { task: 'T-1' }, lucky: false } });
+    expect(published).toEqual([{
+      sessionId: CLIENT_ID,
+      message: expect.objectContaining({ kind: 'kickoff', step: 0, images: [{ ref, w: 4, h: 3, bytes: 10 }] }),
+    }]);
+    close();
+    const plain = makeHarnessLaunchApp();
+    await plain.launch({ harness: { templateId: plain.templateId, inputs: { task: 'T-1' }, lucky: false } });
+    expect(plain.published).toHaveLength(1);
+    expect(plain.published[0].message).not.toHaveProperty('images');
+    plain.close();
+  });
+
+  it('a spawn that fails leaves no harness and no log behind for the session that never was', async () => {
+    const { runner, harness, launch, templateId, close } = makeHarnessLaunchApp();
+    vi.spyOn(runner, 'start').mockRejectedValueOnce(new Error('spawn failed'));
+    const res = await launch({ harness: { templateId, inputs: { task: 'T-1' }, lucky: true } });
+    expect(res.statusCode).toBeGreaterThanOrEqual(500);
+    expect(harness.get(CLIENT_ID)).toBeNull();
+    expect(harness.events(CLIENT_ID)).toEqual([]);
     close();
   });
 

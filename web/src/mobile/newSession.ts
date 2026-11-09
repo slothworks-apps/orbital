@@ -4,7 +4,6 @@ import type { McpjsonDecisions } from '../lib/mcpjson'
 import { modelByAnyId } from '../lib/models'
 import { claudeDirPrefill, type ClaudeDirPrefillSource } from '../lib/claudeDirs'
 import type { HarnessLaunch, HarnessProject, HarnessTemplate, OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
-import { harnessEnabled } from '../lib/experimental'
 import { gateCount, isOptional, missingInputs, plural, templateMeta } from '../panels/harness/templates'
 import { macSupports } from './version'
 import type { DirectoryRow } from '../lib/directorySearch'
@@ -125,13 +124,25 @@ export function launchRequest(input: LaunchInput) {
 }
 
 /**
- * Whether New session offers *With harness…* (canvas 65d): the Harness
- * feature is on in the Mac's settings, and the device the session runs on
- * accepts `harness` on launch. An older Mac would ignore the field and start
- * a plain session, so against one the button is not there at all.
+ * Whether New session offers *With harness…* (canvas 65d; spec
+ * 2026-11-09-harness-from-new-session-design § Phone). The chosen device
+ * must accept `harness` on launch: an older Mac would ignore the field and
+ * start a plain session, so against one the button is not there at all.
+ * Past that only a known off hides it — the settings read answered off and
+ * came from the chosen device. A setting not known (the read refused or not
+ * answered yet) or read from another device leaves the button, and the
+ * template route answers `harness_disabled` on the harness screen instead.
  */
-export function offersHarness(settings: Record<string, string>, version: string | null): boolean {
-  return harnessEnabled(settings) && macSupports('harnessLaunch', version)
+export function offersHarness(input: {
+  /** The Harness switch as the settings read had it; null when not known. */
+  harnessOn: boolean | null
+  /** The settings read came from the device the session would run on. */
+  readFromChosen: boolean
+  /** The chosen device's Orbital version. */
+  version: string | null
+}): boolean {
+  if (!macSupports('harnessLaunch', input.version)) return false
+  return !(input.readFromChosen && input.harnessOn === false)
 }
 
 export { templateMeta }

@@ -194,4 +194,20 @@ describe('the store', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ id: 'srv:1', harnessMessage: { kind: 'advance', step: 3 } })
   })
+
+  /** A harness launch's images ride on its kickoff: the first row shows them before the file is read. */
+  it('seats the kickoff with its images, and its echo keeps the row', () => {
+    const { applySessionEvent } = useOrbital.getState()
+    const image = { ref: 'r1', w: 1, h: 1, bytes: 2 }
+    applySessionEvent('s1', {
+      event: 'harness_message',
+      message: { uuid: 'k1', kind: 'kickoff', step: 0, text: 'Step 1', at: at(1), images: [image] },
+    })
+    expect(useOrbital.getState().transcripts.s1[0]).toMatchObject({ uuid: 'k1', images: [image] })
+
+    applySessionEvent('s1', { event: 'message', message: { id: 'srv:1', role: 'user', uuid: 'k1', text: 'Step 1', images: [image] } })
+    const rows = useOrbital.getState().transcripts.s1
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ id: 'srv:1', images: [image], harnessMessage: { kind: 'kickoff', step: 0 } })
+  })
 })

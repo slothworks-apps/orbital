@@ -93,8 +93,9 @@ checklist.
   `{ project, templates, lastUsedId }`, `lastUsedId` being the template of
   the latest session harness in the same project, when that template is
   still offered. It sits in
-  the `sessions` group of the allowlist, because a phone that may launch
-  sessions must be able to see what it can launch with; the existing
+  the `spawn` group of the allowlist, beside `POST /api/sessions` it
+  serves: a phone that may launch sessions must see what it can launch
+  with, and only such a phone may read the templates' bodies; the existing
   `/api/harness/templates` is in `settings`.
 
 ## Scope
@@ -117,6 +118,15 @@ a row per input, Feeling lucky and the steps. Start is disabled with its
 reason in the button. With no template run in this directory before, the
 sheet opens by itself on arrival. It uses the same
 `POST /api/sessions` through the relay and the new templates route.
+Whether Harness is on is decided by the chosen device's templates route,
+not by the phone's settings read: that read needs the `settings` grant
+and may come from another group member. The button is hidden only when
+the setting is known to be off on the device that runs the session;
+otherwise a 403 `harness_disabled` turns the harness screen into a
+"Harness is off on <device>" state (not an error), and the desktop's step 2
+does the same for a member with Harness off. A read left before its answer
+or failed is read again when the screen reopens.
+
 Because the phone updates first, the choice is gated in `MAC_FEATURES`
 for the first desktop release that accepts `harness` on launch; against
 an older Mac the phone does not show it (an older Mac would ignore the

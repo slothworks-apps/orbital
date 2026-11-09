@@ -19,9 +19,21 @@ type Load =
   | { key: string; status: 'ready'; answer: LaunchHarnessTemplates }
   /** Another member's Orbital predates the route: it has to be updated first. */
   | { key: string; status: 'outdated' }
+  /** Another member has Harness switched off: it has to be turned on there first. */
+  | { key: string; status: 'off' }
   | { key: string; status: 'failed' }
 
 const NO_INPUTS: Record<string, string> = {}
+
+/** The route's refusal while the answering device has Harness switched off. */
+function harnessOff(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.status !== 403) return false
+  try {
+    return (JSON.parse(err.message) as { error?: unknown }).error === 'harness_disabled'
+  } catch {
+    return false
+  }
+}
 
 const andJoin = (words: string[]) =>
   words.length < 2 ? (words[0] ?? '') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
@@ -112,6 +124,11 @@ export function useLaunchHarness({
           setLoad({ key, status: 'outdated' })
           return
         }
+        // Its Harness switch is off: a setting to change there, not a failure.
+        if (machine && harnessOff(err)) {
+          setLoad({ key, status: 'off' })
+          return
+        }
         setLoad({ key, status: 'failed' })
         reportError(err, 'Failed to load harness templates')
       })
@@ -185,17 +202,19 @@ export function useLaunchHarness({
   const summary =
     shownLoad?.status === 'outdated'
       ? `Update Orbital on ${deviceName} to launch with a harness`
-      : shownLoad?.status === 'failed'
-        ? 'No harness templates could be read · ‹ Back launches without one'
-        : !answer
-          ? 'Reading the harness templates…'
-          : none
-            ? 'No harness templates here · ‹ Back launches without one'
-            : !selected
-              ? 'Pick a template to launch with a harness'
-              : missing.length > 0
-                ? `Fill ${andJoin(missing.map((m) => m.label))} to launch`
-                : `Starts harness ${selected.name}, ${plural(selected.steps.length, 'step')}${lucky ? ', feeling lucky' : ''}${hasNote ? ' + your note' : ''}`
+      : shownLoad?.status === 'off'
+        ? `Harness is off on ${deviceName} · turn it on there to launch with one`
+        : shownLoad?.status === 'failed'
+          ? 'No harness templates could be read · ‹ Back launches without one'
+          : !answer
+            ? 'Reading the harness templates…'
+            : none
+              ? 'No harness templates here · ‹ Back launches without one'
+              : !selected
+                ? 'Pick a template to launch with a harness'
+                : missing.length > 0
+                  ? `Fill ${andJoin(missing.map((m) => m.label))} to launch`
+                  : `Starts harness ${selected.name}, ${plural(selected.steps.length, 'step')}${lucky ? ', feeling lucky' : ''}${hasNote ? ' + your note' : ''}`
 
   return {
     launch,
@@ -271,6 +290,16 @@ export function HarnessStep({
           <div className="text-pretty fs-12 leading-[1.5] text-ink-100/88">
             Orbital on {deviceName} is too old to offer harness templates here. Update it first, or go ‹ Back and
             launch without one.
+          </div>
+        </EmptyBlock>
+      )
+    }
+    if (load?.status === 'off') {
+      return (
+        <EmptyBlock>
+          <div className="text-pretty fs-12 leading-[1.5] text-ink-100/88">
+            Harness is off on {deviceName}. Turn it on there in Settings → Harness, or go ‹ Back and launch without
+            one.
           </div>
         </EmptyBlock>
       )

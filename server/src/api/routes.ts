@@ -65,7 +65,7 @@ import type { ImageStore } from '../images/store.js';
 import type { FileStore } from '../files/store.js';
 import { NAME_SESSIONS_KEY, type SessionTitler } from '../titler/titler.js';
 import type { HarnessService } from '../harness/service.js';
-import { launchPrompt, registerHarnessRoutes, type CarryHarness, type LaunchHarness, type LaunchHarnessPlan } from './harness.js';
+import { registerHarnessRoutes, type CarryHarness, type LaunchHarness, type LaunchHarnessPlan } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
 import { registerTerminalRoutes } from './terminals.js';
@@ -1450,8 +1450,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       if (worktree) {
         const result = await worktrees.prepareLaunch({
           cwd, base: worktree.base, branch: worktree.branch,
-          // A harness's launch is named after its task, as its session is.
-          prompt: harnessPlan ? launchPrompt(harnessPlan.subject, userPrompt) : userPrompt,
+          // A harness's launch is named after its task, as its session is,
+          // and the user's note, without the header the agent reads it under.
+          prompt: harnessPlan ? [harnessPlan.subject, userPrompt.trim()].filter(Boolean).join('\n\n') : userPrompt,
           sessionId: launchId!, claudeDirId,
         });
         if (!result.ok) return { status: result.status, body: { error: result.error, message: result.message } };
@@ -1494,7 +1495,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         throw err;
       }
       if (harnessPlan && harnessLaunch && first.promptUuid) {
-        await harnessLaunch.started(sessionId, harnessPlan, first.promptUuid, first.prompt, !!prepared?.title);
+        await harnessLaunch.started(sessionId, harnessPlan, first.promptUuid, first.prompt, !!prepared?.title, launch.attachments);
       }
       // The dialog's choice, remembered for the next one (spec § 3) — stored
       // here rather than by the client, because the phone cannot write settings.

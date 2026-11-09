@@ -649,10 +649,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } catch (err) {
       // A worktree the server could not make is said where it was chosen
       // (63c A4), and the dialog stays as it was; anything else is reported.
+      // From step 2 that group is hidden, so the dialog steps back to it, the
+      // harness choice kept for the next With harness… (as the phone does).
       const refused = worktreeLaunch ? worktreeLaunchError(err) : null
       if (refused) {
         setQuestion(null)
         setMissingDir(null)
+        setWithHarness(false)
         setWorktreeLaunchError(refused.message || 'Orbital could not make the worktree.')
       } else reportError(err, 'Failed to launch session')
     } finally {
@@ -800,6 +803,17 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
    */
   const backToStepOne = () => setWithHarness(false)
   const harnessReady = !harness.blocked
+  // What holds Launch with harness back in step 1, which step 2 hides: said
+  // first, since only ‹ Back can fix it. Step 1's own wording where it has one.
+  const stepOneBlock = blocksLaunch(dirState)
+    ? `${dirLine ?? 'The directory is not a folder'} · fix it in ‹ Back to launch`
+    : worktree.problems.some((p) => p.field !== 'launch')
+      ? 'Fix the worktree line in ‹ Back to launch'
+      : worktreeBlocked
+        ? 'Fetching origin for the worktree…'
+        : awaitingCustomModel
+          ? 'Check the custom model in ‹ Back to launch'
+          : null
   const harnessShell = step2
     ? {
         title: 'With a harness',
@@ -821,7 +835,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             {showDevice ? ` · ${remote ? deviceName : 'this device'}` : ''}
           </span>
         ),
-        footerCaption: harnessReady ? (
+        footerCaption: stepOneBlock ? (
+          <span className="text-ink-200/88">{stepOneBlock}</span>
+        ) : harnessReady ? (
           <>
             {`${harness.summary} · `}
             {launchCaption}
@@ -948,7 +964,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             </Button>
             {/* 65c: one outlined button, only while the Harness switch is on; never primary, no shortcut. */}
             {harnessOn && (
-              <Button variant="ghost" size="lg" onClick={() => setWithHarness(true)} disabled={pending}>
+              <Button
+                variant="ghost"
+                size="lg"
+                onClick={() => setWithHarness(true)}
+                // The phone's rule: step 2 reads templates for a directory, so it needs one.
+                disabled={pending || !cwd.trim() || blocksLaunch(dirState)}
+              >
                 <HarnessGlyph />
                 With harness…
               </Button>

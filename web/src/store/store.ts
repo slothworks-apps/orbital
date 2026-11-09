@@ -149,7 +149,15 @@ export type SessionEvent =
    */
   | {
       event: 'harness_message'
-      message: { uuid: string; kind: HarnessMessageKind; step: number; text: string; at: number }
+      message: {
+        uuid: string
+        kind: HarnessMessageKind
+        step: number
+        text: string
+        at: number
+        /** The kickoff's images (a launch's attachments), only when there is one. */
+        images?: ImageRefEntry[]
+      }
     }
 
 /**
@@ -1859,13 +1867,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (msg.event === 'harness_message') {
       // Held or shown only, as `message` is: the file marks the row on the next read.
       if (state.ui.selectedId !== sessionId && !(sessionId in state.transcripts)) return
-      const { uuid, kind, step, text, at } = msg.message
+      const { uuid, kind, step, text, at, images } = msg.message
       const mark = { kind, step }
       const existing = state.transcripts[sessionId] ?? []
       const heldIdx = existing.findIndex((m) => m.uuid === uuid)
       const updated = existing.slice()
+      // A held row is the file's echo, which has its own images.
       if (heldIdx >= 0) updated[heldIdx] = { ...existing[heldIdx], harnessMessage: mark }
-      else updated.push({ id: `harness:${uuid}`, role: 'user', uuid, text, timestamp: new Date(at).toISOString(), harnessMessage: mark })
+      else
+        updated.push({
+          id: `harness:${uuid}`,
+          role: 'user',
+          uuid,
+          text,
+          timestamp: new Date(at).toISOString(),
+          ...(images ? { images } : {}),
+          harnessMessage: mark,
+        })
       set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
       return
     }

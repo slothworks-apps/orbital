@@ -1249,9 +1249,8 @@ describe('NewSessionDialog — with a harness (canvas 65a)', () => {
     expect(api.createSession).toHaveBeenCalledWith(expect.not.objectContaining({ harness: expect.anything() }))
   })
 
-  it('says another device has to be updated when its Orbital has no templates route', async () => {
-    const { ApiError } = await vi.importActual<typeof import('../lib/api')>('../lib/api')
-    vi.mocked(api.listHarnessTemplatesForLaunch).mockRejectedValue(new ApiError('Not Found', 404))
+  /** Step 2 on another member, `studio-mbp`, the device the last launch went to. */
+  const openStepTwoOnStudio = async () => {
     vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/w/orbital', lastModel: null, lastAt: null }])
     const member = (patch: Partial<GroupMember>): GroupMember => ({
       id: 'm', kind: 'desktop', name: 'm', os: 'macos', links: true, addedAt: 0, addedVersion: 1, primary: false,
@@ -1271,9 +1270,75 @@ describe('NewSessionDialog — with a harness (canvas 65a)', () => {
     render(<NewSessionDialog open onClose={vi.fn()} />)
     await waitFor(() => expect(screen.getByLabelText(/project directory/i)).toHaveValue('/w/orbital'))
     fireEvent.click(screen.getByRole('button', { name: /with harness…/i }))
+  }
+
+  it('says another device has to be updated when its Orbital has no templates route', async () => {
+    const { ApiError } = await vi.importActual<typeof import('../lib/api')>('../lib/api')
+    vi.mocked(api.listHarnessTemplatesForLaunch).mockRejectedValue(new ApiError('Not Found', 404))
+    await openStepTwoOnStudio()
 
     expect(await screen.findByText(/Update Orbital on studio-mbp/)).toBeInTheDocument()
     expect(api.listHarnessTemplatesForLaunch).toHaveBeenCalledWith('/w/orbital', 'studio')
     localStorage.removeItem('orbital.newSession.device')
+  })
+
+  /** A member with Harness switched off answers 403: a setting to change there, not an error. */
+  it('says Harness is off on another device, and reports nothing', async () => {
+    const { ApiError } = await vi.importActual<typeof import('../lib/api')>('../lib/api')
+    vi.mocked(api.listHarnessTemplatesForLaunch).mockRejectedValue(
+      new ApiError(JSON.stringify({ error: 'harness_disabled' }), 403),
+    )
+    useOrbital.setState({ toast: null })
+    await openStepTwoOnStudio()
+
+    expect(await screen.findByText(/Harness is off on studio-mbp · turn it on there/)).toBeInTheDocument()
+    expect(screen.getByText(/Turn it on there in Settings → Harness/)).toBeInTheDocument()
+    expect(useOrbital.getState().toast).toBeNull()
+    expect(screen.getByRole('button', { name: /launch with harness/i })).toBeDisabled()
+    localStorage.removeItem('orbital.newSession.device')
+  })
+
+  it('offers no With harness… until there is a directory', async () => {
+    resetStore({ settings: { harness_enabled: 'true' } })
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: /with harness…/i })).toBeDisabled()
+  })
+
+  /** 63c A4: the refusal is said in the WORKTREE group, which step 2 hides. */
+  it('goes back to step 1 when the worktree is refused, the harness choice kept', async () => {
+    vi.mocked(api.worktreeOptions).mockResolvedValue({
+      git: true,
+      repoRoot: '/w/orbital',
+      treeRoot: '/w/orbital',
+      defaultBranch: 'main',
+      currentBranch: 'main',
+      occupants: [],
+      branchForm: 'feat/',
+      branches: { local: ['main'], remote: [] },
+      fetchedAt: null,
+      autoOn: true,
+    })
+    vi.mocked(api.fetchWorktreeOrigin).mockResolvedValue({ ok: true, fetchedAt: 0 } as never)
+    vi.mocked(api.createSession).mockRejectedValue(
+      new Error(JSON.stringify({ error: 'worktree_branch_exists', message: 'Branch feat/x already exists.' })),
+    )
+    useOrbital.setState({ toast: null })
+    await openStepTwo()
+    fireEvent.click(screen.getByRole('radio', { name: /docs pass/i }))
+    // The switch starts on (`autoOn`), which fetches origin; Launch waits for it.
+    await waitFor(() => expect(api.fetchWorktreeOrigin).toHaveBeenCalled())
+    const launch = screen.getByRole('button', { name: /launch with harness/i })
+    await waitFor(() => expect(launch).toBeEnabled())
+    fireEvent.click(launch)
+
+    // Step 1 again: its title, and the harness step gone.
+    expect(await screen.findByRole('dialog', { name: 'New session' })).toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: /docs pass/i })).toBeNull()
+    expect(screen.getByText('Branch feat/x already exists.')).toBeInTheDocument()
+    expect(useOrbital.getState().toast).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /with harness…/i }))
+    expect(await screen.findByRole('radio', { name: /docs pass/i })).toHaveAttribute('aria-checked', 'true')
   })
 })

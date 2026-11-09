@@ -35,7 +35,7 @@ import { recentDirectories, worktreeLaunchError } from '../../lib/worktree'
 import { NewSessionWorktree } from './NewSessionWorktree'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
 import { HarnessGlyph } from '../../ui/UtilityButton'
-import { refreshQuestionSetting } from '../questionSetting'
+import { refreshQuestionSetting, useMacHarnessSetting } from '../questionSetting'
 import { NewSessionHarness, useHarnessChoice } from './NewSessionHarness'
 
 /** The device sheet's ages are in minutes at the finest. */
@@ -47,7 +47,6 @@ const MINUTE_MS = 60_000
  */
 export function NewSessionScreen() {
   const tags = useOrbital((s) => s.tags)
-  const settings = useOrbital((s) => s.settings)
   const sessions = useOrbital((s) => s.sessions)
   const launchSession = useOrbital((s) => s.launchSession)
   const launchAttempt = useLaunchAttempt()
@@ -157,12 +156,14 @@ export function NewSessionScreen() {
   )
   /**
    * *With harness…* (canvas 65d; spec 2026-11-09-harness-from-new-session-design
-   * § Phone): while the Harness switch is on and the chosen device accepts a
-   * harness on launch. Open, the harness screen is pushed over this form,
-   * which stays as it was underneath.
+   * § Phone): while the chosen device accepts a harness on launch and the
+   * Harness switch is not known to be off on it (`offersHarness`). Open, the
+   * harness screen is pushed over this form, which stays as it was underneath.
    */
   const harnessVersion = machine !== null ? (devices.find((d) => d.id === machine)?.version ?? null) : macVersion
-  const offersHarnessHere = offersHarness(settings, harnessVersion)
+  const harnessOn = useMacHarnessSetting((s) => s.on)
+  // In a group the settings read may come from another member (`GroupFederation.settingsSource`).
+  const offersHarnessHere = offersHarness({ harnessOn, readFromChosen: !several, version: harnessVersion })
   const [harnessOpen, setHarnessOpen] = useState(false)
   const harnessShown = harnessOpen && offersHarnessHere
   const harness = useHarnessChoice(cwd, machine, harnessShown)
@@ -351,7 +352,9 @@ export function NewSessionScreen() {
 
   const startLabel = chosenAsleep ? `Start · needs ${mac} awake` : several ? `Start on ${mac}` : 'Start session'
   // Canvas 65d START: the reason it cannot go is the button's label.
-  const harnessStartLabel = harness.block ?? (chosenAsleep ? `Start · needs ${mac} awake` : 'Start with harness')
+  const harnessStartLabel = harness.off
+    ? `Harness is off on ${mac}`
+    : (harness.block ?? (chosenAsleep ? `Start · needs ${mac} awake` : 'Start with harness'))
 
   const failureLine = failure && (
     <p role="alert" className="mt-2 text-center fs-13 text-[var(--state-input)]">

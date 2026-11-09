@@ -132,18 +132,26 @@ const template = (id: number, patch: Partial<HarnessTemplate> = {}): HarnessTemp
 })
 
 describe('offersHarness', () => {
-  const on = { harness_enabled: 'true' }
+  const known = (harnessOn: boolean | null, version: string | null = '0.49.0') =>
+    offersHarness({ harnessOn, readFromChosen: true, version })
 
   it('offers With harness… only from a Mac that accepts a harness on launch', () => {
-    expect(offersHarness(on, '0.49.0')).toBe(true)
-    expect(offersHarness(on, '0.48.9')).toBe(false)
+    expect(known(true, '0.49.0')).toBe(true)
+    expect(known(true, '0.48.9')).toBe(false)
     // No hello yet: nothing is asked of a device not yet known.
-    expect(offersHarness(on, null)).toBe(false)
+    expect(known(true, null)).toBe(false)
+    expect(offersHarness({ harnessOn: null, readFromChosen: false, version: '0.48.9' })).toBe(false)
   })
 
-  it('needs the Harness switch on', () => {
-    expect(offersHarness({}, '0.49.0')).toBe(false)
-    expect(offersHarness({ harness_enabled: 'false' }, '0.49.0')).toBe(false)
+  it('hides it only when the chosen device is known to have Harness off', () => {
+    expect(known(false)).toBe(false)
+    // Read from another member of the group: the chosen device's own switch is not known.
+    expect(offersHarness({ harnessOn: false, readFromChosen: false, version: '0.49.0' })).toBe(true)
+  })
+
+  it('offers it while the switch is not known, and the template route decides', () => {
+    expect(known(null)).toBe(true)
+    expect(offersHarness({ harnessOn: null, readFromChosen: false, version: '0.49.0' })).toBe(true)
   })
 })
 

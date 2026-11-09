@@ -193,6 +193,23 @@ function makeService(over: Partial<HarnessDeps> = {}) {
 }
 
 describe('HarnessService', () => {
+  it('discard takes back an attach and its log, and keeps a removed harness\'s', () => {
+    const { service, templateId } = makeService();
+    service.attach('s1', templateId, {});
+    service.remove('s1');
+    const before = service.events('s1').map((e) => e.kind);
+    expect(before).toContain('attached');
+    service.attach('s1', templateId, {});
+    service.setOptions('s1', { lucky: true });
+    service.discard('s1');
+    expect(service.get('s1')).toBeNull();
+    expect(service.events('s1').map((e) => e.kind)).toEqual(before);
+    // A session that never had one is left with no log at all.
+    service.attach('s2', templateId, {});
+    service.discard('s2');
+    expect(service.events('s2')).toEqual([]);
+  });
+
   it('attaches a snapshot with the inputs filled in', () => {
     const { service, templateId } = makeService();
     const r = service.attach('s1', templateId, { name: 'Input', figma: 'f://1' });
@@ -848,6 +865,27 @@ describe('the templates New session offers a directory', () => {
     // Once that template is no longer offered, nothing is preselected.
     service.updateTemplate(own.value.id, body('Orbital only', { draft: true }));
     expect((await list(tree)).json().lastUsedId).toBeNull();
+  });
+
+  it('still finds the last template of a session whose worktree is gone, and through a symlinked path', async () => {
+    const { service, list, ran } = makeApp();
+    const { repo, tree } = repos();
+    const own = service.createTemplate(body('Orbital only', { scope: { kind: 'project', root: repo } }));
+    if (!own.ok) throw new Error(own.error);
+    // A worktree removed since its session ran, and a subdirectory of it.
+    ran('in-a-removed-worktree', join(tree, 'web'), own.value.id, 100);
+    git(repo, 'worktree', 'remove', '--force', tree);
+    expect((await list(repo)).json().lastUsedId).toBe(own.value.id);
+
+    // The session's cwd spelled through a symlink, the launch's through the real path, and back.
+    const link = join(realpathSync(makeTmpDir('offer-link')), 'linked');
+    symlinkSync(repo, link);
+    const second = makeApp();
+    const linked = second.service.createTemplate(body('Orbital only', { scope: { kind: 'project', root: repo } }));
+    if (!linked.ok) throw new Error(linked.error);
+    second.ran('through-a-link', link, linked.value.id, 100);
+    expect((await second.list(repo)).json().lastUsedId).toBe(linked.value.id);
+    expect((await second.list(link)).json().lastUsedId).toBe(linked.value.id);
   });
 
   it('403s while the feature is off and 400s without a directory', async () => {

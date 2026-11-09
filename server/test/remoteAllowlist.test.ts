@@ -26,7 +26,7 @@ describe('remote allowlist', () => {
       ['GET', '/api/tags'], ['GET', '/api/projects'], ['GET', '/api/models'], ['GET', '/api/commands'],
       ['GET', '/api/sessions/abc/walkthrough'], ['GET', '/api/sessions/abc/walkthrough/summary'],
       ['GET', '/api/health'], ['GET', '/api/sessions/defaults'],
-      // What a launch can start on: a phone that launches sees it.
+      // What a launch can start on: a phone that launches sees it (spawn group, below).
       ['GET', '/api/sessions/harness-templates?cwd=%2Fw%2Fx'],
       // The Claude directory a catalog is read for rides the query string.
       ['GET', '/api/models?claudeDir=2'], ['GET', '/api/commands?cwd=/w/x&claudeDir=2'],
@@ -238,6 +238,10 @@ describe('remote allowlist', () => {
         await app.close();
       }
     });
+  });
+  it('puts the launch\'s harness templates in spawn, with the launch it serves, not in sessions', () => {
+    expect(allowedPath('GET', '/api/sessions/harness-templates?cwd=%2Fw%2Fx')?.group).toBe('spawn');
+    expect(allowedPath('POST', '/api/sessions')?.group).toBe('spawn');
   });
   it('allows the worktree routes, each in its group and for its one method', () => {
     for (const [method, path, group] of [
