@@ -14,6 +14,7 @@ import {
   typedLabel,
   LABEL_TYPE_MS_PER_CHAR,
   LABEL_TYPE_MAX_MS,
+  type PlanetState,
 } from '../map/visuals'
 import {
   MOON_STATES as MIX_MOON_STATES,
@@ -232,7 +233,7 @@ describe('easeMotion', () => {
 
 describe('stateMix', () => {
   /** Runs a mix forward in `steps` equal frames covering `seconds`. */
-  function run(mix: ReturnType<typeof createStateMix<SessionStatus>>, seconds: number, steps = 10) {
+  function run(mix: ReturnType<typeof createStateMix<PlanetState>>, seconds: number, steps = 10) {
     for (let i = 0; i < steps; i++) advanceStateMix(mix, seconds / steps)
   }
 

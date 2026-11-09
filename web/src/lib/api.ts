@@ -1342,6 +1342,25 @@ export const api = {
     await request<unknown>('POST', apiPath`/api/sessions/${id}/limit-wait/undo`)
   },
 
+  /**
+   * Try again for a worktree launch that did not start: the same settings,
+   * from step 1 (spec 2026-11-09-worktree-setup-in-background-design § Ways
+   * out of NOT STARTED). 409 `not_failed` once it is no longer NOT STARTED.
+   */
+  async retrySetup(id: string): Promise<void> {
+    await request<unknown>('POST', apiPath`/api/sessions/${id}/setup/retry`)
+  },
+
+  /**
+   * Discards a worktree launch that has not started: its setup stops, what
+   * it made is taken away and the session goes (spec § Discard). The server
+   * publishes `remove` on the sessions topic. 409 `not_in_setup` for a
+   * session that has started.
+   */
+  async discardSession(id: string): Promise<void> {
+    await request<unknown>('POST', apiPath`/api/sessions/${id}/discard`)
+  },
+
   // Settings API
   async getSettings(): Promise<Record<string, string>> {
     return request<Record<string, string>>('GET', '/api/settings')

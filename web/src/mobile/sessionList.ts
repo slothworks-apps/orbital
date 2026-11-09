@@ -281,6 +281,9 @@ export const GLYPH: Record<SessionStateKey, StateDot> = {
   working: { shape: 'solid', motion: 'pulse' },
   interrupted: { shape: 'solid', motion: 'steady' },
   done: { shape: 'hollow', motion: 'steady' },
+  // Canvas 66d: half filled while setting up, hollow once it failed.
+  setting_up: { shape: 'half', motion: 'steady' },
+  not_started: { shape: 'hollow', motion: 'steady' },
   idle: { shape: 'solid', motion: 'steady' },
   ended: { shape: 'hollow', motion: 'steady' },
 }
@@ -293,7 +296,7 @@ export function glyphFor(key: SessionStateKey, offline: boolean): StateDot {
 
 export const STATE_WORD: Record<SessionStateKey, string> = {
   needs_input: 'NEEDS INPUT', waiting: 'WAITING', interrupted: 'INTERRUPTED', done: 'DONE',
-  working: 'WORKING', idle: 'IDLE', ended: 'ENDED',
+  working: 'WORKING', setting_up: 'SETTING UP', not_started: 'NOT STARTED', idle: 'IDLE', ended: 'ENDED',
 }
 
 /** 9b's header state: live, the word; offline, what it was and when (spec § 5). */

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SessionStatus, Subagent } from '../lib/types'
-import { DIMMED_OPACITY, MUTED_OPACITY, OFFLINE_OPACITY, moonVisuals, planetVisuals, type MoonVisuals, type PlanetVisuals } from './visuals'
+import { DIMMED_OPACITY, MUTED_OPACITY, OFFLINE_OPACITY, moonVisuals, planetVisuals, type MoonVisuals, type PlanetState, type PlanetVisuals } from './visuals'
 
 /**
  * The interpolation layer that sits ON TOP of `visuals.ts`.
@@ -79,6 +79,13 @@ import { DIMMED_OPACITY, MUTED_OPACITY, OFFLINE_OPACITY, moonVisuals, planetVisu
  * flicker rather than as a change of state.
  */
 export const STATE_TRANSITION_MS = 800
+
+/**
+ * A planet born from SETTING UP into WORKING (canvas 66a, 66b READY): one
+ * continuous change, slower than a state change, so the breath crossfades
+ * into the working pulse while the body grows to its tier.
+ */
+export const SETUP_READY_MS = 1400
 
 /**
  * Selection reticle fade.
@@ -471,7 +478,7 @@ export function stackAlphas(weights: readonly number[], out: number[]): number[]
 
 // --- planet ---------------------------------------------------------------
 
-export const PLANET_STATES: readonly SessionStatus[] = ['working', 'idle', 'needs_input', 'ended']
+export const PLANET_STATES: readonly PlanetState[] = ['working', 'idle', 'needs_input', 'ended', 'setting_up', 'not_started']
 
 /** The pure table's literal value set per state, resolved once (never per frame). */
 const PLANET_TABLE = {
@@ -479,12 +486,20 @@ const PLANET_TABLE = {
   idle: planetVisuals('idle', false),
   needs_input: planetVisuals('needs_input', false),
   ended: planetVisuals('ended', false),
-} satisfies Record<SessionStatus, PlanetVisuals>
+  setting_up: planetVisuals('setting_up', false),
+  not_started: planetVisuals('not_started', false),
+} satisfies Record<PlanetState, PlanetVisuals>
+
+/**
+ * A planet's state weights. The setup states are optional so a weight
+ * vector of the four statuses alone still reads as one at rest in them.
+ */
+export type PlanetWeights = Readonly<Record<SessionStatus, number>> & Partial<Readonly<Record<'setting_up' | 'not_started', number>>>
 
 /** One crossfadeable tick-ring form: the fields that have no midpoint, plus which states wear it. */
 export interface TickLayer {
   /** States drawn by this ring; its live alpha is the sum of their weights. */
-  readonly states: readonly SessionStatus[]
+  readonly states: readonly PlanetState[]
   readonly count: number
   readonly widthDeg: number
   readonly radius: number
@@ -506,6 +521,8 @@ export const PLANET_TICK_LAYERS: readonly TickLayer[] = (() => {
   const layers: TickLayer[] = []
   for (const state of PLANET_STATES) {
     const v = PLANET_TABLE[state]
+    // A state with no ring (setting up) mounts none.
+    if (v.tickOpacity === 0) continue
     const match = layers.find(
       (l) =>
         l.count === v.tickCount &&
@@ -515,7 +532,7 @@ export const PLANET_TICK_LAYERS: readonly TickLayer[] = (() => {
         l.opacity === v.tickOpacity
     )
     if (match) {
-      ;(match.states as SessionStatus[]).push(state)
+      ;(match.states as PlanetState[]).push(state)
       continue
     }
     layers.push({
@@ -532,9 +549,9 @@ export const PLANET_TICK_LAYERS: readonly TickLayer[] = (() => {
 })()
 
 /** Summed weight of the states a tick layer covers — that layer's crossfade alpha. */
-export function tickLayerWeight(layer: TickLayer, weights: Record<SessionStatus, number>): number {
+export function tickLayerWeight(layer: TickLayer, weights: PlanetWeights): number {
   let sum = 0
-  for (const s of layer.states) sum += weights[s]
+  for (const s of layer.states) sum += weights[s] ?? 0
   return sum
 }
 
@@ -554,6 +571,8 @@ export interface PlanetBlend {
   dim: number
   /** How much the white needs-input ripple is showing (0…1). */
   ripple: number
+  /** The dark wash over a body not started yet, eased (66b `faintOp`). */
+  faint: number
 }
 
 export function createPlanetBlend(): PlanetBlend {
@@ -569,10 +588,11 @@ export function createPlanetBlend(): PlanetBlend {
     haloBreath: 0,
     dim: 1,
     ripple: 0,
+    faint: 0,
   }
 }
 
-export function blendPlanet(weights: Record<SessionStatus, number>, out: PlanetBlend): PlanetBlend {
+export function blendPlanet(weights: PlanetWeights, out: PlanetBlend): PlanetBlend {
   let tickSpin = 0
   let arcOpacity = 0
   let arcSpin = 0
@@ -584,9 +604,10 @@ export function blendPlanet(weights: Record<SessionStatus, number>, out: PlanetB
   let haloBreath = 0
   let dimmed = 0
   let ripple = 0
+  let faint = 0
 
   for (const state of PLANET_STATES) {
-    const w = weights[state]
+    const w = weights[state] ?? 0
     if (w === 0) continue
     const v = PLANET_TABLE[state]
     tickSpin += w * v.tickSpin
@@ -600,6 +621,7 @@ export function blendPlanet(weights: Record<SessionStatus, number>, out: PlanetB
     if (v.haloBreathes) haloBreath += w
     if (v.dimmed) dimmed += w
     if (v.rippleActive) ripple += w
+    faint += w * v.faint
   }
 
   out.tickSpin = tickSpin
@@ -615,6 +637,7 @@ export function blendPlanet(weights: Record<SessionStatus, number>, out: PlanetB
   out.haloBreath = haloBreath
   out.dim = 1 - dimmed * (1 - DIMMED_OPACITY)
   out.ripple = ripple
+  out.faint = faint
   return out
 }
 
