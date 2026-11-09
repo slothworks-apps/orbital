@@ -22,7 +22,7 @@ import {
   type SessionStateKey,
   type Subagent,
 } from '../../lib/types'
-import { stateColor, stateDot, stillDot } from '../../lib/stateStyle'
+import { stateColor, stateDot, stateWord, stillDot } from '../../lib/stateStyle'
 import { setupBranch, setupToolLine } from '../../lib/setup'
 import { decisionHeadline } from '../../lib/decisionCard'
 import { loginWaitLabels } from '../../lib/profileLogin'
@@ -592,7 +592,7 @@ const DeskCard = memo(function DeskCard({
   const pillLabel =
     loginNeed ??
     pill?.label ??
-    (key === 'working' ? 'WORKING' : key === 'idle' ? 'IDLE' : key === 'setting_up' ? 'SETTING UP' : null)
+    (key === 'working' || key === 'idle' || key === 'setting_up' ? stateWord(key, 0) : null)
   // A worktree launch not started yet: the card says which step, or that it
   // did not start, where the latest tool call would be (canvas 66b).
   const setup = pendingSetup(s)
