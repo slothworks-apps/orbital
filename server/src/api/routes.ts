@@ -599,6 +599,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const worktrees = ctx.worktrees ?? new WorktreeService({
     ctx, trees: ctx.trees, settings: ctx.settings, nameBranch: ctx.nameBranch, errors: ctx.errors,
   });
+  // A removal End left running finishes before the server goes.
+  app.addHook('onClose', () => worktrees.settled());
 
   app.get('/api/sessions', (req) => {
     const q = req.query as Record<string, string>;
@@ -2414,10 +2416,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // it has stopped (spec 2026-11-02-work-in-a-worktree-design § Where it is
   // offered), through the same `WorktreeService.remove` as the panel's
   // removal; what the removal would refuse — `worktreePath` no longer the
-  // session's worktree among it — is refused before anything ends. Once the
-  // session has ended the answer is 200, and `worktreeRemoved` says what
-  // became of the worktree. Ending a worktree session without it is the
-  // user's *Keep*.
+  // session's worktree among it — is refused before anything ends. The
+  // answer is 200 once the session has ended: the removal goes on after it
+  // (§ Removed after End answers), so the dialog does not wait for git, and
+  // a removal git refuses reaches the error log. Ending a worktree session
+  // without it is the user's *Keep*.
   app.post('/api/sessions/:id/end', async (req, reply) => {
     const { id } = req.params as { id: string };
     const { unpin, removeWorktree, worktreePath } = (req.body ?? {}) as {
@@ -2442,16 +2445,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       force: removeWorktree === 'force',
       path: worktreePath,
       endSession: 'always',
-      end: async (sid) => {
-        await end(sid);
-        await stoppedForRemoval(sid);
-      },
+      end,
+      later: { stopped: stoppedForRemoval },
     });
-    if (res.ok) return { ok: true, worktreeRemoved: true } satisfies EndSessionResult;
+    if (res.ok) return { ok: true } satisfies EndSessionResult;
     if (!res.ended) return reply.code(409).send({ error: res.error });
-    if (res.error === 'worktree_failed') {
-      return { ok: true, worktreeRemoved: false, error: 'worktree_failed', message: res.message } satisfies EndSessionResult;
-    }
     return {
       ok: true, worktreeRemoved: false, error: 'not_worktree',
       message: 'The session no longer works in a worktree.',

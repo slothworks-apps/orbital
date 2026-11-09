@@ -71,7 +71,7 @@ export interface LaunchPrep {
  * the caller asked for the end in any case (End's `endSession: 'always'`).
  */
 export type RemoveResult = { ended: boolean } & (
-  | { ok: true }
+  | { ok: true; later?: true }
   | { ok: false; error: WorktreeRemoveRefusal }
   | { ok: false; error: 'worktree_failed'; message: string }
 );
@@ -87,8 +87,14 @@ export interface RemoveOptions {
    * End, which ends the session whatever becomes of the worktree.
    */
   endSession: boolean | 'always';
-  /** Ends the session and waits for its process to be gone. */
+  /** Ends the session, and without `later` waits for its process to be gone. */
   end: (id: string) => Promise<void>;
+  /**
+   * End's: the answer does not wait for git. Once the checks pass and the
+   * session has ended, `stopped` waits for its process and git removes the
+   * tree on its own; what git refuses is recorded, as any removal's.
+   */
+  later?: { stopped: (id: string) => Promise<void> };
 }
 
 /** The branch naming call, injected so tests need no model. */
@@ -191,6 +197,8 @@ export class WorktreeService {
   private readonly cmd: GitCommands;
   /** When Orbital last fetched each repository in this process, by its shared git dir. */
   private fetched = new Map<string, number>();
+  /** The removals End left running, by worktree path. */
+  private removing = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: WorktreeServiceDeps) {
     this.cmd = deps.commands ?? new GitCommands();
@@ -465,6 +473,8 @@ export class WorktreeService {
     if (!tree) return null;
     const { ctx } = this.deps;
     const path = tree.dirs.root;
+    // On its way out: offered again, it would be removed twice.
+    if (this.removing.has(path)) return null;
     const [uncommitted, upstream] = await Promise.all([this.cmd.uncommittedFiles(path), this.cmd.upstream(path)]);
     if (uncommitted === null) return null;
     const pushed = upstream !== null || (tree.branch !== null && (await this.cmd.branchExists(path, tree.branch, 'origin')));
@@ -493,7 +503,8 @@ export class WorktreeService {
    * session ends with it — and a refusal ends nothing, unless the caller is
    * End (`endSession: 'always'`), which ends the session whatever becomes of
    * the worktree. The session is ended and stopped before git removes the
-   * directory under it. A removal git refuses is recorded.
+   * directory under it. A removal git refuses is recorded. With `later`,
+   * the answer comes once the session has ended and git goes on alone.
    */
   async remove(row: SessionRow, opts: RemoveOptions): Promise<RemoveResult> {
     const always = opts.endSession === 'always';
@@ -511,8 +522,31 @@ export class WorktreeService {
     if (refusal) return { ok: false, error: refusal, ended: false };
     const ended = always || state.endsSession;
     if (ended) await opts.end(row.id);
+    if (opts.later) {
+      this.removeLater(state.path, opts.force, row.id, opts.later.stopped);
+      return { ok: true, later: true, ended };
+    }
     const removed = await this.removePath(state.path, opts.force, row.id);
     return { ...removed, ended };
+  }
+
+  /** Waits for the removals End left running: before the server closes, and in tests. */
+  async settled(): Promise<void> {
+    await Promise.all(this.removing.values());
+  }
+
+  private removeLater(path: string, force: boolean, sessionId: string, stopped: (id: string) => Promise<void>): void {
+    const run = (async () => {
+      try {
+        await stopped(sessionId);
+        await this.removePath(path, force, sessionId);
+      } catch (err) {
+        this.record(`The worktree ${path} could not be removed.`, err instanceof Error ? err.message : String(err), { path, force }, sessionId);
+      } finally {
+        this.removing.delete(path);
+      }
+    })();
+    this.removing.set(path, run);
   }
 
   /** Why removing would be refused, or null when it may go ahead. */

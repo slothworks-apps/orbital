@@ -410,12 +410,15 @@ describe('removing the worktree', () => {
       git(repo, 'worktree', 'lock', path);
       const res = await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/end`, payload: { removeWorktree: 'clean', worktreePath: path } });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ ok: true, worktreeRemoved: false, error: 'worktree_failed' });
-      expect(res.json().message).toMatch(/locked/);
+      expect(res.json()).toEqual({ ok: true });
       expect((await sessionOf(app, sessionId)).status).toBe('ended');
+      await vi.waitFor(async () => {
+        const logged = (await app.inject({ method: 'GET', url: '/api/errors' })).json().errors;
+        expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'worktree_failed', sessionId, detail: expect.stringMatching(/locked/) })]));
+      });
       expect(existsSync(path)).toBe(true);
-      const logged = (await app.inject({ method: 'GET', url: '/api/errors' })).json().errors;
-      expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'worktree_failed', sessionId })]));
+      // Out of the way again once git gave up: offered as before.
+      expect((await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}/worktree` })).json()).toMatchObject({ path });
     } finally {
       await app.close();
     }
@@ -440,8 +443,10 @@ describe('removing the worktree', () => {
     try {
       const res = await first.app.inject({ method: 'POST', url: `/api/sessions/${first.sessionId}/end`, payload: { removeWorktree: 'clean', worktreePath: first.path } });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ ok: true, worktreeRemoved: true });
-      expect(existsSync(first.path)).toBe(false);
+      expect(res.json()).toEqual({ ok: true });
+      // Removed after the answer; meanwhile it is not offered again.
+      expect((await first.app.inject({ method: 'GET', url: `/api/sessions/${first.sessionId}/worktree` })).json()).toBeNull();
+      await vi.waitFor(() => expect(existsSync(first.path)).toBe(false));
       expect(git(first.repo, 'branch', '--list', 'feat/ended')).toContain('feat/ended');
     } finally {
       await first.app.close();
