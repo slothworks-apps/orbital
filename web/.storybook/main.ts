@@ -6,7 +6,7 @@ import type { StorybookConfig } from '@storybook/react-vite'
  * the theme — so a story renders exactly what the app renders.
  */
 const config: StorybookConfig = {
-  stories: ['../src/**/*.stories.tsx'],
+  stories: ['../src/**/*.mdx', '../src/**/*.stories.tsx'],
   addons: ['@storybook/addon-docs'],
   framework: { name: '@storybook/react-vite', options: {} },
   // The app's dev server pins a port and proxies `/api` to Orbital; the

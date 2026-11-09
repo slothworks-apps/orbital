@@ -54,14 +54,21 @@ Orbital's code exists already, so it starts from the code: Storybook over
   separate package earns its place only once something other than `web` and
   `site` (which already imports from `web/src`) needs the primitives.
 - One `<Name>.stories.tsx` next to each primitive in `web/src/ui`, titled
-  `UI/<Name>`, showing its variants and states. Panels from `web/src/panels`
-  follow as `Panels/<Name>` where they render without the store or a server.
+  `UI/<Name>`, showing its variants and states, and next to each panel in
+  `web/src/panels`, titled `Panels/<Name>`. Panels that read the store or call
+  the API run against the website's fake server (`site/demo/fake`), which the
+  preview installs for the whole catalogue, on the same made-up demo world the
+  site's demos use. Whole screens (the sidebar, the detail panel, Settings,
+  New session) stay out: they are pages, not parts, and the site's demos
+  already show them.
 - A toolbar switch for the colour theme (Deep Field, Albedo and the rest of
   `COLOUR_THEMES`), applied with the app's own `applyColourTheme`, so every
   story is seen in each. The map theme (Planets, Desk) changes how the map is
   drawn, not the primitives, so it has no switch.
-- A short `<Name>.md` next to a primitive only where the choice between it and
-  a neighbour is not obvious. Not a page per component by reflex.
+- One page in the catalogue, `UI/Which one` (`web/src/ui/WhichOne.mdx`), for
+  the primitives that look alike: which button, which dot, which pill. Not a
+  page per component by reflex; the source comments already say where each
+  variant comes from.
 - `npm run storybook -w web`; a step of the `check (web)` CI job builds it, so a story
   broken by a refactor fails the PR.
 - The rule in `web/CLAUDE.md`: a new primitive, or a new variant of one, comes
@@ -111,5 +118,3 @@ catalogue without work. Stories for the phone-only components
 ## 6. Open questions
 
 - Can a claude.ai artifact take a design-system bundle (Phase 2)?
-- Which panels render without the store; do the rest need a small fixture
-  store, or are they left out?

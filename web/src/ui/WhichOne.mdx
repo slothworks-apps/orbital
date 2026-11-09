@@ -1,0 +1,68 @@
+import { Meta } from '@storybook/addon-docs/blocks'
+
+<Meta title="UI/Which one" />
+
+# Which primitive
+
+Where two primitives look alike, this is how to tell which one a new screen
+wants. Every variant and size of a primitive is named after the canvas
+artboard it came from; the comment above it in the component's source says
+which. Pick the variant whose artboard plays the same role as yours, and add a
+variant (with its story) when none does — never restyle one through
+`className`.
+
+## A button
+
+- **`Button`** — anything that reads as an action with a word on it: a
+  dialog's footer, a row's Remove, a notice's Settings →, a link inside a
+  sentence (`dashed-link`).
+- **`UtilityButton`** — a square glyph-only box in the detail header's utility
+  strip (stats, clear, end, ⋯, detach…). Its glyphs are exported beside it.
+- **`PinButton`** — the pin toggle, in the header and on a sidebar row. Only
+  that.
+
+## A small marker beside a name
+
+- **`StateDot`** — a session's state (working, needs you, idle, ended…).
+  Every surface that shows a session's state draws it through here.
+- **`ModeDot`** / **`ModeReadout`** — a session's permission mode, as colour
+  alone; the words are always beside it or one hover away.
+- **`MemberDot`** — a device in the device group (online, offline, linking…).
+- **`StatusDot`** — older and unused; reach for `StateDot`.
+
+## A word in a pill
+
+- **`Chip`** — something you can press or filter by: a tag, a device, a
+  subagent; it carries a hue or a glyph and an active state.
+- **`Badge`** — a read-only state of a task or a subagent (running, done,
+  failed…). Hue is semantic and rare, and only RUNNING moves.
+- **`PrimaryLabel`** / **`QuietLabel`** — a word that marks a row without
+  colouring it (PRIMARY, THIS MAC ONLY).
+- **`Keycap`** — a keyboard shortcut.
+
+## Choosing one of several
+
+- **`Select`** — one value out of a list, in a popup. Never a native
+  `<select>` (`web/CLAUDE.md`).
+- **`Segmented`** — one value out of two to five, all visible at once.
+- **`Checkbox`** — one choice that stands on its own in a form or a dialog.
+- **`Toggle`** — a setting that takes effect the moment it flips.
+
+## A list of actions
+
+- **`MenuButton`** — a trigger that opens a menu of actions (the header's ⋯).
+- **`ContextMenu`** — the same menu, opened by a right-click at the pointer.
+
+## Something that explains or tells
+
+- **`Tooltip`** — a name and a sentence on hover or focus; `panel` when the
+  explanation needs rows.
+- **`MapNotice`** — a message on the map that waits for you: never modal,
+  never gone by itself.
+- **`Dialog`** — a decision that blocks until it is made.
+
+## Something that grows
+
+- **`Collapse`** — a block that opens and closes.
+- **`AutoHeight`** — a box whose content changes height, so it eases instead
+  of snapping. Anything that hangs out of it must be portalled.
