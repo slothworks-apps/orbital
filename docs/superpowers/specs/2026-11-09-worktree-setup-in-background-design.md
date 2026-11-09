@@ -2,7 +2,7 @@
 id: 2026-11-09-worktree-setup-in-background-design
 title: Worktree setup in the background — a session in a worktree starts without waiting
 type: spec
-status: draft
+status: done
 domain: sessions
 related:
   - 2026-11-02-work-in-a-worktree-design

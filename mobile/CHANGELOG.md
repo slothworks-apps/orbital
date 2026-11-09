@@ -4,6 +4,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 ### Changed
+- A session started in a worktree shows SETTING UP while the Mac makes its worktree and starts on its own; messages you send meanwhile are queued. If the worktree cannot be made, it shows NOT STARTED with Try again, Start without a worktree, Copy first prompt and Discard.
 - When the Mac could not remove a worktree after you ended its session, the session's cleanup row comes back so you can try again.
 
 ## [0.24.3] — 2026-11-07

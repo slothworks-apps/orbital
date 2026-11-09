@@ -4,6 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Changed
+- New session in a worktree closes at once: the session appears right away as SETTING UP while its worktree is made, starts on its own when it is ready, and anything you write meanwhile is queued. If the worktree cannot be made, the session stays as NOT STARTED with Try again, Without a worktree, Copy prompt and Discard.
 - End session with “Also remove worktree” closes as soon as the session has ended; the worktree is removed in the background, and if that fails you see it in the error log.
 
 ## [0.48.0] — 2026-11-07
