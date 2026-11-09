@@ -3632,9 +3632,12 @@ export function recordedFailureFor(
 /**
  * A `worktree_failed` record of a session whose worktree launch has a setup:
  * its block says it, so neither the toast nor the transcript's alert does.
+ * The record says so itself, since a setup that fails at once can be
+ * recorded before this client holds the session's row.
  */
 function isSetupFailure(error: ErrorRecord, sessions: Record<string, ApiSession>): boolean {
-  return error.kind === 'worktree_failed' && error.sessionId != null && sessions[error.sessionId]?.setup != null
+  if (error.kind !== 'worktree_failed') return false
+  return error.context?.setup === true || (error.sessionId != null && sessions[error.sessionId]?.setup != null)
 }
 
 /**

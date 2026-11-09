@@ -1591,6 +1591,17 @@ describe('the error log', () => {
     expect(useOrbital.getState().errors[0].message).toBe('new')
   })
 
+  it('raises no toast for a worktree setup that failed, even before the session row arrived', () => {
+    useOrbital.setState({ toast: null })
+    useOrbital.getState().applyErrorsEvent({
+      event: 'error',
+      error: makeError({ id: 7, kind: 'worktree_failed', sessionId: 'not-yet-held', context: { setup: true } }),
+      unseen: 1,
+    })
+    expect(useOrbital.getState().toast).toBeNull()
+    expect(useOrbital.getState().errors.some((e) => e.id === 7)).toBe(true)
+  })
+
   it('drops the ids a seen event names, and every row when it names null', () => {
     useOrbital.setState({
       errors: [makeError({ id: 3 }), makeError({ id: 2 }), makeError({ id: 1 })],

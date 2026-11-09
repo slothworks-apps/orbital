@@ -473,7 +473,9 @@ export class SetupService {
     try {
       return this.deps.errors.record({
         source: 'server', kind: 'worktree_failed', sessionId, message,
-        detail: err instanceof Error ? err.message : String(err), context,
+        // `setup` tells the clients the session's setup block says it, even
+        // one that has not seen the session's row yet.
+        detail: err instanceof Error ? err.message : String(err), context: { ...context, setup: true },
       }).id;
     } catch (e) {
       console.warn('orbital: could not record a worktree setup failure:', e);
