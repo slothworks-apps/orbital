@@ -647,14 +647,17 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     },
     deliver: async (id, message) => {
       const attachments = message.attachments?.length ? message.attachments : undefined;
-      const delivery = await deliverToSession(id, message.text, attachments);
+      // Past the setup guard: this is the queue the guard keeps, going in.
+      const delivery = await deliverNow(id, message.text, attachments);
       if (delivery.uuid) publishSentTurn(id, delivery.uuid, message.text, attachments);
+      return delivery.outcome;
     },
     turnOf: (id) => {
       const row = db.select({ endedAt: sessions.endedAt }).from(sessions).where(eq(sessions.id, id)).get();
       if (!row || row.endedAt !== null) return 'gone';
       return ctx.runner.busy(id) ? 'running' : 'over';
     },
+    toLimitWait: (id, message) => ctx.limits?.queue(id, message.text, message.attachments) ?? false,
     stop: (id) => ctx.runner.stop(id),
   });
   setups.recover();
@@ -668,8 +671,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   function discardSession(id: string): boolean {
     if (!setups.discard(id)) return false;
+    // What `endSession` lets go of for the user's End, for a session that never ran.
+    ctx.harness.sessionEnded(id);
     ctx.limits?.drop(id);
-    deleteSessions(db, [id]);
+    ctx.logins?.forget(id);
+    ctx.terminals.closeSession(id);
+    // The setup's row stays while its rollback runs: `discard` deletes it after.
+    deleteSessions(db, [id], { keepSetup: true });
     ctx.hub.publish('sessions', { event: 'remove', sessionId: id });
     return true;
   }
@@ -1747,15 +1755,6 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   }): string {
     const { sessionId: id, tagId } = opts;
     const now = Date.now();
-    db.insert(sessions)
-      .values({
-        id, projectDir: '', cwd: opts.cwd, source: 'web', claudeDirId: opts.claudeDirId,
-        permissionMode: opts.permissionMode, model: opts.model ?? null, lastAt: now,
-      })
-      .run();
-    if (tagId != null) {
-      db.insert(sessionTags).values({ sessionId: id, tagId, origin: 'manual' }).onConflictDoNothing().run();
-    }
     const launch: SetupLaunchSettings = {
       cwd: opts.cwd, base: check.base, ...(check.branch ? { branch: check.branch } : {}),
       permissionMode: opts.permissionMode,
@@ -1763,13 +1762,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       ...(tagId != null ? { tagId } : {}),
       claudeDirId: opts.claudeDirId,
     };
-    // Publishes the row, `setup` and all.
-    setupStore.create({
-      sessionId: id, ...firstPhaseOf(launch), path: null, repoRoot: check.repoRoot, made: 'none', title: null,
-      launch, prompt: typeof opts.prompt === 'string' ? opts.prompt : '', attachments: opts.attachments ?? [],
-      mcpjson: opts.mcpjson, queued: [], sessionStarted: false, message: null, errorId: null,
-      startedAt: now, readyInMs: null,
+    // One transaction: a session row without its setup record would be an
+    // idle session in the main checkout, which a message would revive there.
+    db.transaction((tx) => {
+      tx.insert(sessions)
+        .values({
+          id, projectDir: '', cwd: opts.cwd, source: 'web', claudeDirId: opts.claudeDirId,
+          permissionMode: opts.permissionMode, model: opts.model ?? null, lastAt: now,
+        })
+        .run();
+      if (tagId != null) {
+        tx.insert(sessionTags).values({ sessionId: id, tagId, origin: 'manual' }).onConflictDoNothing().run();
+      }
+      setupStore.insert({
+        sessionId: id, ...firstPhaseOf(launch), path: null, repoRoot: check.repoRoot, made: 'none', title: null,
+        launch, prompt: opts.prompt, attachments: opts.attachments ?? [],
+        mcpjson: opts.mcpjson, queued: [], sessionStarted: false, message: null, errorId: null,
+        startedAt: now, readyInMs: null,
+      }, tx);
     });
+    // The row, `setup` and all.
+    publishSession(id);
     setups.begin(id, check);
     return id;
   }
@@ -1835,8 +1848,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         .run();
     }
     // A browser that minted the id subscribed before this row existed, when
-    // its `cwd` could not be looked up yet — so the watch starts here.
-    if (ctx.hub.subscriberCount(`session:${sessionId}`) > 0) ctx.branchStatus.watchSession(sessionId, cwd);
+    // its `cwd` could not be looked up yet — so the watch starts here. A
+    // setup's session was watched in the main checkout while it was set up:
+    // the watch moves into its worktree.
+    if (ctx.hub.subscriberCount(`session:${sessionId}`) > 0) {
+      if (launched) ctx.branchStatus.unwatchSession(sessionId);
+      ctx.branchStatus.watchSession(sessionId, cwd);
+    }
     const named = !purpose && title !== undefined && ctx.settings.get(NAME_SESSIONS_KEY) !== 'false';
     if (named) {
       // Only over a derived title, as the titler writes its own first name.
@@ -1899,11 +1917,22 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   /**
    * One delivery path for anything Orbital says INTO a session: the composer's
-   * text. Sends if the runner
-   * holds the session; otherwise revives it by resuming — unless a terminal
-   * owns it, which cannot be taken over.
+   * text, a harness's, a limit reset's, a login's continuation. Sends if the
+   * runner holds the session; otherwise revives it by resuming — unless a
+   * terminal owns it, which cannot be taken over.
+   *
+   * A session whose worktree is being set up, or could not be, has no
+   * process and no transcript, and the directory on its row is the main
+   * checkout: a revive would start it there. It takes nothing — `in_setup`;
+   * the composer's messages are queued for it before they get here.
    */
   async function deliverToSession(id: string, text: string, attachments?: string[]): Promise<Delivery> {
+    if (setupStore.pending(id)) return { outcome: 'in_setup', uuid: null };
+    return deliverNow(id, text, attachments);
+  }
+
+  /** `deliverToSession` past its setup guard: the setup's own queue goes in through here. */
+  async function deliverNow(id: string, text: string, attachments?: string[]): Promise<Delivery> {
     // Writing to an ended session reopens it, whichever path below delivers
     // the message — a session someone is typing into is evidently not over
     // (spec 2026-09-24-sessions-end-only-by-hand-design § 1). Only once it
@@ -2140,6 +2169,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // it goes in after the first prompt, once the session starts (spec
     // 2026-11-09-worktree-setup-in-background-design § Messages).
     if (setupStore.queue(id, { text: typeof text === 'string' ? text : '', ...(attachments?.length ? { attachments } : {}) })) {
+      // A started session's queue a restart left waits for this: it goes in now, ahead of this one.
+      setups.resume(id);
       return { ok: true, queued: true };
     }
     // Read before delivering: a revive turns a terminal session's `source`
@@ -2187,6 +2218,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   function deliveryReply(delivery: Delivery, reply: FastifyReply, terminalError: string) {
     if (delivery.outcome === 'not_found') return reply.code(404).send({ error: 'not found' });
     if (delivery.outcome === 'terminal') return reply.code(409).send({ error: terminalError });
+    if (delivery.outcome === 'in_setup') return reply.code(409).send({ error: 'in_setup' });
     return {
       ok: true,
       ...(delivery.outcome === 'revived' ? { revived: true } : {}),
@@ -2682,6 +2714,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
+    // A session in setup has nothing to clear, and ending it would discard
+    // it — its first prompt and queue with it; the panel hides Clear for it.
+    if (setupStore.pending(id)) return reply.code(409).send({ error: 'in_setup' });
     await endSession(id);
     if (!startNew) return { ok: true };
     // Clear keeps what it cleared: the new session runs in the same folder,

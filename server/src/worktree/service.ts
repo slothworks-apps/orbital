@@ -406,12 +406,9 @@ export class WorktreeService {
    * alone: whether `git worktree add` got as far as registering the
    * directory is read from git, so its branch is deleted only when it was.
    */
-  async rollbackInterrupted(made: { repoRoot: string; path: string; branch: string; made: 'dir' | 'worktree'; sessionId: string }): Promise<void> {
-    let added = false;
-    if (made.made === 'worktree') {
-      const list = await this.cmd.git(made.repoRoot, ['worktree', 'list', '--porcelain']).catch(() => null);
-      added = !!list && list.code === 0 && list.stdout.split('\n').some((l) => l === `worktree ${made.path}`);
-    }
+  async rollbackInterrupted(made: { repoRoot: string; path: string; branch: string; sessionId: string }): Promise<void> {
+    const list = await this.cmd.git(made.repoRoot, ['worktree', 'list', '--porcelain']).catch(() => null);
+    const added = !!list && list.code === 0 && list.stdout.split('\n').some((l) => l === `worktree ${made.path}`);
     await this.rollbackLaunch({ ...made, added });
   }
 

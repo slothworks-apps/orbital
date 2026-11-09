@@ -448,6 +448,46 @@ describe('discarding a session that never started', () => {
     }
   });
 
+  it('refuses Clear on a session in setup, and keeps it', async () => {
+    const repo = makeRepo();
+    const held = heldNaming('feat/cleared');
+    const { app, starts } = await serverWith(held.naming);
+    try {
+      const { sessionId } = (await launch(app, { cwd: repo, worktree: { base: 'origin/main' } })).json();
+      const res = await post(app, `/api/sessions/${sessionId}/clear`, { startNew: true });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toBe('in_setup');
+      expect((await sessionOf(app, sessionId)).setup.phase).toBe('naming');
+      expect(starts).toHaveLength(0);
+      held.release();
+      await settledAt(app, sessionId, 'ready');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('starts nothing in the main checkout for a harness attached during setup', async () => {
+    const repo = makeRepo();
+    const held = heldNaming('feat/harnessed');
+    const { app, starts } = await serverWith(held.naming);
+    try {
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { harness_enabled: 'true' } });
+      const steps = [{ id: 'one', title: 'One', instructions: 'Do it.', mode: 'auto', doneWhen: 'done' }];
+      const template = (await post(app, '/api/harness/templates', { name: 't', tags: [], inputs: [], steps })).json();
+      const { sessionId } = (await launch(app, { cwd: repo, worktree: { base: 'origin/main' } })).json();
+      const res = await post(app, `/api/sessions/${sessionId}/harness`, { templateId: template.template?.id ?? template.id });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toBe('in_setup');
+      expect(starts).toHaveLength(0);
+      held.release();
+      const ready = await settledAt(app, sessionId, 'ready');
+      expect(ready.cwd).toBe(join(repo, '.claude/worktrees/harnessed'));
+      expect(starts).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('treats End on a session in setup as Discard', async () => {
     const repo = makeRepo();
     const held = heldNaming('feat/ended-early');
@@ -468,7 +508,7 @@ describe('discarding a session that never started', () => {
 });
 
 describe('a server that stops during setup', () => {
-  it('hands over the queue a started session had left, after a restart', async () => {
+  it('keeps the queue a started session had left at a restart, and sends it ahead of the next message', async () => {
     const repo = makeRepo();
     const first = await serverWith('feat/restarted');
     const { sessionId } = await launchedReady(first.app, { cwd: repo, worktree: { base: 'origin/main' } });
@@ -482,11 +522,48 @@ describe('a server that stops during setup', () => {
 
     const second = await serverWith('feat/x', first.dirs);
     try {
-      await vi.waitFor(() => expect(second.prompts).toEqual(['left over']), { timeout: 5_000 });
+      // Nothing is resumed at boot: the queue waits for the user.
+      await new Promise((r) => setTimeout(r, 300));
+      expect(second.starts).toHaveLength(0);
+      expect((await sessionOf(second.app, sessionId)).setup.queued.map((m: any) => m.text)).toEqual(['left over']);
+
+      expect((await send(second.app, sessionId, 'next')).json()).toEqual({ ok: true, queued: true });
+      await vi.waitFor(() => expect(second.prompts).toEqual(['left over', 'next']), { timeout: 5_000 });
       await vi.waitFor(async () => expect((await sessionOf(second.app, sessionId)).setup).toMatchObject({ phase: 'ready', queued: [] }));
+      expect(second.starts[0].resume).toBe(sessionId);
     } finally {
       await second.app.close();
     }
+  });
+
+  it('finishes the rollback of a setup discarded just before the stop', async () => {
+    const repo = makeRepo();
+    const held = heldNaming('feat/tomb');
+    const first = await serverWith(held.naming);
+    const { sessionId } = (await launch(first.app, { cwd: repo, worktree: { base: 'origin/main' } })).json();
+    await first.app.close();
+    held.release();
+
+    // What a discard leaves when the server stops before its rollback: no session, the setup's tombstone.
+    const path = join(repo, '.claude/worktrees/tomb');
+    git(repo, 'worktree', 'add', '-q', '-b', 'feat/tomb', path, 'main');
+    const raw = new BetterSqlite3(first.dirs.dbPath);
+    raw.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    raw.prepare("UPDATE session_setups SET phase = 'discarded', branch = 'feat/tomb', path = ?, made = 'worktree' WHERE session_id = ?")
+      .run(path, sessionId);
+    raw.close();
+
+    const second = await serverWith('feat/x', first.dirs);
+    try {
+      await vi.waitFor(() => expect(existsSync(path)).toBe(false), { timeout: 10_000 });
+      await vi.waitFor(() => expect(git(repo, 'branch', '--list', 'feat/tomb')).toBe(''));
+      expect(await sessionOf(second.app, sessionId)).toBeUndefined();
+    } finally {
+      await second.app.close();
+    }
+    const after = new BetterSqlite3(first.dirs.dbPath);
+    expect(after.prepare('SELECT * FROM session_setups WHERE session_id = ?').get(sessionId)).toBeUndefined();
+    after.close();
   });
 
   it('finds the setup not started at boot, rolled back from its record, with its prompt and queue', async () => {

@@ -890,6 +890,8 @@ export async function buildServer(overrides: {
         if (clearCompactionFailure(sessionId)) republish(sessionId);
       }
       hub.publish('sessions', { event: 'status', sessionId, status });
+      // A setup's queue waiting for the first turn to end looks again at every edge.
+      setups.settled(sessionId);
     },
     // The claim that survives a kill: written on every change, cleared only
     // when the process stops. A `tsx watch` restart never reaches the clear,
@@ -897,7 +899,10 @@ export async function buildServer(overrides: {
     // (spec 2026-09-21-session-autoheal-design).
     onOwnership: (sessionId, status) => {
       db.update(sessions).set({ runnerStatus: status }).where(eq(sessions.id, sessionId)).run();
-      if (status === null) released(sessionId);
+      if (status === null) {
+        released(sessionId);
+        setups.settled(sessionId);
+      }
       // The session's live feed changes hands with its owner: the Runner's
       // stream while it holds the session, a transcript tail while it does
       // not (adr: the-tail-yields-to-the-runner). `startTail`/`stopTail` are
@@ -978,7 +983,10 @@ export async function buildServer(overrides: {
     // `working`; and the republish is what carries `awaitingSubagents` to the
     // map, since neither edge necessarily moves the status at all.
     onTurnBoundary: (sessionId, ended) => {
-      if (ended) harness.onTurnEnd(sessionId);
+      if (ended) {
+        harness.onTurnEnd(sessionId);
+        setups.settled(sessionId);
+      }
       // A turn the CLI started by itself is a next turn too, and it moves no
       // status for `onStatus` above to see. Any next turn, the user's or
       // not, also takes the session off a login's continuation list.
@@ -990,7 +998,10 @@ export async function buildServer(overrides: {
     },
     // Both edges of a parked question, for the map: `pendingDecision` rides
     // the snapshot, and it is what separates NEEDS INPUT from DONE.
-    onDecision: (sessionId) => republish(sessionId),
+    onDecision: (sessionId) => {
+      republish(sessionId);
+      setups.settled(sessionId);
+    },
     // Usage limits: every event reads the limits again, a turn ended on the
     // limit may become a wait, and a waiting session settles to `idle`.
     onRateLimit: (sessionId, info) => limits.rateLimitEvent(sessionId, info),
@@ -1450,6 +1461,12 @@ export async function buildServer(overrides: {
   // stood at `working` was cut off mid-turn, which is what `interrupted_at`
   // records — stamped first, while the flag still says so.
   const bootedAt = Date.now();
+  // A claim on a session whose setup had not yet written `sessionStarted`:
+  // the process did start, in its worktree, which the setup's recovery
+  // must not roll back from under it.
+  for (const { id } of db.select({ id: sessions.id }).from(sessions).where(isNotNull(sessions.runnerStatus)).all()) {
+    setups.claimedBeforeStop(id);
+  }
   db.update(sessions)
     .set({ interruptedAt: bootedAt })
     .where(eq(sessions.runnerStatus, 'working'))

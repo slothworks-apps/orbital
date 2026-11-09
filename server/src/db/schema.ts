@@ -807,8 +807,11 @@ export const limitWaits = sqliteTable('limit_waits', {
  */
 export const sessionSetups = sqliteTable('session_setups', {
   sessionId: text('session_id').primaryKey(),
-  /** `SetupPhase`. */
-  phase: text('phase').$type<'naming' | 'checkout' | 'copy' | 'failed' | 'ready'>().notNull(),
+  /**
+   * `SetupPhase`, or `discarded`: the session is gone and the row stays
+   * until what its setup made is rolled back.
+   */
+  phase: text('phase').$type<'naming' | 'checkout' | 'copy' | 'failed' | 'ready' | 'discarded'>().notNull(),
   /** The step running, or for `failed` the one that failed. */
   step: integer('step').notNull(),
   branch: text('branch'),
@@ -818,10 +821,10 @@ export const sessionSetups = sqliteTable('session_setups', {
   repoRoot: text('repo_root').notNull(),
   /**
    * What the setup has made on disk so far, for a rollback after a restart:
-   * `dir` the reserved directory, `worktree` a `git worktree add` that may
-   * have run. `none` once rolled back.
+   * `worktree` a reserved directory and a `git worktree add` that may have
+   * run. `none` once rolled back.
    */
-  made: text('made').$type<'none' | 'dir' | 'worktree'>().notNull().default('none'),
+  made: text('made').$type<'none' | 'worktree'>().notNull().default('none'),
   /** The naming call's name for the session, applied when it starts. */
   title: text('title'),
   /** `SetupLaunchSettings`. */

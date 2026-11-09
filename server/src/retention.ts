@@ -99,14 +99,15 @@ export function countSweepable(db: OrbitalDb, cutoff: number | null): number {
  * Deletes the sessions' rows and every row that hangs off them, as one
  * transaction — the sweep's, or a discard of a session that never started.
  */
-export function deleteSessions(db: OrbitalDb, ids: string[]): void {
+export function deleteSessions(db: OrbitalDb, ids: string[], opts: { keepSetup?: boolean } = {}): void {
   if (ids.length === 0) return;
-  db.transaction((tx) => deleteSessionRows(tx, ids));
+  db.transaction((tx) => deleteSessionRows(tx, ids, opts.keepSetup === true));
 }
 
 type Tx = Parameters<Parameters<OrbitalDb['transaction']>[0]>[0];
 
-function deleteSessionRows(tx: Tx, ids: string[]): void {
+/** `keepSetup`: a discard's setup row stays as its tombstone until the rollback is done. */
+function deleteSessionRows(tx: Tx, ids: string[], keepSetup = false): void {
   tx.delete(sessionTags).where(inArray(sessionTags.sessionId, ids)).run();
   tx.delete(compactionFailures).where(inArray(compactionFailures.sessionId, ids)).run();
   tx.delete(backgroundTasks).where(inArray(backgroundTasks.sessionId, ids)).run();
@@ -114,7 +115,7 @@ function deleteSessionRows(tx: Tx, ids: string[]): void {
   tx.delete(rewinds).where(inArray(rewinds.sessionId, ids)).run();
   tx.delete(narrations).where(inArray(narrations.sessionId, ids)).run();
   tx.delete(permissionWaits).where(inArray(permissionWaits.sessionId, ids)).run();
-  tx.delete(sessionSetups).where(inArray(sessionSetups.sessionId, ids)).run();
+  if (!keepSetup) tx.delete(sessionSetups).where(inArray(sessionSetups.sessionId, ids)).run();
   tx.delete(sessions).where(inArray(sessions.id, ids)).run();
 }
 
