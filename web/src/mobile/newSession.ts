@@ -99,6 +99,11 @@ export interface LaunchInput {
   worktree?: WorktreeLaunch
   /** The harness screen's template, inputs and Feeling lucky (spec 2026-11-09-harness-from-new-session-design § Phone); absent, a plain launch. */
   harness?: HarnessLaunch
+  /**
+   * Start with a progress list: only what Start without a worktree carries,
+   * on the device it was carried for; the phone has no switch of its own.
+   */
+  progressList?: boolean
 }
 
 /**
@@ -120,6 +125,7 @@ export function launchRequest(input: LaunchInput) {
     ...(input.machine !== null ? { machine: input.machine } : {}),
     ...(input.worktree ? { worktree: input.worktree } : {}),
     ...(input.harness ? { harness: input.harness } : {}),
+    ...(input.progressList && !input.harness ? { progressList: true } : {}),
   }
 }
 

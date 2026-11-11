@@ -462,7 +462,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /**
    * Seats a Without a worktree prefill over what the open reset to: the
    * session's directory, device, mode, model, tag and Claude directory, its
-   * prompt with the queued messages, and their attachments as done chips.
+   * prompt with the queued messages, and their attachments as done chips;
+   * a harness launch reopens on step 2 with its template and inputs, and the
+   * progress list switch is as it was launched.
    * The choices count as made by hand, so no rule or remembered pick moves
    * them.
    */
@@ -488,6 +490,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setClaudeDirPrefilled({ id: p.claudeDirId, from: 'planet', planet: p.title })
     }
     carried.current = { device: on, chips: attachments.adoptRefs(p.attachments) }
+    if (p.progressList !== null) setProgressPick(p.progressList)
+    if (p.harness) {
+      setWithHarness(true)
+      harness.seed(p.harness)
+    }
   }
 
   // Reset + prefill from settings on the false -> true transition only (not
@@ -721,8 +728,10 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         // Its kickoff is the first turn, the prompt appended to it as a note.
         ...(harnessLaunch ? { harness: harnessLaunch } : {}),
         // Sent on or off whenever the switch was offered: the server
-        // remembers only a choice made here, per directory.
-        ...(progressOffered ? { progressList } : {}),
+        // remembers only a choice made here, per directory. A launch on a
+        // harness has no list and leaves the remembered choice alone (spec
+        // 2026-11-09-progress-list-design § Turning it on).
+        ...(progressOffered && !harnessLaunch ? { progressList } : {}),
       }
       // One id per attempt: Launch pressed again on the same form after a
       // lost answer repeats it, and the server answers instead of launching twice.
@@ -895,8 +904,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             into the model name. */}
         {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
         {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
-        {/* 67f: the summary says the session starts with a list. */}
-        {progressList ? ' · progress list' : null}
+        {/* 67f: the summary says whether the session starts with a list; one on a harness never does. */}
+        {progressOffered && step2 ? ' · no progress list' : progressList ? ' · progress list' : null}
         {/* Spec § The footer summary: where the worktree comes from. */}
         {worktreeLaunch ? ` · ${worktreeSummary(worktree.branch, worktreeLaunch.base)}` : null}
         {/* 50g `gFoot`: the device, once there is a choice of one. */}

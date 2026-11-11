@@ -162,6 +162,35 @@ login's continuation — is refused (`in_setup`; attaching a harness answers
 directory on its row is still the main checkout, where a revive would
 start it.
 
+### A launch on a harness or with a progress list
+
+New Session's *With harness…* (spec 2026-11-09-harness-from-new-session-design)
+and its progress list switch (spec 2026-11-09-progress-list-design) both
+reach a worktree launch, and both go through the setup rather than around
+it:
+
+- The harness is checked and attached at the launch, under the session's
+  id, before anything is written; a refusal leaves nothing behind. Its plan
+  and its first turn — the kickoff with the user's note — are kept in the
+  setup's launch settings (`SetupLaunchSettings.harness`), so they survive
+  a restart and a Try again. Nothing is queued: when the setup starts the
+  session, it starts on the kickoff, which the harness records as its own
+  and which begins step 1, as a launch without a worktree does.
+- The branch is named from the harness's subject and the user's note, not
+  from the kickoff the agent reads.
+- A harness removed while the session is in setup is not run: the session
+  starts on the user's own words.
+- Messages written during the setup go into a harness session's first
+  turn while it runs, as a message typed during that turn would, rather
+  than after its reply: the harness decides at each turn's end whether to
+  send the next step, and a message landing between that end and the
+  decision would take the step's place.
+- Discard lets go of the attached harness. While the session is in setup
+  the harness pill is not shown: no step runs before the session does.
+- The progress list choice is kept the same way (`progressList`,
+  `progressListChoice`) and given to the session when it starts. A launch
+  never carries both: the server refuses a harness with a progress list.
+
 ### Ways out of NOT STARTED
 
 The setup block (desktop) and the ⋯ sheet (phone) offer four:
@@ -170,7 +199,10 @@ The setup block (desktop) and the ⋯ sheet (phone) offer four:
   call, a fresh directory). The session returns to SETTING UP in place.
 - **Without a worktree** — opens New Session with this session's settings,
   Worktree off, and the first prompt with the queued messages below it,
-  with their attachments. When that launch answers 201 the client discards
+  with their attachments. A launch on a harness reopens on *With harness…*
+  with its template, inputs and Feeling lucky; the progress list switch is
+  as it was launched (the phone, which has no switch, carries it while the
+  device stays the same). When that launch answers 201 the client discards
   this session; cancelling New Session leaves both as they were. A discard
   that is lost leaves only a NOT STARTED session behind (our call).
 - **Copy prompt** — copies the first prompt and the queued messages as one

@@ -843,7 +843,9 @@ export function DetailPanel({
     {session && showDevicePill && !standalone && (
       <DevicePill session={session} hue={headerHue ?? ACCENT_HUE} placement="edge" />
     )}
-    {session && (
+    {/* A harness launch into a worktree attaches before the session exists:
+        no step runs until it has started, so the pill waits for that. */}
+    {session && !pendingSetup(session) && (
       <HarnessPill
         session={session}
         stateRowRef={stateRowRef}

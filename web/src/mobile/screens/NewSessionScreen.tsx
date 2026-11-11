@@ -192,9 +192,10 @@ export function NewSessionScreen() {
   const harnessOn = useMacHarnessSetting((s) => s.on)
   // In a group the settings read may come from another member (`GroupFederation.settingsSource`).
   const offersHarnessHere = offersHarness({ harnessOn, readFromChosen: !several, version: harnessVersion })
-  const [harnessOpen, setHarnessOpen] = useState(false)
+  // Start without a worktree of a harness launch opens on its harness.
+  const [harnessOpen, setHarnessOpen] = useState(carried?.harness != null)
   const harnessShown = harnessOpen && offersHarnessHere
-  const harness = useHarnessChoice(cwd, machine, harnessShown)
+  const harness = useHarnessChoice(cwd, machine, harnessShown, carried?.harness)
   // The Harness switch may have moved on the Mac since the app started.
   useEffect(() => refreshQuestionSetting(), [])
 
@@ -329,6 +330,7 @@ export function NewSessionScreen() {
       const body = launchRequest({
         cwd, prompt, files, mode, model, claudeDirId, refs, mcpjson, machine, worktree: worktree.launch,
         harness: harnessShown ? (harness.launch ?? undefined) : undefined,
+        progressList: carried?.progressList === true && keepsCarried.current,
       })
       // One id per attempt: Start pressed again after the tunnel gave up on a
       // slow worktree launch repeats it, and the Mac answers with the first

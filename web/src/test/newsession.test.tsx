@@ -24,6 +24,7 @@ vi.mock('../lib/socket', () => ({
 
 import { api } from '../lib/api'
 import { NewSessionDialog, openingLaunch } from '../panels/NewSessionDialog'
+import { useNewSessionPrefill } from '../store/setupActions'
 import { openingClaudeDir } from '../lib/claudeDirs'
 import { editorOf, fieldValue, replaceField } from './composerField'
 
@@ -1223,6 +1224,41 @@ describe('NewSessionDialog — with a harness (canvas 65a)', () => {
         expect.objectContaining({ prompt: '', harness: { templateId: 9, inputs: {}, lucky: false } }),
       ),
     )
+  })
+
+  it('reopens a harness launch Without a worktree on its template, its inputs filled', async () => {
+    resetStore({ settings: { default_project_dir: '/w/orbital', harness_enabled: 'true' } })
+    useNewSessionPrefill.setState({
+      prefill: {
+        replaces: 'old', title: 'Old', device: 'self', cwd: '/w/orbital', permissionMode: 'acceptEdits',
+        model: null, tagId: null, claudeDirId: null, prompt: 'start in parse.ts', attachments: [],
+        harness: { templateId: 7, inputs: { task: 'https://x/ORB-1' } }, progressList: null,
+      },
+    })
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    expect(await screen.findByRole('radio', { name: /bug fix/i })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('textbox', { name: 'Task link' })).toHaveValue('https://x/ORB-1')
+    fireEvent.click(screen.getByRole('button', { name: /launch with harness/i }))
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'start in parse.ts', harness: { templateId: 7, inputs: { task: 'https://x/ORB-1' }, lucky: false } }),
+      ),
+    )
+  })
+
+  it('launches on a harness with no progress list, and says so, though the switch was on', async () => {
+    resetStore({ settings: { default_project_dir: '/w/orbital', harness_enabled: 'true', progress_list_enabled: 'true' } })
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('switch', { name: /keeps a progress list/i }))
+    fireEvent.click(screen.getByRole('button', { name: /with harness…/i }))
+    fireEvent.click(await screen.findByRole('radio', { name: /docs pass/i }))
+    expect(screen.getByText(/no progress list/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /launch with harness/i }))
+
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled())
+    const body = vi.mocked(api.createSession).mock.calls[0][0]
+    expect(body).toMatchObject({ harness: { templateId: 9 } })
+    expect(body).not.toHaveProperty('progressList')
   })
 
   it('goes back to step 1 on esc with the prompt and the inputs kept, and step 1 launches without a harness', async () => {

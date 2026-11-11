@@ -47,6 +47,8 @@ export interface LaunchHarness {
   /** Launch with harness waits: no template, or a required input empty. */
   blocked: boolean
   view: HarnessStepView
+  /** Opens on a template already chosen, with its inputs (Without a worktree). */
+  seed: (plan: { templateId: number; inputs: Record<string, string>; lucky?: boolean }) => void
   reset: () => void
 }
 
@@ -168,6 +170,15 @@ export function useLaunchHarness({
     },
     [selected],
   )
+  /** Opens on a template already chosen (Without a worktree's), its inputs and Feeling lucky as they were. */
+  const seed = useCallback(
+    (plan: { templateId: number; inputs: Record<string, string>; lucky?: boolean }) => {
+      setSelectedId(plan.templateId)
+      setInputsById({ [plan.templateId]: plan.inputs })
+      setLuckyById(plan.lucky === undefined ? {} : { [plan.templateId]: plan.lucky })
+    },
+    [setSelectedId],
+  )
   const reset = useCallback(() => {
     ticket.current++
     pickedRef.current = null
@@ -222,6 +233,7 @@ export function useLaunchHarness({
     summary,
     blocked,
     view: { load: shownLoad, selected, inputs, lucky, dirNote, pick, setInput, setLucky },
+    seed,
     reset,
   }
 }

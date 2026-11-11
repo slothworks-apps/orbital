@@ -1,4 +1,4 @@
-import { WORKTREES_DIR, type SessionSetup } from '@orbital/shared/worktree'
+import { WORKTREES_DIR, type LaunchHarnessPlan, type SessionSetup } from '@orbital/shared/worktree'
 import { deviceOf } from './devices'
 import { homePath } from './format'
 import type { ApiSession, GitLocation, PermissionMode } from './types'
@@ -223,8 +223,9 @@ export function discardLabel(setup: Pick<SessionSetup, 'phase'>): string {
 /**
  * Without a worktree (spec § Ways out of NOT STARTED): New Session opened
  * with this session's settings, Worktree off, the first prompt with the
- * queued messages below it and all their attachments. `replaces` is the
- * session discarded once that launch is accepted.
+ * queued messages below it and all their attachments, and the harness or the
+ * progress list it was launched with. `replaces` is the session discarded
+ * once that launch is accepted.
  */
 export interface NewSessionPrefill {
   replaces: string
@@ -239,6 +240,10 @@ export interface NewSessionPrefill {
   claudeDirId: number | null
   prompt: string
   attachments: string[]
+  /** The harness it was launched on: New session opens on it, its inputs filled. */
+  harness: Pick<LaunchHarnessPlan, 'templateId' | 'inputs' | 'lucky'> | null
+  /** The progress list switch as it was launched; null when the dialog did not offer one. */
+  progressList: boolean | null
 }
 
 export function withoutWorktreePrefill(
@@ -257,5 +262,9 @@ export function withoutWorktreePrefill(
     claudeDirId: launch.claudeDirId ?? null,
     prompt: setupPromptText(setup),
     attachments: setupAttachments(setup),
+    harness: launch.harness
+      ? { templateId: launch.harness.templateId, inputs: launch.harness.inputs, lucky: launch.harness.lucky }
+      : null,
+    progressList: launch.progressListChoice ?? null,
   }
 }

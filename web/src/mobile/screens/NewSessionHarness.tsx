@@ -75,10 +75,18 @@ export function harnessDisabled(err: unknown): boolean {
  * before the answer, refused or failed — and kept once read, with the pick,
  * the inputs and Feeling lucky, across ‹ and back. A change of directory or
  * device drops the pick and the inputs. The latest template run in the
- * project is preselected; with none, the sheet opens by itself.
+ * project is preselected; with none, the sheet opens by itself. `seed`, a
+ * harness Start without a worktree carries, is picked instead, with its
+ * inputs and Feeling lucky, the first time its template is offered.
  */
-export function useHarnessChoice(cwd: string, machine: string | null, active: boolean): HarnessChoice {
+export function useHarnessChoice(
+  cwd: string,
+  machine: string | null,
+  active: boolean,
+  seed?: { templateId: number; inputs: Record<string, string>; lucky?: boolean } | null,
+): HarnessChoice {
   const key = `${machine ?? ''}\n${cwd.trim()}`
+  const seedRef = useRef(seed ?? null)
   const [offered, setOffered] = useState<Offered | null>(null)
   const [unread, setUnread] = useState<Unread | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -95,6 +103,13 @@ export function useHarnessChoice(cwd: string, machine: string | null, active: bo
       .then((data) => {
         if (!current) return
         setOffered({ key, data })
+        const carried = seedRef.current
+        if (carried && data.templates.some((t) => t.id === carried.templateId)) {
+          seedRef.current = null
+          setPicked({ key, templateId: carried.templateId, lucky: carried.lucky ?? null, inputs: { [carried.templateId]: carried.inputs } })
+          setSheetOpen(false)
+          return
+        }
         const last = data.templates.some((t) => t.id === data.lastUsedId) ? data.lastUsedId : null
         setPicked({ key, ...NOTHING_PICKED, templateId: last })
         // Canvas 65d: nothing run in this directory before, the sheet opens on arrival.

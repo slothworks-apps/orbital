@@ -2,7 +2,7 @@
 id: 2026-11-09-progress-list-design
 title: Progress list — the agent's own list of what it will do and how far it has got
 type: spec
-status: active
+status: done
 domain: sessions
 related:
   - progress-list-has-its-own-tool-not-the-clis-tasks
@@ -60,7 +60,9 @@ artboards 67a–67h.
   "Launch session" starts with a list when the switch is on. "With
   harness…" starts on a harness, with no list. The switch is neither
   disabled nor reset, and the launch summary says "no progress list"
-  (67f).
+  (67f). A launch from that step sends no `progressList`, so the choice
+  remembered for the directory stays as it was, and the server refuses a
+  launch that carries both.
 - Attaching a harness to a session with a progress list **freezes** the
   list, for good: the freeze is recorded with its time, and removing the
   harness, or turning the harness off in Labs, does not undo it. It is not
@@ -201,8 +203,5 @@ harness step uses) and the `progress-calls` route, which is on
   farthest zoom, collisions): the map's labels do not change with zoom
   today, so the figure follows the shortened name at every zoom. Doing 67e
   in full changes every planet's label and needs its own decision.
-- The "With harness…" path of 67f: the desktop New session dialog has no
-  such button, so a harness is attached after launch, which freezes the
-  list.
 - Starting a session with a progress list from the phone; 67g has no
   switch for it.

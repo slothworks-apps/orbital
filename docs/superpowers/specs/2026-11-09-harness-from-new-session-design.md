@@ -85,7 +85,16 @@ checklist.
   idempotency (`sessionId` per attempt) covers the harness too: a
   repeated launch does not attach twice.
 - A launch with `worktree` resolves templates against the project, not
-  the worktree path, as `projectRootOf` already does.
+  the worktree path, as `projectRootOf` already does. Its worktree is set
+  up in the background (spec 2026-11-09-worktree-setup-in-background-design
+  § A launch on a harness or with a progress list): the harness is
+  attached at the launch, its kickoff kept on the setup and sent when the
+  session starts in the worktree, after a restart or a Try again too; a
+  harness removed meanwhile is not run. Without a worktree reopens New
+  session on this step with the template and its inputs.
+- A launch on a harness carries no progress list: the server refuses the
+  two together, and the dialog sends no `progressList` from this step
+  (spec 2026-11-09-progress-list-design § Turning it on).
 - A launch on another machine (`machine`) lists and validates templates
   on that machine: the templates live in its database.
 - Templates for a directory without a session: a new

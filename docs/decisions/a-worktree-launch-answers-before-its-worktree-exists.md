@@ -61,6 +61,14 @@ forced.
   reset, a login's continuation) is refused with `in_setup`, because the
   session's row still names the main checkout and a revive would start it
   there.
+- **A launch on a harness carries it through the setup.** The harness is
+  attached at the launch and its kickoff kept on the setup's launch
+  settings; the setup starts the session on the kickoff, so it is a turn
+  the harness records, not a queued delivery. A harness session takes the
+  queue into its first turn while it runs, so a queued message never lands
+  between a turn's end and the harness's decision to send the next step
+  (spec 2026-11-09-worktree-setup-in-background-design § A launch on a
+  harness or with a progress list).
 - **Boot rolls back an interrupted setup** from its record and leaves the
   session NOT STARTED. A setup whose session the previous server's runner
   had claimed counts as started, even when the setup did not get to write
@@ -84,7 +92,8 @@ forced.
   main checkout.
 - **Queueing a harness kickoff or a limit continuation on the setup.** A
   harness records the turn its kickoff started; a queued kickoff starts no
-  turn, and the harness would run against nothing.
+  turn, and the harness would run against nothing. A launch's kickoff is
+  not queued: it is the turn the session starts on.
 - **Sending a queue a restart left at boot.** It would revive a session the
   restart just marked interrupted, against "nothing is resumed; the next
   message revives it".

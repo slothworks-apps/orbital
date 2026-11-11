@@ -214,7 +214,25 @@ describe('the words of a launch not started', () => {
       claudeDirId: 2,
       prompt: 'Show a preview of the session.\n\nAlso show how long ago.\n\nAnd the model.',
       attachments: ['a', 'b'],
+      harness: null,
+      progressList: null,
     })
+  })
+
+  it('carries the harness and the progress list choice a launch was made with', () => {
+    const launch = { cwd: '/w/repo', base: 'main', permissionMode: 'plan' }
+    const onHarness = session('s1', {
+      setup: setup({
+        phase: 'failed',
+        launch: { ...launch, harness: { templateId: 4, inputs: { task: 'T-1' }, lucky: true, subject: 'T-1', text: 'kickoff' } },
+      }),
+    })
+    expect(withoutWorktreePrefill(onHarness, onHarness.setup!)).toMatchObject({
+      harness: { templateId: 4, inputs: { task: 'T-1' }, lucky: true },
+      progressList: null,
+    })
+    const listed = session('s2', { setup: setup({ phase: 'failed', launch: { ...launch, progressList: true, progressListChoice: true } }) })
+    expect(withoutWorktreePrefill(listed, listed.setup!)).toMatchObject({ harness: null, progressList: true })
   })
 
   it('tells the phone’s composer that what it writes is queued', () => {
