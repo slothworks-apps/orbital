@@ -440,12 +440,12 @@ export function HarnessStep({
                     const waiting = input.key === firstMissing?.key
                     return (
                       <label key={input.key} className="flex min-w-0 flex-col gap-[5px]">
-                        <span className="flex items-baseline gap-2">
-                          <span className="fs-12.5 font-semibold text-ink-200/92">{input.label}</span>
-                          {input.hint && (
-                            <span className="min-w-0 truncate font-mono fs-10 text-ink-900/55">{input.hint}</span>
-                          )}
-                          <span aria-hidden className="flex-1" />
+                        {/* 65a's row, for hints longer than the canvas has: the label
+                            stays on one line and a hint that does not fit beside it
+                            wraps in its own column, not cut, with required on the first line. */}
+                        <span className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-2">
+                          <span className="whitespace-nowrap fs-12.5 font-semibold text-ink-200/92">{input.label}</span>
+                          <span className="text-pretty font-mono fs-10 leading-[1.5] text-ink-900/55">{input.hint}</span>
                           <span
                             className={[
                               'shrink-0 font-mono fs-10',
