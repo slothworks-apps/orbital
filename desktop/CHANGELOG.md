@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.49.1] — 2026-11-11
+### Fixed
+- New session → With harness…: the worktree's branch and base fields no longer show through the harness step and overlap its inputs.
+
 ## [0.49.0] — 2026-11-11
 ### Added
 - New session → With harness…: start a session straight on a harness template, its inputs filled in the dialog, without a first prompt; anything you write there goes to the first step as a note. Shown while Harness is on.

@@ -121,7 +121,10 @@ export function Collapse({
         gridTemplateRows: shown ? '1fr' : '0fr',
         opacity: shown ? 1 : 0,
         ...(pull !== 0 ? { marginTop: shown ? 0 : pull } : {}),
-        ...(keepMounted ? { visibility: shown ? 'visible' : 'hidden' } : {}),
+        // Open, it takes its parent's visibility rather than forcing `visible`,
+        // which would show it through an ancestor hidden with `invisible`
+        // (New session's step 1 under the harness step, say).
+        ...(keepMounted ? { visibility: shown ? 'inherit' : 'hidden' } : {}),
         transition,
       }}
     >
