@@ -3,7 +3,9 @@ import { promptWithFiles } from '../lib/attachedFiles'
 import type { McpjsonDecisions } from '../lib/mcpjson'
 import { modelByAnyId } from '../lib/models'
 import { claudeDirPrefill, type ClaudeDirPrefillSource } from '../lib/claudeDirs'
-import type { OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
+import type { HarnessLaunch, HarnessProject, HarnessTemplate, OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
+import { gateCount, isOptional, missingInputs, plural, templateMeta } from '../panels/harness/templates'
+import { macSupports } from './version'
 import type { DirectoryRow } from '../lib/directorySearch'
 import type { WorktreeLaunch } from '@orbital/shared/worktree'
 import { humanizeError } from './composer'
@@ -95,6 +97,13 @@ export interface LaunchInput {
   machine: string | null
   /** The WORKTREE group's choice (spec 2026-11-02-work-in-a-worktree-design § Launch); absent, the session starts in the directory. */
   worktree?: WorktreeLaunch
+  /** The harness screen's template, inputs and Feeling lucky (spec 2026-11-09-harness-from-new-session-design § Phone); absent, a plain launch. */
+  harness?: HarnessLaunch
+  /**
+   * Start with a progress list: only what Start without a worktree carries,
+   * on the device it was carried for; the phone has no switch of its own.
+   */
+  progressList?: boolean
 }
 
 /**
@@ -115,5 +124,107 @@ export function launchRequest(input: LaunchInput) {
     ...(input.mcpjson ? { mcpjson: input.mcpjson } : {}),
     ...(input.machine !== null ? { machine: input.machine } : {}),
     ...(input.worktree ? { worktree: input.worktree } : {}),
+    ...(input.harness ? { harness: input.harness } : {}),
+    ...(input.progressList && !input.harness ? { progressList: true } : {}),
+  }
+}
+
+/**
+ * Whether New session offers *With harness…* (canvas 65d; spec
+ * 2026-11-09-harness-from-new-session-design § Phone). The chosen device
+ * must accept `harness` on launch: an older Mac would ignore the field and
+ * start a plain session, so against one the button is not there at all.
+ * Past that only a known off hides it — the settings read answered off and
+ * came from the chosen device. A setting not known (the read refused or not
+ * answered yet) or read from another device leaves the button, and the
+ * template route answers `harness_disabled` on the harness screen instead.
+ */
+export function offersHarness(input: {
+  /** The Harness switch as the settings read had it; null when not known. */
+  harnessOn: boolean | null
+  /** The settings read came from the device the session would run on. */
+  readFromChosen: boolean
+  /** The chosen device's Orbital version. */
+  version: string | null
+}): boolean {
+  if (!macSupports('harnessLaunch', input.version)) return false
+  return !(input.readFromChosen && input.harnessOn === false)
+}
+
+export { templateMeta }
+
+/** The Steps row's count (canvas 65d): "5 steps", and how many of them wait for you. */
+export function stepsSummary(t: HarnessTemplate): { steps: string; gates: string | null } {
+  const g = gateCount(t)
+  return { steps: plural(t.steps.length, 'step'), gates: g === 0 ? null : `${g} ${g === 1 ? 'waits' : 'wait'} for you` }
+}
+
+/** One line of the template sheet (canvas 65d): a group's caption, or a template. */
+export type TemplateSheetLine =
+  | { kind: 'caption'; label: string; scope: 'project' | 'global' }
+  | { kind: 'row'; template: HarnessTemplate; meta: string }
+
+/**
+ * The template sheet's lines: this project's templates first, then the
+ * global ones, each group under its caption, narrowed by the search on the
+ * name. The template last run here says so.
+ */
+export function templateSheetLines(
+  templates: readonly HarnessTemplate[],
+  project: HarnessProject | null,
+  lastUsedId: number | null,
+  query: string,
+): TemplateSheetLine[] {
+  const q = query.trim().toLowerCase()
+  const shown = templates.filter((t) => q === '' || t.name.toLowerCase().includes(q))
+  const row = (t: HarnessTemplate): TemplateSheetLine => ({
+    kind: 'row',
+    template: t,
+    meta: templateMeta(t) + (t.id === lastUsedId ? ' · last used here' : ''),
+  })
+  const own = shown.filter((t) => t.scope.kind === 'project')
+  const global = shown.filter((t) => t.scope.kind === 'global')
+  return [
+    ...(own.length > 0
+      ? [{ kind: 'caption', label: `${(project?.name ?? 'this project').toUpperCase()} · THIS PROJECT`, scope: 'project' } as const, ...own.map(row)]
+      : []),
+    ...(global.length > 0 ? [{ kind: 'caption', label: 'GLOBAL', scope: 'global' } as const, ...global.map(row)] : []),
+  ]
+}
+
+/** Whether `input` must be filled before Start: required unless its hint says optional (the start view's rule). */
+export function inputRequired(input: { hint?: string }): boolean {
+  return !isOptional(input.hint)
+}
+
+/** "Task link" → "a task link"; an acronym keeps its capitals ("PR URL" → "a PR URL"). */
+function withArticle(label: string): string {
+  const trimmed = label.trim()
+  const word = /^[A-Z][A-Z]/.test(trimmed) ? trimmed : trimmed.charAt(0).toLowerCase() + trimmed.slice(1)
+  return `${/^[aeiou]/i.test(word) ? 'an' : 'a'} ${word}`
+}
+
+/**
+ * Why the harness screen's Start cannot go yet, in the words its button
+ * shows (canvas 65d START), or null when it can: no template offered, none
+ * picked, or a required input still empty. Nothing else is said in red.
+ */
+export function harnessStartBlock(input: {
+  templates: readonly HarnessTemplate[] | null
+  template: HarnessTemplate | null
+  inputs: Record<string, string>
+}): string | null {
+  if (input.templates !== null && input.templates.length === 0) return 'No template to start with'
+  if (!input.template) return 'Pick a template to start'
+  const [missing] = missingInputs(input.template, input.inputs)
+  return missing ? `Add ${withArticle(missing.label)} to start` : null
+}
+
+/** What `harness` on the launch carries: the template's inputs only, trimmed, and Feeling lucky as the screen holds it. */
+export function harnessLaunch(template: HarnessTemplate, inputs: Record<string, string>, lucky: boolean): HarnessLaunch {
+  return {
+    templateId: template.id,
+    inputs: Object.fromEntries(template.inputs.map((i) => [i.key, (inputs[i.key] ?? '').trim()])),
+    lucky,
   }
 }

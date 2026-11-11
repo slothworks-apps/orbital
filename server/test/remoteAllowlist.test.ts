@@ -16,7 +16,7 @@ describe('remote allowlist', () => {
     for (const [m, p] of [
       ['GET', '/api/sessions'], ['GET', '/api/sessions/abc'], ['GET', '/api/sessions/abc/messages'],
       ['GET', '/api/sessions/abc/messages?limit=30&before=x'],
-      ['GET', '/api/sessions/abc/subagents/toolu_1/messages'], ['GET', '/api/sessions/abc/media'],
+      ['GET', '/api/sessions/abc/subagents/toolu_1/messages'], ['GET', '/api/sessions/abc/media'], ['GET', '/api/sessions/abc/progress-calls'],
       ['POST', '/api/sessions'], ['POST', '/api/sessions/abc/messages'],
       ['POST', '/api/sessions/abc/decision/d1'], ['POST', '/api/sessions/abc/interrupt'],
       ['POST', '/api/sessions/abc/model'], ['POST', '/api/sessions/abc/permission-mode'],
@@ -26,6 +26,8 @@ describe('remote allowlist', () => {
       ['GET', '/api/tags'], ['GET', '/api/projects'], ['GET', '/api/models'], ['GET', '/api/commands'],
       ['GET', '/api/sessions/abc/walkthrough'], ['GET', '/api/sessions/abc/walkthrough/summary'],
       ['GET', '/api/health'], ['GET', '/api/sessions/defaults'],
+      // What a launch can start on: a phone that launches sees it (spawn group, below).
+      ['GET', '/api/sessions/harness-templates?cwd=%2Fw%2Fx'],
       // The Claude directory a catalog is read for rides the query string.
       ['GET', '/api/models?claudeDir=2'], ['GET', '/api/commands?cwd=/w/x&claudeDir=2'],
       ['GET', '/api/mcpjson?cwd=/w/x&claudeDirId=2'],
@@ -97,6 +99,8 @@ describe('remote allowlist', () => {
       // `defaults` is a literal, never an id: no other method or shape reaches it.
       ['GET', '/api/sessions/defaults/'], ['GET', '/api/sessions/defaults/x'], ['POST', '/api/sessions/defaults'],
       ['PATCH', '/api/sessions/defaults'],
+      ['POST', '/api/sessions/harness-templates'], ['PATCH', '/api/sessions/harness-templates'],
+      ['GET', '/api/sessions/harness-templates/x'], ['GET', '/api/sessions/harness-templates/messages'],
       // Nor are the new literals a parameter: each reaches its own route, for its one method.
       ['PUT', '/api/sessions/abc/mcp/restart'], ['DELETE', '/api/sessions/abc/mcp/restart'],
       ['GET', '/api/sessions/abc/mcp/restart/config'],
@@ -235,13 +239,19 @@ describe('remote allowlist', () => {
       }
     });
   });
-  it('allows the worktree routes, each in its group and for its one method', () => {
+  it('puts the launch\'s harness templates in spawn, with the launch it serves, not in sessions', () => {
+    expect(allowedPath('GET', '/api/sessions/harness-templates?cwd=%2Fw%2Fx')?.group).toBe('spawn');
+    expect(allowedPath('POST', '/api/sessions')?.group).toBe('spawn');
+  });
+  it('allows the worktree and setup routes, each in its group and for its one method', () => {
     for (const [method, path, group] of [
       ['GET', '/api/worktree/options?cwd=%2Fw%2Fx', 'spawn'],
       ['POST', '/api/worktree/fetch', 'spawn'],
       ['GET', '/api/sessions/abc/worktree', 'sessions'],
       ['POST', '/api/sessions/abc/worktree/remove', 'sessions'],
       ['POST', '/api/sessions/abc/worktree/keep', 'sessions'],
+      ['POST', '/api/sessions/abc/setup/retry', 'sessions'],
+      ['POST', '/api/sessions/abc/discard', 'sessions'],
     ] as const) {
       expect(allowedPath(method, path)?.group, `${method} ${path}`).toBe(group);
       for (const m of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) {

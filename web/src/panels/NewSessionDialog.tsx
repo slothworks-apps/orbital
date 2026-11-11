@@ -62,6 +62,13 @@ import { useWorktreeChoice } from '../lib/useWorktreeChoice'
 import { useLaunchAttempt } from '../lib/useLaunchAttempt'
 import { recentDirectories, worktreeLaunchError, worktreeSummary } from '../lib/worktree'
 import { WorktreeGroup } from './WorktreeGroup'
+import { harnessEnabled } from '../lib/experimental'
+import { HarnessGlyph } from '../ui/UtilityButton'
+import { HarnessStep, useLaunchHarness } from './NewSessionHarness'
+import { SwitchButton } from '../ui/Switch'
+import { progressListEnabled } from '../lib/experimental'
+import type { NewSessionPrefill } from '../lib/setup'
+import { replacedByLaunch, useNewSessionPrefill } from '../store/setupActions'
 
 export interface NewSessionDialogProps {
   open: boolean
@@ -217,6 +224,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // status publish, and a closed dialog has no picker to keep current.
   const members = useOrbital((s) => (open ? s.remote?.group?.members : undefined))
 
+  /**
+   * Without a worktree's launch, taken at the open (spec
+   * 2026-11-09-worktree-setup-in-background-design § Ways out): this open
+   * starts from that session's settings instead, with Worktree off.
+   */
+  const pendingPrefill = useNewSessionPrefill((s) => s.prefill)
+  const [prefill, setPrefill] = useState<NewSessionPrefill | null>(null)
   const [cwd, setCwd] = useState('')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('acceptEdits')
   const [prompt, setPrompt] = useState('')
@@ -231,6 +245,12 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** Once the user picks a model, a later cwd change must not move it. */
   const [modelOverridden, setModelOverridden] = useState(false)
   /**
+   * The progress list switch as the user set it this time; null follows the
+   * directory's last launch (canvas 67f "remembers the last choice per
+   * directory, as the model does").
+   */
+  const [progressPick, setProgressPick] = useState<boolean | null>(null)
+  /**
    * The Other card is selected. `model` then stays null until the field
    * validates an id, and Launch waits for it.
    */
@@ -243,6 +263,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** The folder chooser of another device is open over the fields (50g). */
   const [chooserOpen, setChooserOpen] = useState(false)
   const [pending, setPending] = useState(false)
+  /**
+   * Step 2, With a harness (spec 2026-11-09-harness-from-new-session-design;
+   * canvas `Feature - New session harness` 65a): the body swaps in the same
+   * window, and everything typed in either step stays.
+   */
+  const [withHarness, setWithHarness] = useState(false)
+  const harnessOn = harnessEnabled(settings)
+  /** Step 2 only while the Harness switch is on: turned off mid-dialog, step 1 is all there is. */
+  const step2 = withHarness && harnessOn
   /**
    * The tag the dialog opened with and the directory it belongs to: the
    * previous launch's manual pick or the selected planet's tag.
@@ -328,6 +357,25 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     setFocusCustomModel(true)
   }
 
+  /** Whether the chosen member offers the progress list: its own Labs setting, from its session defaults. */
+  const [memberProgress, setMemberProgress] = useState<{ device: string; offered: boolean } | null>(null)
+  useEffect(() => {
+    if (!open || !remote) return
+    let live = true
+    api
+      .sessionDefaults(device)
+      .then((defaults) => {
+        if (live) setMemberProgress({ device, offered: defaults.progressListEnabled === true })
+      })
+      .catch(() => {
+        // Unread, the member offers nothing: the session starts as it always did.
+        if (live) setMemberProgress({ device, offered: false })
+      })
+    return () => {
+      live = false
+    }
+  }, [open, remote, device])
+
   const canBrowse = canChooseDirectory()
   /** Only the last request's projects land: switching device twice quickly must not show the first's. */
   const projectsTicket = useRef(0)
@@ -351,9 +399,20 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       })
   }, [])
 
+  /**
+   * The chips a Without a worktree prefill carried, and the device whose
+   * store holds their refs: another device has no such images.
+   */
+  const carried = useRef<{ device: string; chips: string[] } | null>(null)
+  const removeChip = useRef<(id: string) => void>(() => {})
+
   /** Switching device swaps the recent directories and resets the field to that device's last one (50g). */
   const switchDevice = useCallback(
     (id: string) => {
+      if (carried.current && carried.current.device !== id) {
+        for (const chip of carried.current.chips) removeChip.current(chip)
+        carried.current = null
+      }
       setDevice(id)
       setChooserOpen(false)
       setProjects([])
@@ -383,11 +442,60 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // 418 px well is too small a thing to aim at while holding a file"), so the
   // ref goes to `Dialog`.
   const attachments = useAttachments(null)
+  removeChip.current = attachments.remove
   const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files, folders) =>
     attachments.accept(files, 'file', folders),
   )
   /** Stable across renders (`useAttachments` memoises it), so it can be an effect dep. */
   const resetAttachments = attachments.reset
+
+  const harness = useLaunchHarness({
+    active: open && step2,
+    cwd,
+    machine,
+    deviceName,
+    hasNote: prompt.trim().length > 0,
+  })
+  /** What a launch from step 2 adds to the body; step 1 never starts a checklist. */
+  const harnessLaunch = step2 ? harness.launch : null
+  const resetHarness = harness.reset
+  /**
+   * Seats a Without a worktree prefill over what the open reset to: the
+   * session's directory, device, mode, model, tag and Claude directory, its
+   * prompt with the queued messages, and their attachments as done chips;
+   * a harness launch reopens on step 2 with its template and inputs, and the
+   * progress list switch is as it was launched.
+   * The choices count as made by hand, so no rule or remembered pick moves
+   * them.
+   */
+  function applyPrefill(p: NewSessionPrefill) {
+    const on = deviceRow || p.device === LOCAL_DEVICE ? p.device : LOCAL_DEVICE
+    setDevice(on)
+    setProjects([])
+    loadProjects(on, false)
+    setCwd(p.cwd)
+    setPermissionMode(p.permissionMode)
+    setPrompt(p.prompt)
+    if (p.tagId !== null) {
+      setRememberedTag({ cwd: p.cwd, tagId: p.tagId, pickedByHand: true })
+      setTagId(p.tagId)
+      setManualOverride(true)
+    }
+    if (p.model !== null) {
+      setModel(p.model)
+      setModelOverridden(true)
+    }
+    if (p.claudeDirId !== null) {
+      setClaudeDirId(p.claudeDirId)
+      setClaudeDirPrefilled({ id: p.claudeDirId, from: 'planet', planet: p.title })
+    }
+    carried.current = { device: on, chips: attachments.adoptRefs(p.attachments) }
+    if (p.progressList !== null) setProgressPick(p.progressList)
+    if (p.harness) {
+      setWithHarness(true)
+      harness.seed(p.harness)
+    }
+  }
 
   // Reset + prefill from settings on the false -> true transition only (not
   // on every re-render while already open, which would clobber typing).
@@ -402,6 +510,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       const opening = openingLaunch(settings, planet, tags)
       const startCwd = planet || startDevice === LOCAL_DEVICE ? opening.cwd : ''
       setDevice(startDevice)
+      carried.current = null
       setChooserOpen(false)
       setCwd(startCwd)
       setPermissionMode(opening.permissionMode)
@@ -415,9 +524,12 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setMadeTagId(null)
       setModel(null)
       setModelOverridden(false)
+      setProgressPick(null)
       setOtherActive(false)
       setCustomInitial(null)
       setPending(false)
+      setWithHarness(false)
+      resetHarness()
       setQuestion(null)
       setMissingDir(null)
       setViewing(null)
@@ -436,6 +548,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setProjects([])
       // Another device without a planet to start from opens on its most recent directory.
       loadProjects(startDevice, startDevice !== LOCAL_DEVICE && !startCwd ? { fallback: '' } : false)
+      setPrefill(pendingPrefill)
+      if (pendingPrefill) applyPrefill(pendingPrefill)
+    }
+    // The prefill is for one open: cancelling leaves both sessions as they were.
+    if (!open && wasOpenRef.current) {
+      setPrefill(null)
+      useNewSessionPrefill.setState({ prefill: null })
     }
     // Closing drops the chips and aborts whatever was still uploading — a
     // dialog that was dismissed is not a turn that will be sent. The chips a
@@ -447,7 +566,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     // its choices back while the dialog is closing, and that must not re-run
     // the reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, resetAttachments])
+  }, [open, resetAttachments, resetHarness])
 
   // A dialog opened before the directory list arrived (a reload with the
   // dialog in the URL) had nothing to prefill from on the open transition;
@@ -479,6 +598,16 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // /api/projects` returns it honestly, never the SDK `value`), so this has
   // to accept either kind of id — see `modelByAnyId`.
   const lastModelRow = modelByAnyId(lastModelHere, models)
+  // The progress list (spec 2026-11-09-progress-list-design; canvas 67f):
+  // offered only while the device the session runs on has it on in Labs —
+  // this Mac's setting here, a member's own defaults there, where a build
+  // without the field offers none — and on when this directory's last
+  // session launched from here had it, unless switched now.
+  const progressOffered = remote
+    ? memberProgress?.device === device && memberProgress.offered
+    : progressListEnabled(settings)
+  const lastProgressListHere = projects.find((p) => p.cwd === cwd.trim())?.lastProgressList === true
+  const progressList = progressOffered && (progressPick ?? lastProgressListHere)
   //
   // An id no catalog row names — a model picked through Other that has run
   // here, or a custom Settings default — preselects Other with that id
@@ -546,7 +675,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const dirLine = directoryLine(dirState, remote ? deviceName : 'this Mac')
   // The WORKTREE group's repository and choice (canvas 63a). Asked while the
   // path is a directory or not yet known to be anything else.
-  const worktree = useWorktreeChoice(cwd, open && (dirState === null || dirState === 'directory'), machine)
+  const worktree = useWorktreeChoice(
+    cwd,
+    open && (dirState === null || dirState === 'directory'),
+    machine,
+    // Without a worktree, in the directory it was asked for.
+    prefill !== null && cwd.trim() === prefill.cwd,
+  )
   const setWorktreeLaunchError = worktree.setLaunchError
   /** RECENT, with a worktree's directory shown as its repository, once. */
   const recent = useMemo(() => recentDirectories(projects), [projects])
@@ -590,6 +725,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         ...(mcpjson ? { mcpjson } : {}),
         ...(machine ? { machine } : {}),
         ...(worktreeLaunch ? { worktree: worktreeLaunch } : {}),
+        // Its kickoff is the first turn, the prompt appended to it as a note.
+        ...(harnessLaunch ? { harness: harnessLaunch } : {}),
+        // Sent on or off whenever the switch was offered: the server
+        // remembers only a choice made here, per directory. A launch on a
+        // harness has no list and leaves the remembered choice alone (spec
+        // 2026-11-09-progress-list-design § Turning it on).
+        ...(progressOffered && !harnessLaunch ? { progressList } : {}),
       }
       // One id per attempt: Launch pressed again on the same form after a
       // lost answer repeats it, and the server answers instead of launching twice.
@@ -617,21 +759,26 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       // The server stores the directory choice itself (the phone cannot write
       // settings); the store only learns it for the next open.
       if (choosesDir && claudeDirId !== null) useOrbital.setState({ lastClaudeDir: claudeDirId })
+      // The session that could not get its worktree goes now this one runs.
+      if (prefill) replacedByLaunch(prefill)
       onClose()
       await select(sessionId)
     } catch (err) {
       // A worktree the server could not make is said where it was chosen
       // (63c A4), and the dialog stays as it was; anything else is reported.
+      // From step 2 that group is hidden, so the dialog steps back to it, the
+      // harness choice kept for the next With harness… (as the phone does).
       const refused = worktreeLaunch ? worktreeLaunchError(err) : null
       if (refused) {
         setQuestion(null)
         setMissingDir(null)
+        setWithHarness(false)
         setWorktreeLaunchError(refused.message || 'Orbital could not make the worktree.')
       } else reportError(err, 'Failed to launch session')
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, setWorktreeLaunchError, launchAttempt])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, progressOffered, progressList, setWorktreeLaunchError, launchAttempt, harnessLaunch, prefill])
 
   /**
    * Launch: asks about the project's undecided `.mcp.json` servers first,
@@ -640,6 +787,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
    */
   const handleLaunch = useCallback(async () => {
     if (!cwd.trim() || pending || awaitingCustomModel || worktreeBlocked) return
+    // Step 2 launches with the harness or not at all: a plain launch is step 1's.
+    if (step2 && !harnessLaunch) return
     setPending(true)
     setChooserOpen(false)
     // Asked again rather than read off the line: the field may have changed
@@ -662,7 +811,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       return
     }
     await launch()
-  }, [cwd, pending, awaitingCustomModel, worktreeBlocked, choosesDir, claudeDirId, launch, machine])
+  }, [cwd, pending, awaitingCustomModel, worktreeBlocked, choosesDir, claudeDirId, launch, machine, step2, harnessLaunch])
 
   /**
    * *Create and launch*. A directory just made has no `.mcp.json` to ask
@@ -706,14 +855,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       if (matches(command('composer.start').chords[0], e)) {
         e.preventDefault()
         void (missingDir ? handleCreateAndLaunch() : question ? handleStart() : handleLaunch())
-      } else if (!question && !missingDir && choosesDir && matches(command('composer.next-claude-dir').chords[0], e)) {
+      } else if (!question && !missingDir && !step2 && choosesDir && matches(command('composer.next-claude-dir').chords[0], e)) {
         e.preventDefault()
         setClaudeDirId((current) => nextClaudeDir(claudeDirs, current))
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, question, missingDir, handleLaunch, handleStart, handleCreateAndLaunch, choosesDir, claudeDirs])
+  }, [open, question, missingDir, handleLaunch, handleStart, handleCreateAndLaunch, choosesDir, claudeDirs, step2])
 
   const matchedRule = matchedRuleId != null ? rules.find((r) => r.id === matchedRuleId) : undefined
   const showAutoCaption = !manualOverride && matchedTagId != null && tagId === matchedTagId
@@ -738,6 +887,104 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
 
   const projectName = cwd.trim().replace(/\/+$/, '').split('/').pop() ?? ''
 
+  /** The footer summary (canvas 4b): the session's shape, as the launch would carry it. */
+  const launchCaption =
+      // canvas 4b: unconditional summary line — `Sonnet 4.5 · acceptEdits · search-indexer`.
+      // 9d-D puts the attachment count in front of it (`1 image · spawns a new
+      // planet in WORK`): the footer is where the session's shape is
+      // summarised, and what it is carrying is part of that shape. The count
+      // leads because it is the part that just changed.
+      // 63a: while a worktree error stands, the line says what Launch waits for.
+      worktree.problems.some((p) => p.field !== 'launch') ? (
+        'Fix the worktree line above to launch'
+      ) : (
+      <>
+        {/* One template string, not JSX text: a trailing space before a
+            newline is stripped by JSX, which would run the count straight
+            into the model name. */}
+        {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
+        {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
+        {/* 67f: the summary says whether the session starts with a list; one on a harness never does. */}
+        {progressOffered && step2 ? ' · no progress list' : progressList ? ' · progress list' : null}
+        {/* Spec § The footer summary: where the worktree comes from. */}
+        {worktreeLaunch ? ` · ${worktreeSummary(worktree.branch, worktreeLaunch.base)}` : null}
+        {/* 50g `gFoot`: the device, once there is a choice of one. */}
+        {showDevice ? ` · on ${remote ? deviceName : 'this device'}` : null}
+        {choosesDir && claudeDirName ? ` · under ${claudeDirName}` : null}
+        {footerTagName ? <> · <span className="text-ink-300">{footerTagName.toUpperCase()}</span></> : null}
+      </>
+      )
+
+  /**
+   * Step 2's shell (canvas 65a): ‹ and esc go back to step 1, the header names
+   * the directory, and the primary is Launch with harness. The summary says
+   * what it waits for; once ready, the harness leads and step 1's shape follows.
+   */
+  const backToStepOne = () => setWithHarness(false)
+  const harnessReady = !harness.blocked
+  // What holds Launch with harness back in step 1, which step 2 hides: said
+  // first, since only ‹ Back can fix it. Step 1's own wording where it has one.
+  const stepOneBlock = blocksLaunch(dirState)
+    ? `${dirLine ?? 'The directory is not a folder'} · fix it in ‹ Back to launch`
+    : worktree.problems.some((p) => p.field !== 'launch')
+      ? 'Fix the worktree line in ‹ Back to launch'
+      : worktreeBlocked
+        ? 'Fetching origin for the worktree…'
+        : awaitingCustomModel
+          ? 'Check the custom model in ‹ Back to launch'
+          : null
+  const harnessShell = step2
+    ? {
+        title: 'With a harness',
+        eyebrow: 'LAUNCH · NEW SESSION',
+        onClose: backToStepOne,
+        headerLead: (
+          <button
+            type="button"
+            onClick={backToStepOne}
+            aria-label="Back to New session"
+            className="grid size-8 shrink-0 place-items-center rounded-lg border border-line/14 fs-16 text-ink-500/80 transition-colors hover:border-line/30 hover:text-ink-100"
+          >
+            ‹
+          </button>
+        ),
+        headerAction: (
+          <span className="max-w-[320px] truncate font-mono fs-11 text-ink-900/60" title={cwd.trim()}>
+            {shortenPath(cwd.trim())}
+            {showDevice ? ` · ${remote ? deviceName : 'this device'}` : ''}
+          </span>
+        ),
+        footerCaption: stepOneBlock ? (
+          <span className="text-ink-200/88">{stepOneBlock}</span>
+        ) : harnessReady ? (
+          <>
+            {`${harness.summary} · `}
+            {launchCaption}
+          </>
+        ) : (
+          // 65b BLOCKED, CALMLY: the brighter ink says what is missing; nothing is red.
+          <span className="text-ink-200/88">{harness.summary}</span>
+        ),
+        footer: (
+          <>
+            <Button variant="ghost" size="lg" onClick={backToStepOne} disabled={pending}>
+              ‹ Back
+            </Button>
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => void handleLaunch()}
+              disabled={
+                pending || !harnessReady || !cwd.trim() || awaitingCustomModel || blocksLaunch(dirState) || worktreeBlocked
+              }
+            >
+              Launch with harness <span className="font-mono fs-10 opacity-70">⌘⏎</span>
+            </Button>
+          </>
+        ),
+      }
+    : null
+
   const ready = decisions !== null
   // The question swaps the dialog's content in the same shell (47a): the
   // header, the footer and the body change; the frame does not move.
@@ -748,6 +995,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         eyebrow: `LAUNCH · ${projectName.toUpperCase()}`,
         onClose: backToForm,
         headerAction: undefined,
+        headerLead: undefined,
         headerMeta: question.servers.length > 1 ? `${question.servers.length} servers` : undefined,
         lead: <McpjsonIntro count={question.servers.length} where={remote ? deviceName : undefined} />,
         bodyInset: 'list' as const,
@@ -790,6 +1038,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         eyebrow: `LAUNCH · ${projectName.toUpperCase()}`,
         onClose: backToForm,
         headerAction: undefined,
+        headerLead: undefined,
         footerLead: (
           <Button variant="ghost" size="lg" onClick={backToForm}>
             ← Back
@@ -826,36 +1075,25 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             />
           ) : undefined
         }
-        footerCaption={
-          // canvas 4b: unconditional summary line — `Sonnet 4.5 · acceptEdits · search-indexer`.
-          // 9d-D puts the attachment count in front of it (`1 image · spawns a new
-          // planet in WORK`): the footer is where the session's shape is
-          // summarised, and what it is carrying is part of that shape. The count
-          // leads because it is the part that just changed.
-          // 63a: while a worktree error stands, the line says what Launch waits for.
-          worktree.problems.some((p) => p.field !== 'launch') ? (
-            'Fix the worktree line above to launch'
-          ) : (
-          <>
-            {/* One template string, not JSX text: a trailing space before a
-                newline is stripped by JSX, which would run the count straight
-                into the model name. */}
-            {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
-            {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
-            {/* Spec § The footer summary: where the worktree comes from. */}
-            {worktreeLaunch ? ` · ${worktreeSummary(worktree.branch, worktreeLaunch.base)}` : null}
-            {/* 50g `gFoot`: the device, once there is a choice of one. */}
-            {showDevice ? ` · on ${remote ? deviceName : 'this device'}` : null}
-            {choosesDir && claudeDirName ? ` · under ${claudeDirName}` : null}
-            {footerTagName ? <> · <span className="text-ink-300">{footerTagName.toUpperCase()}</span></> : null}
-          </>
-          )
-        }
+        footerCaption={launchCaption}
         footer={
           <>
             <Button variant="ghost" size="lg" onClick={onClose} disabled={pending}>
               Cancel
             </Button>
+            {/* 65c: one outlined button, only while the Harness switch is on; never primary, no shortcut. */}
+            {harnessOn && (
+              <Button
+                variant="ghost"
+                size="lg"
+                onClick={() => setWithHarness(true)}
+                // The phone's rule: step 2 reads templates for a directory, so it needs one.
+                disabled={pending || !cwd.trim() || blocksLaunch(dirState)}
+              >
+                <HarnessGlyph />
+                With harness…
+              </Button>
+            )}
             <Button
               variant="primary"
               size="lg"
@@ -866,6 +1104,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             </Button>
           </>
         }
+        {...harnessShell}
         {...questionShell}
         {...missingDirShell}
       >
@@ -879,11 +1118,20 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 this mount: the marker is the only lit thing, and the field it
                 replaces is the only group that keeps its brightness. The groups are
                 wrapped rather than dimmed one by one so the 20px rhythm survives. */}
+            {/* Canvas 65a/65b: step 2 takes step 1's place at step 1's size. Step 1's
+                columns stay laid out underneath, invisible and inert, so the window
+                neither grows nor shrinks and Back finds every field as it was. */}
+            <div className="relative">
             <div
               data-content-dim
+              inert={step2 || undefined}
               // Canvas 63a: two columns 28px apart — where the session runs on
               // the left, how it runs on the right — 18px between groups.
-              className={['grid grid-cols-2 items-start gap-7', dropArmed ? 'opacity-35' : ''].join(' ')}
+              className={[
+                'grid grid-cols-2 items-start gap-7',
+                dropArmed ? 'opacity-35' : '',
+                step2 ? 'invisible' : '',
+              ].join(' ')}
             >
               <div className="flex min-w-0 flex-col gap-[18px]">
               {showDevice && (
@@ -1003,6 +1251,32 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               <Collapse open={worktree.repo !== null} pull={-WORKTREE_GAP_PX} unclip>
                 {worktree.repo && <WorktreeGroup choice={worktree} tags={tags} />}
               </Collapse>
+
+              {/* Canvas 67f: under the worktree group, among how the session
+                  starts; only while Settings → Labs has the progress list on. */}
+              {progressOffered && (
+                <div className="flex flex-col gap-2">
+                  <FieldLabel>
+                    PROGRESS LIST
+                    <span aria-hidden className="flex-1" />
+                    <span className="tracking-[0.06em] text-ink-900/50">Labs</span>
+                  </FieldLabel>
+                  <div className="flex gap-3 rounded-[9px] border border-line/18 bg-space/60 px-3 pt-[11px] pb-3">
+                    <SwitchButton
+                      on={progressList}
+                      label="The agent keeps a progress list"
+                      onChange={setProgressPick}
+                      className="mt-0.5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="fs-13 font-semibold text-ink-100">The agent keeps a progress list</div>
+                      <div className="mt-[3px] fs-12 leading-[1.45] text-pretty text-ink-900/78">
+                        What it is going to do and how far it has got. You only read it.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               </div>
 
@@ -1133,9 +1407,25 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               </div>
 
             </div>
+            {step2 && (
+              <div data-content-dim className={['absolute inset-0', dropArmed ? 'opacity-35' : ''].join(' ')}>
+                <HarnessStep view={harness.view} remote={remote} deviceName={deviceName} />
+              </div>
+            )}
+            </div>
 
             <div className="flex flex-col gap-2">
-              <FieldLabel htmlFor="new-session-prompt">FIRST PROMPT</FieldLabel>
+              {step2 ? (
+                // 65a: the same text, labelled as what it becomes — a note appended to step 1's kickoff.
+                <FieldLabel htmlFor="new-session-prompt">
+                  NOTE FOR STEP 1
+                  <span className="tracking-[0.04em] text-ink-900/45">
+                    · optional · appended to the harness’s first message
+                  </span>
+                </FieldLabel>
+              ) : (
+                <FieldLabel htmlFor="new-session-prompt">FIRST PROMPT</FieldLabel>
+              )}
               {/* The same control the detail panel mounts (canvas 9d), image intake
                   included (9d-D shows a chip in this very field). Four differences,
                   all props: ⏎ newlines here because a first prompt is written in
@@ -1153,7 +1443,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                   refs travel in that same launch request. */}
               <Composer
                 id="new-session-prompt"
-                aria-label="First prompt"
+                aria-label={step2 ? 'Note for step 1' : 'First prompt'}
                 sessionKey={
                   machine
                     ? { cwd: cwd.trim(), machine }
@@ -1166,8 +1456,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 enter="newline"
                 placement="below"
                 variant="dialog"
-                hint="⏎ newline · ⌘⏎ start session · ⌘V paste image"
-                placeholder="What should this session do?"
+                hint={
+                  step2
+                    ? '⏎ newline · ⌘⏎ launch with harness · ⌘V paste image'
+                    : '⏎ newline · ⌘⏎ start session · ⌘V paste image'
+                }
+                placeholder={
+                  step2 ? 'Optional. Anything to add to step 1, e.g. where to look first.' : 'What should this session do?'
+                }
                 attachments={attachments}
                 dropArmed={dropArmed}
               />

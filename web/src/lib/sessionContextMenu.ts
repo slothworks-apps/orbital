@@ -1,4 +1,4 @@
-import { menuFor } from './sessionMenu'
+import { DELIBERATE_ITEMS, menuFor } from './sessionMenu'
 import type { ApiSession } from './types'
 
 /**
@@ -14,10 +14,15 @@ export type ContextAction =
   | 'regenerate'
   | 'tag'
   | 'pin'
+  | 'retry'
+  | 'without-worktree'
+  | 'copy-prompt'
+  | 'error-log'
   | 'copy-path'
   | 'takeover'
   | 'clear'
   | 'end'
+  | 'discard'
   | 'remove-worktree'
 
 export interface ContextRow {
@@ -52,20 +57,21 @@ const NEEDS_NO_MACHINE: ReadonlySet<ContextAction> = new Set(['open', 'copy-path
  * An empty group is left out.
  */
 export function contextMenuGroups(
-  session: Pick<ApiSession, 'source' | 'status' | 'firstAt'>,
+  session: Pick<ApiSession, 'source' | 'status' | 'firstAt' | 'setup'>,
   { offline, detachable, worktree = false }: ContextMenuOptions,
 ): ContextRow[][] {
   const { items } = menuFor(session, offline, true)
   const openings: ContextAction[] = detachable ? ['open', 'detach'] : ['open']
   const labels: ContextAction[] = []
+  // A session still setting up names its branch with its first call, so
+  // there is nothing to regenerate from yet.
+  const regenerates = !session.setup || session.setup.phase === 'ready'
   for (const item of items) {
-    if (item === 'rename') labels.push('rename', 'regenerate')
-    else if (item === 'tag' || item === 'pin') labels.push(item)
+    if (item === 'rename') labels.push(...(regenerates ? (['rename', 'regenerate'] as const) : (['rename'] as const)))
+    else if (!DELIBERATE_ITEMS.has(item)) labels.push(item)
   }
   labels.push('copy-path')
-  const deliberate: ContextAction[] = items.filter((item): item is 'takeover' | 'clear' | 'end' =>
-    item === 'takeover' || item === 'clear' || item === 'end',
-  )
+  const deliberate: ContextAction[] = items.filter((item) => DELIBERATE_ITEMS.has(item))
   if (worktree) deliberate.push('remove-worktree')
   return [openings, labels, deliberate]
     .filter((group) => group.length > 0)

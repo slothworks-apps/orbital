@@ -8,6 +8,7 @@
  */
 
 import { SHELL_INTENT_INSTRUCTION } from './shellIntentHook.js';
+import { PROGRESS_LIST_INSTRUCTION } from '../progress/service.js';
 
 export interface SessionTip {
   /** Stable once shipped: a later per-tip switch stores it (spec § 6). */
@@ -125,11 +126,13 @@ export interface AppendixInput {
   customText: string;
   /** The linked worktree the session works in; absent outside one. */
   worktree?: WorktreeContext | null;
+  /** The session writes a progress list (spec 2026-11-09-progress-list-design); absent, it does not. */
+  progressList?: boolean;
 }
 
 /**
  * The context line, Orbital's rules, where the session works when that is a
- * worktree, then the tips, then the commentary, then the user's text,
+ * worktree, the progress list's sentence when it writes one, then the tips, then the commentary, then the user's text,
  * a blank line between blocks; the user's text goes last so that where it
  * contradicts a tip it wins. The rules are on whatever the switches say:
  * Orbital enforces them either way, so they only spare the agent a refusal.
@@ -139,6 +142,7 @@ export interface AppendixInput {
 export function composeAppendix(input: AppendixInput): string | null {
   const blocks: string[] = [SESSION_CONTEXT, ...SESSION_RULES];
   if (input.worktree) blocks.push(worktreeInstruction(input.worktree));
+  if (input.progressList) blocks.push(PROGRESS_LIST_INSTRUCTION);
   if (input.tipsOn) {
     const off = new Set(input.tipsOff ?? []);
     for (const tip of SESSION_TIPS) if (!off.has(tip.id)) blocks.push(tip.text);

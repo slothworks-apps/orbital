@@ -14,7 +14,7 @@ import type { SessionStateKey } from './types'
  */
 
 /** The four urgency levels plus the muted one, each a `--state-*` token in `theme.css`. */
-export type StateTone = 'input' | 'interrupted' | 'done' | 'active' | 'neutral'
+export type StateTone = 'input' | 'interrupted' | 'done' | 'active' | 'pending' | 'neutral'
 
 export const STATE_TONE: Record<SessionStateKey, StateTone> = {
   needs_input: 'input',
@@ -22,6 +22,9 @@ export const STATE_TONE: Record<SessionStateKey, StateTone> = {
   done: 'done',
   waiting: 'active',
   working: 'active',
+  // Canvas 66: a session not started yet is never amber, and brighter than idle.
+  setting_up: 'pending',
+  not_started: 'pending',
   idle: 'neutral',
   ended: 'neutral',
 }
@@ -61,7 +64,8 @@ export const stateBorder = (color: string, share: 'chip' | 'map' | 'map-rest'): 
  */
 export const OFFLINE_STATE_INK = swatch('ink-900', 0.6)
 
-export type DotShape = 'solid' | 'hollow' | 'none'
+/** `half` is SETTING UP's ring with its left half filled (canvas 66c `dotBg`). */
+export type DotShape = 'solid' | 'hollow' | 'half' | 'none'
 /** `breathe` is `orbital-breathe` (2.4s, to .45); `pulse` is `orbital-pulse` (1.6s, to .3). */
 export type DotMotion = 'breathe' | 'pulse' | 'steady'
 export interface StateDot {
@@ -90,6 +94,9 @@ const LABEL_DOTS: Record<SessionStateKey, StateDot> = {
   interrupted: NONE,
   done: NONE,
   working: NONE,
+  // SETTING UP wears no pill; NOT STARTED's pill has the hollow ring (66b).
+  setting_up: NONE,
+  not_started: { shape: 'hollow', motion: 'steady' },
   idle: NONE,
   ended: NONE,
 }
@@ -98,11 +105,15 @@ const DOT_MODE_DOTS: Record<SessionStateKey, StateDot> = {
   ...LABEL_DOTS,
   interrupted: { shape: 'solid', motion: 'steady' },
   done: { shape: 'hollow', motion: 'steady' },
+  // Only a Desk card wears it: the map draws SETTING UP without a pill.
+  setting_up: { shape: 'half', motion: 'steady' },
 }
 
 const CHIP_DOTS: Record<SessionStateKey, StateDot> = {
   ...LABEL_DOTS,
   working: { shape: 'solid', motion: 'pulse' },
+  // Canvas 66c `PILL`: half filled while setting up, hollow once it failed.
+  setting_up: { shape: 'half', motion: 'steady' },
   idle: { shape: 'solid', motion: 'steady' },
 }
 
@@ -138,6 +149,8 @@ const FULL_WORD: Record<Exclude<SessionStateKey, 'waiting'>, string> = {
   interrupted: 'INTERRUPTED',
   done: 'DONE',
   working: 'WORKING',
+  setting_up: 'SETTING UP',
+  not_started: 'NOT STARTED',
   idle: 'IDLE',
   ended: 'ENDED',
 }

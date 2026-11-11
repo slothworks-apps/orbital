@@ -39,7 +39,11 @@ export function StateDot({
         borderRadius: '50%',
         ...(dot.shape === 'solid'
           ? { background: color, boxShadow: glow ? `0 0 8px ${color}` : undefined }
-          : { border: `${ringPx}px solid ${color}` }),
+          : {
+              border: `${ringPx}px solid ${color}`,
+              // Canvas 66c: SETTING UP's ring, its left half filled.
+              ...(dot.shape === 'half' ? { background: `linear-gradient(90deg, ${color} 50%, transparent 50%)` } : {}),
+            }),
       }}
     />
   )

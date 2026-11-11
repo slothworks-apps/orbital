@@ -103,9 +103,13 @@ export function mergeSessionTools(...parts: (SessionTools | undefined)[]): Sessi
   const on = parts.filter((p): p is SessionTools => p !== undefined);
   if (on.length === 0) return undefined;
   const instructions = on.flatMap((p) => (p.instructions ? [p.instructions] : [])).join('\n');
+  const disallowedTools = on.flatMap((p) => p.disallowedTools ?? []);
+  const preToolUse = on.flatMap((p) => p.preToolUse ?? []);
   return {
     tools: on.flatMap((p) => p.tools),
     allowedTools: on.flatMap((p) => p.allowedTools),
     ...(instructions ? { instructions } : {}),
+    ...(disallowedTools.length > 0 ? { disallowedTools } : {}),
+    ...(preToolUse.length > 0 ? { preToolUse } : {}),
   };
 }

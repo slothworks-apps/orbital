@@ -161,14 +161,98 @@ export interface EndWithWorktreeRequest {
 
 /**
  * `POST /api/sessions/:id/end`'s answer. The session has ended whenever the
- * answer is 200; `worktreeRemoved` is there only when `removeWorktree` was
- * asked for, and says what became of the worktree. `worktree_failed` is a
- * removal git refused, recorded in the error log; `not_worktree` is a
- * session that no longer works in a worktree.
+ * answer is 200. A removal that may go ahead is answered `{ ok: true }`
+ * before git runs: it goes on after the answer, and one git refuses reaches
+ * the error log. `not_worktree` is a session that no longer works in a
+ * worktree. `worktreeRemoved: true` and `worktree_failed` are an older Mac's,
+ * which answered after git.
  */
 export type EndSessionResult =
   | { ok: true; worktreeRemoved?: true }
   | { ok: true; worktreeRemoved: false; error: 'worktree_failed' | 'not_worktree'; message: string };
+
+// ---------------------------------------------------------------------------
+// Setup in the background (spec 2026-11-09-worktree-setup-in-background-design)
+
+/**
+ * Where a worktree launch's setup stands. `naming`, `checkout` and `copy`
+ * are SETTING UP (steps 1, 2 and 3); `failed` is NOT STARTED; `ready` is a
+ * session that has started, kept so the setup block can still say how long
+ * it took.
+ */
+export type SetupPhase = 'naming' | 'checkout' | 'copy' | 'failed' | 'ready';
+
+/** A message sent to a session before it started: queued, sent in order once the first prompt's turn has ended. */
+export interface SetupQueuedMessage {
+  text: string;
+  attachments?: string[];
+}
+
+/** The settings a not-started session would launch with, for Try again and Without a worktree. */
+export interface SetupLaunchSettings {
+  /** The directory New Session was given, not the worktree. */
+  cwd: string;
+  base: string;
+  /** The branch the user typed, when they did. */
+  branch?: string;
+  permissionMode: string;
+  model?: string;
+  tagId?: number;
+  claudeDirId?: number;
+  /** Start with a progress list (spec 2026-11-09-progress-list-design). */
+  progressList?: boolean;
+  /** The New session dialog's progress list switch, when it offered one. */
+  progressListChoice?: boolean;
+  /** Start on a harness (spec 2026-11-09-harness-from-new-session-design), attached at the launch. */
+  harness?: SetupHarness;
+}
+
+/** A launch's harness, checked before anything spawns (spec 2026-11-09-harness-from-new-session-design § The server). */
+export interface LaunchHarnessPlan {
+  templateId: number;
+  inputs: Record<string, string>;
+  /** Present only where it differs from the template's default. */
+  lucky?: boolean;
+  /** What the session is named from, and its worktree's branch. */
+  subject: string;
+}
+
+/** A worktree launch's harness: its plan and its first turn, the kickoff with the user's note after it. */
+export type SetupHarness = LaunchHarnessPlan & { text: string };
+
+/**
+ * The session's `setup` on the wire: present only for a session launched
+ * into a worktree by a Mac that sets up in the background. While it is
+ * present and not `ready`, the session has no process: `status` reads
+ * `idle` for clients that do not know `setup`.
+ */
+export interface SessionSetup {
+  phase: SetupPhase;
+  /** 1, 2 or 3: the step running, or for `failed` the one that failed; 3 once `ready`. */
+  step: 1 | 2 | 3;
+  /** Null until the branch is named (step 1). */
+  branch: string | null;
+  /** The worktree's path, null until its directory is reserved. */
+  path: string | null;
+  /** How long setup took, once `ready`. */
+  readyInMs: number | null;
+  /** For `failed`: the one plain sentence saying why. */
+  message: string | null;
+  /** For `failed`: the error log entry with the full output, when one was recorded. */
+  errorId: number | null;
+  /** The first prompt and its attachments; empty once `ready`. */
+  prompt: string;
+  attachments: string[];
+  /**
+   * Messages sent meanwhile, oldest first. Still there once `ready` while
+   * they wait for the first turn to end; each leaves once it is sent.
+   */
+  queued: SetupQueuedMessage[];
+  launch: SetupLaunchSettings;
+}
+
+/** `POST /api/sessions/:id/setup/retry` and `POST /api/sessions/:id/discard` refusals. */
+export type SetupActionRefusal = 'not_found' | 'not_failed' | 'not_in_setup';
 
 // ---------------------------------------------------------------------------
 // Names and paths

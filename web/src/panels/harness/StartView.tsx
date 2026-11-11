@@ -1,50 +1,13 @@
-import { swatch } from '../../lib/palette'
 import { useEffect, useState } from 'react'
 import { useOrbital } from '../../store/store'
 import { api } from '../../lib/api'
 import { reportError } from '../../lib/errors'
 import type { HarnessProject, HarnessTemplate } from '../../lib/types'
-import { HeaderBlock, Kicker, Marker, ScopeMark, Switch, type Chrome } from './parts'
+import { HeaderBlock, Kicker, Marker, type Chrome } from './parts'
+import { Switch } from '../../ui/Switch'
+import { GroupHead, TemplateRow, gateCount as gates, isOptional, plural } from './templates'
 
-/** "required unless the hint says optional" (30c). */
-export const isOptional = (hint: string | undefined) => /optional/i.test(hint ?? '')
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-
-function gates(t: HarnessTemplate) {
-  return t.steps.filter((s) => s.mode === 'gate').length
-}
-
-/** A template row (30c): radio dot, name, "7 steps · 3 gates". */
-function TemplateRow({ template, selected, onPick }: { template: HarnessTemplate; selected: boolean; onPick: () => void }) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      onClick={onPick}
-      className="flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left hover:bg-line/4"
-      style={{
-        borderColor: selected ? swatch('accent', 0.6) : swatch('line', 0.1),
-        background: selected ? swatch('accent', 0.07) : undefined,
-      }}
-    >
-      <span
-        aria-hidden
-        className="block size-[10px] shrink-0 box-border rounded-full"
-        style={{
-          border: `1.4px solid ${selected ? 'var(--color-accent)' : 'color-mix(in oklab, var(--color-ink-900) 60%, transparent)'}`,
-          boxShadow: selected ? 'inset 0 0 0 2px var(--color-space)' : undefined,
-          background: selected ? swatch('accent') : 'transparent',
-        }}
-      />
-      <span className="min-w-0 flex-1 truncate fs-12.5 font-semibold text-ink-100">{template.name}</span>
-      <span className="shrink-0 font-mono fs-10 text-ink-900/60">
-        {plural(template.steps.length, 'step')} · {plural(gates(template), 'gate')}
-      </span>
-    </button>
-  )
-}
+export { isOptional }
 
 /** The selected template, expanded in place (30c): description, inputs, steps, Feeling lucky. */
 function TemplateDetail({
@@ -114,15 +77,6 @@ function TemplateDetail({
           template default: {template.options.lucky ? 'on' : 'off'}
         </span>
       </div>
-    </div>
-  )
-}
-
-function GroupHead({ kind, children }: { kind: 'project' | 'global'; children: string }) {
-  return (
-    <div className="flex items-center gap-2 pb-1 pt-0.5 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
-      <ScopeMark kind={kind} />
-      {children}
     </div>
   )
 }

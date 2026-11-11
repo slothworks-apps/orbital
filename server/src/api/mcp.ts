@@ -248,7 +248,7 @@ export function registerMcpRoutes(app: FastifyInstance, ctx: McpRouteContext): v
     try {
       await runner.start({
         cwd: row.cwd, prompt: '', permissionMode, resume: id, model: row.model ?? undefined,
-        claudeDirId: row.claude_dir_id,
+        claudeDirId: row.claude_dir_id, progressList: row.progress_list,
       });
       return { servers: await runner.mcpServers(id) };
     } catch (err) {

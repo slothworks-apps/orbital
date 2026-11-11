@@ -1,4 +1,4 @@
-import type { SessionStatus, Subagent } from '../lib/types'
+import { setupStateKey, shownStatus, type ApiSession, type SessionStatus, type Subagent } from '../lib/types'
 import type { DotShape, MapStatePills } from '../lib/stateStyle'
 
 /**
@@ -115,12 +115,43 @@ export interface PlanetVisuals {
    * component applies directly to its root group regardless of this table.
    */
   dimmed: boolean
+  /**
+   * The dark wash over the body of a session not started yet (canvas 66b
+   * `faintOp`): its body dimmed without the ended wrapper, so the tag-hue
+   * core is the only light. 0 for every started state.
+   */
+  faint: number
   /** Selection reticle (slow dashed ring + corner brackets) shown. */
   reticle: boolean
 }
 
+/**
+ * What the map draws a planet as: its status, or one of the two states of a
+ * worktree launch that has not started (`setupStateKey`), which read `idle`
+ * on the wire.
+ */
+export type PlanetState = SessionStatus | 'setting_up' | 'not_started'
+
+/** The state a session's planet is drawn in: its setup's first, then its shown status. */
+export function planetStateOf(session: Pick<ApiSession, 'status' | 'loginWait' | 'setup'>): PlanetState {
+  return setupStateKey(session) ?? shownStatus(session)
+}
+
 /** `opacity:.6` wrapper the export puts around every ended body (1a/1f/2d). */
 export const DIMMED_OPACITY = 0.6
+
+/** `orb-blink` keyframes: opacity 1 → .3 → 1 — the planet core's blink at a `corePulse` of 1. */
+export const BLINK_DEPTH = 0.7
+
+/** 66b `planet('prep')`: the core's own opacity under the `nbBorn` layer that breathes over it. */
+const SETUP_CORE_REST = 0.5
+
+/**
+ * How deep a setting-up core breathes, as a `corePulse` depth: the frame
+ * loop's blink takes a core from 1 down to `1 - BLINK_DEPTH · depth`, so
+ * this lands its trough on `SETUP_CORE_REST`.
+ */
+const SETUP_BREATH_DEPTH = (1 - SETUP_CORE_REST) / BLINK_DEPTH
 
 /**
  * Whole-body opacity of a planet (and its moons) that does not match the
@@ -152,7 +183,7 @@ export const HALO_BREATH_MIN = 0.55
  *   idle + needs hue/.45 0 1.5deg, transparent 1.5deg 8deg   → 45 ticks
  *   ended        grey/.4 0 2deg,   transparent 2deg 12deg    → 30 ticks
  */
-const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
+const PLANET_VISUALS: Record<PlanetState, Omit<PlanetVisuals, 'reticle'>> = {
   // 1f: halo inset -28, ticks inset -26 (8px band) spinning 24s, arc ring
   // inset -14 (2px band) spinning 60s reverse, 16px core blinking 2.4s.
   working: {
@@ -172,6 +203,7 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
     haloBreathes: true,
     rippleActive: false,
     dimmed: false,
+    faint: 0,
   },
   // 1f: ticks inset -21 (7px band), static; 14px core at .8, no blink, no
   // halo, no arc ring, body border drops to hue/.45.
@@ -192,6 +224,7 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
     haloBreathes: false,
     rippleActive: false,
     dimmed: false,
+    faint: 0,
   },
   // 1f: the idle body + tick ring exactly, plus a white `orb-pulse-out`
   // ripple at inset -21 and a white 16px core blinking at 1.2s.
@@ -212,6 +245,7 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
     haloBreathes: false,
     rippleActive: true,
     dimmed: false,
+    faint: 0,
   },
   // 1f: grey ticks inset -22 (3px band), flat oklch(16% .01 230) body, no
   // core, whole body wrapped in opacity:.6.
@@ -232,6 +266,52 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
     haloBreathes: false,
     rippleActive: false,
     dimmed: true,
+    faint: 0,
+  },
+  // 66b `planet('prep')`: a planet being born. No tick ring, no arc, no
+  // halo; the body under the dark wash; a smaller core breathing once every
+  // 4s (`nbBorn`), slower and softer than a working core's blink.
+  setting_up: {
+    tickSpin: 0,
+    tickCount: 0,
+    tickWidthDeg: 0,
+    tickRadius: 0,
+    tickLength: 0,
+    tickOpacity: 0,
+    arcOpacity: 0,
+    arcSpin: 0,
+    corePulse: SETUP_BREATH_DEPTH,
+    corePulseSec: 4,
+    coreOpacity: 1,
+    // 66b draws a working core 15px and this one 13px; carried onto 1f's 16px.
+    coreRadius: px((16 * 13) / 15 / 2),
+    haloOpacity: 0,
+    haloBreathes: false,
+    rippleActive: false,
+    dimmed: false,
+    faint: 1,
+  },
+  // 66b `planet('failed')`: the same dark body, a smaller core held still
+  // at .35, and nothing around it.
+  not_started: {
+    tickSpin: 0,
+    tickCount: 0,
+    tickWidthDeg: 0,
+    tickRadius: 0,
+    tickLength: 0,
+    tickOpacity: 0,
+    arcOpacity: 0,
+    arcSpin: 0,
+    corePulse: 0,
+    corePulseSec: 0,
+    coreOpacity: 0.35,
+    // 66b's 11px against a working core's 15px, as above.
+    coreRadius: px((16 * 11) / 15 / 2),
+    haloOpacity: 0,
+    haloBreathes: false,
+    rippleActive: false,
+    dimmed: false,
+    faint: 0.85,
   },
 }
 
@@ -240,7 +320,7 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
  * currently selected. `selected` is orthogonal to `state`: it only ever
  * toggles `reticle`, never any of the other fields.
  */
-export function planetVisuals(state: SessionStatus, selected: boolean): PlanetVisuals {
+export function planetVisuals(state: PlanetState, selected: boolean): PlanetVisuals {
   return { ...PLANET_VISUALS[state], reticle: selected }
 }
 
@@ -468,6 +548,21 @@ export const LABEL_TITLE_TRACKING_EM = 0.06
 export const LABEL_FAMILY_TRACKING_EM = 0.1
 /** Gap between the title and the family line, CSS px (canvas 4a: 5px below the title). */
 export const LABEL_FAMILY_GAP_PX = 5
+
+/**
+ * The progress list's figure after the name (canvas `Feature - Progress list`
+ * 67e): `gap:7px`, 10px against the name's 11px, .04em. Scaled with the name
+ * when Appearance scales labels.
+ */
+export const PROGRESS_FIGURE_GAP_PX = 7
+export const PROGRESS_FIGURE_TRACKING_EM = 0.04
+export const progressFigurePx = (titlePx: number): number => (titlePx * 10) / 11
+/**
+ * The figure the label's box always makes room for, whatever the list says:
+ * the widest two-digit one. A tick then never resizes the outline the
+ * simulation keeps neighbours clear of — only a list appearing does.
+ */
+const PROGRESS_FIGURE_RESERVED = '99/99'
 /** JetBrains Mono is monospaced: every glyph advances 600/1000 of an em. */
 const MONO_ADVANCE_EM = 0.6
 /**
@@ -494,9 +589,16 @@ export function restingLabelSizePx(
   title: string,
   family: string | null,
   font: { title: number; family: number },
-  limitPill: string | null = null
+  limitPill: string | null = null,
+  progressFigure: string | null = null,
 ): { width: number; height: number } {
-  const titleWidth = monoWidthPx(truncateLabel(title).length, font.title, LABEL_TITLE_TRACKING_EM)
+  const figurePx = progressFigurePx(font.title)
+  const titleWidth =
+    monoWidthPx(truncateLabel(title).length, font.title, LABEL_TITLE_TRACKING_EM) +
+    (progressFigure
+      ? PROGRESS_FIGURE_GAP_PX +
+        monoWidthPx(Math.max(progressFigure.length, PROGRESS_FIGURE_RESERVED.length), figurePx, PROGRESS_FIGURE_TRACKING_EM)
+      : 0)
   const titleHeight = font.title * MONO_LINE_HEIGHT_EM
   // A waiting session's pill takes the family line's place (31b).
   if (limitPill !== null) {
@@ -667,7 +769,7 @@ export function statePillSizePx(
   }
   const text = monoWidthPx(label.length, STATE_PILL_FONT_PX, STATE_PILL_TRACKING_EM)
   const chrome = 2 * (STATE_PILL_PAD_X_PX + STATE_PILL_BORDER_PX)
-  const dotPx = dot === 'solid' ? STATE_PILL_DOT_PX : dot === 'hollow' ? STATE_PILL_HOLLOW_DOT_PX : 0
+  const dotPx = dot === 'solid' ? STATE_PILL_DOT_PX : dot === 'none' ? 0 : STATE_PILL_HOLLOW_DOT_PX
   return {
     width: text + chrome + (dotPx > 0 ? dotPx + STATE_PILL_GAP_PX : 0),
     height: STATE_PILL_FONT_PX * MONO_LINE_HEIGHT_EM + 2 * (STATE_PILL_PAD_Y_PX + STATE_PILL_BORDER_PX),

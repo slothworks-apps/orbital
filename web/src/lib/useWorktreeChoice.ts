@@ -83,11 +83,14 @@ export interface WorktreeChoice {
  *   that repository, or from `autoOn` (occupied, and the setting allows it).
  *   Flipped by hand, the choice is remembered for the repository's next
  *   dialog — except that an occupied checkout still starts it on.
+ * - `startOff` starts a new repository's switch off whatever the above
+ *   says, without remembering it: New Session prefilled to start without a
+ *   worktree (spec 2026-11-09-worktree-setup-in-background-design).
  * - Turning the switch on fetches `origin` once for that repository; a
  *   failure offers local main, and the repository is read again after a
  *   success, so a branch the fetch brought is known to the name check.
  */
-export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: string): WorktreeChoice {
+export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: string, startOff = false): WorktreeChoice {
   const typed = cwd.trim()
   const [answer, setAnswer] = useState<{ cwd: string; machine?: string; repo: WorktreeRepo | null } | null>(null)
   const [on, setOnState] = useState(false)
@@ -142,7 +145,9 @@ export function useWorktreeChoice(cwd: string, enabled: boolean, machine?: strin
     setBranchState('')
     setLaunchError(null)
     setFetch({ state: 'idle' })
-    setOnState(repo ? worktreeSwitchStartsOn(repo, machine) : false)
+    // `startOff`: Without a worktree's prefill, which neither reads nor
+    // stores the switch the user last left there.
+    setOnState(repo && !startOff ? worktreeSwitchStartsOn(repo, machine) : false)
     setBaseState(repo ? defaultBase(repo) : '')
     // `repo` is read for the tree `treeKey` names.
     // eslint-disable-next-line react-hooks/exhaustive-deps

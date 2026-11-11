@@ -20,6 +20,7 @@ function planet(id: string, contextFill: ContextFill | null): ScenePlanet {
     secondLine: null,
     outlineLine: null,
     loginPill: null,
+    progressFigure: null,
     offline: false,
     deviceOff: false,
     muted: false,

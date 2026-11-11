@@ -1,4 +1,6 @@
 import type { MachineRef } from '@orbital/shared/remote/device';
+// One message the user wrote during a wait: the same shape as one written during a worktree setup.
+import type { SetupQueuedMessage as QueuedMessage } from '@orbital/shared/worktree';
 import type { LimitEstimate } from './estimate.js';
 
 /**
@@ -289,12 +291,6 @@ export function waitFromLimitHit(
     windowKind: rejected.rateLimitType ?? 'unknown',
     windowLabel: labelForRateLimitType(rejected.rateLimitType),
   };
-}
-
-/** One message the user wrote during a wait. */
-export interface QueuedMessage {
-  text: string;
-  attachments?: string[];
 }
 
 /**

@@ -1,7 +1,11 @@
 import type { ChatMessage } from '../types.js';
 
-/** What a delivery into a session did — `deliverToSession`'s outcome in `routes.ts`. */
-export type DeliveryOutcome = 'sent' | 'revived' | 'not_found' | 'terminal';
+/**
+ * What a delivery into a session did — `deliverToSession`'s outcome in
+ * `routes.ts`. `in_setup`: the session's worktree is being set up, or could
+ * not be, and it takes nothing until it starts.
+ */
+export type DeliveryOutcome = 'sent' | 'revived' | 'not_found' | 'terminal' | 'in_setup';
 
 /** A delivery's answer: its outcome, and the uuid the turn's entry is written under when it started one. */
 export interface DeliveryResult {

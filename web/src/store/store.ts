@@ -26,7 +26,8 @@ import { withViewTransition } from '../lib/viewTransition'
 import { moveTagTo } from '../lib/tagFilter'
 import { nextTagHue } from '../lib/tagHues'
 import { focusSession } from '../lib/desktop'
-import { MAX_SUBAGENT_MESSAGES, shownStatus } from '../lib/types'
+import { MAX_SUBAGENT_MESSAGES, pendingSetup, shownStatus } from '../lib/types'
+import type { SessionSetup } from '@orbital/shared/worktree'
 import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
 import { historyEndedOutOfList, withDetailHistory, withHeldHistory } from '../lib/listedHistory'
 import { TRANSCRIPT_CHECK_PAGE, transcriptCheckStep } from '../lib/transcriptCheck'
@@ -54,6 +55,7 @@ import type {
   SessionStatus,
   SessionHarness,
   HarnessEvent,
+  HarnessLaunch,
   HarnessMessageKind,
   Subagent,
   Tag,
@@ -148,7 +150,15 @@ export type SessionEvent =
    */
   | {
       event: 'harness_message'
-      message: { uuid: string; kind: HarnessMessageKind; step: number; text: string; at: number }
+      message: {
+        uuid: string
+        kind: HarnessMessageKind
+        step: number
+        text: string
+        at: number
+        /** The kickoff's images (a launch's attachments), only when there is one. */
+        images?: ImageRefEntry[]
+      }
     }
 
 /**
@@ -568,6 +578,12 @@ export interface OrbitalState {
   /** `full`: opened straight into the full window (⌥-click on the pill, canvas 30h). */
   harnessPanel: { sessionId: string; full?: boolean } | null
   /**
+   * The session's progress list in the side slot, which it shares with the
+   * harness panel, the subagent panel and the task output view (spec
+   * 2026-11-09-progress-list-design, canvas 67c).
+   */
+  progressPanel: { sessionId: string } | null
+  /**
    * Where Settings → Harness templates should start, set by the harness
    * panel's links (canvas 30c "both open Settings → Harness templates · scope
    * pre-set to <project>", 30f "Open template in Settings"). Settings reads
@@ -700,6 +716,10 @@ export interface OrbitalActions {
     machine?: string
     /** Start in a new linked worktree (`api.createSession`). */
     worktree?: WorktreeLaunch
+    /** Start on a harness (`api.createSession`). */
+    harness?: HarnessLaunch
+    /** Start with a progress list (`api.createSession`). */
+    progressList?: boolean
     /**
      * The id this launch goes out under; omitted, a fresh one. A launch sent
      * again after its answer was lost passes the first attempt's
@@ -854,6 +874,9 @@ export interface OrbitalActions {
   /** Opens the Harness panel on this session, or closes it when it is already open on it. */
   openHarness(sessionId: string, opts?: { full?: boolean }): void
   closeHarness(): void
+  /** Opens the progress list in the side slot, or closes it when it is already open on this session. */
+  openProgress(sessionId: string): void
+  closeProgress(): void
   /** Opens Settings on Harness with `focus` for it to read. */
   openHarnessTemplates(focus: HarnessTemplatesFocus): void
   /** Applies one event off the open view's `task-output:` topic. */
@@ -1463,6 +1486,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   harnessEventsMore: {},
   harnessRemoved: {},
   harnessPanel: null,
+  progressPanel: null,
   harnessTemplatesFocus: null,
 
   async loadInitial() {
@@ -1856,13 +1880,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (msg.event === 'harness_message') {
       // Held or shown only, as `message` is: the file marks the row on the next read.
       if (state.ui.selectedId !== sessionId && !(sessionId in state.transcripts)) return
-      const { uuid, kind, step, text, at } = msg.message
+      const { uuid, kind, step, text, at, images } = msg.message
       const mark = { kind, step }
       const existing = state.transcripts[sessionId] ?? []
       const heldIdx = existing.findIndex((m) => m.uuid === uuid)
       const updated = existing.slice()
+      // A held row is the file's echo, which has its own images.
       if (heldIdx >= 0) updated[heldIdx] = { ...existing[heldIdx], harnessMessage: mark }
-      else updated.push({ id: `harness:${uuid}`, role: 'user', uuid, text, timestamp: new Date(at).toISOString(), harnessMessage: mark })
+      else
+        updated.push({
+          id: `harness:${uuid}`,
+          role: 'user',
+          uuid,
+          text,
+          timestamp: new Date(at).toISOString(),
+          ...(images ? { images } : {}),
+          harnessMessage: mark,
+        })
       set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
       return
     }
@@ -2085,8 +2119,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         errorsUnseen: msg.unseen,
         // Every arriving record raises the one toast. It overwrites whatever
         // was showing, which is exactly why dismissing a toast must never
-        // count as having read the row — only the log does that.
-        toast: { kind: 'error', message: msg.error.message, source: 'log' },
+        // count as having read the row — only the log does that. A worktree
+        // that could not be made is said once, in its session's setup block
+        // (spec 2026-11-09-worktree-setup-in-background-design § Ways out).
+        ...(isSetupFailure(msg.error, state.sessions) ? {} : { toast: { kind: 'error', message: msg.error.message, source: 'log' } }),
       })
       return
     }
@@ -2177,7 +2213,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // reload. Appended before the request, not after: the session's first
     // reply can land while the request is still in flight, and the prompt
     // has to sit above it.
-    if (body.prompt || images?.length) {
+    // A harness launch's first turn is the kickoff with the prompt appended,
+    // a text only the server has: its `harness_message` brings the row, and
+    // an empty transcript is held so that event is not dropped.
+    if (body.harness) {
+      set((state) => ({ transcripts: { ...state.transcripts, [sessionId]: state.transcripts[sessionId] ?? [] } }))
+    } else if (body.prompt || images?.length) {
       const turn = optimisticTurn(body.prompt, images)
       set((state) => ({
         transcripts: { ...state.transcripts, [sessionId]: [turn, ...(state.transcripts[sessionId] ?? [])] },
@@ -2422,7 +2463,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // the message for the reset and republishes the wait, whose `queued` the
     // transcript lists (spec 2026-10-03-usage-limits-design § 1). An
     // optimistic turn would show it as sent.
-    const queues = Boolean(session?.limitWait)
+    // A worktree launch that has not started queues the same way (spec
+    // 2026-11-09-worktree-setup-in-background-design § Messages): its
+    // `setup.queued` lists it. So does one started whose queue still waits
+    // for its first turn to end: the message joins the end of it.
+    const queues =
+      Boolean(session?.limitWait) || (session != null && (pendingSetup(session) !== null || (session.setup?.queued.length ?? 0) > 0))
 
     set((state) => ({
       ...(queues
@@ -2955,6 +3001,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // One slot: an open task output view gives way.
     get().closeTaskOutput()
     get().closeHarness()
+    get().closeProgress()
     // Release first, not last: the old subscription must be gone before the
     // new one is even requested, or the two topics could both be live for a
     // beat and the outgoing agent's messages would land in the incoming
@@ -3157,6 +3204,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // One slot: the subagent panel and this view take turns in it.
     get().closeSubagent()
     get().closeHarness()
+    get().closeProgress()
     releaseTaskOutputSubscription()
     if (get().ui.selectedId !== sessionId) void get().select(sessionId)
 
@@ -3242,6 +3290,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
     get().closeSubagent()
     get().closeTaskOutput()
+    get().closeProgress()
     if (get().ui.selectedId !== sessionId) void get().select(sessionId)
     set({ harnessPanel: opts?.full ? { sessionId, full: true } : { sessionId } })
     void get().loadHarness(sessionId)
@@ -3249,6 +3298,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   closeHarness() {
     if (get().harnessPanel) set({ harnessPanel: null })
+  },
+
+  openProgress(sessionId) {
+    // The pill, a transcript row and ⌘⇧P toggle it, as the harness panel is toggled.
+    if (get().progressPanel?.sessionId === sessionId) {
+      get().closeProgress()
+      return
+    }
+    get().closeSubagent()
+    get().closeTaskOutput()
+    get().closeHarness()
+    if (get().ui.selectedId !== sessionId) void get().select(sessionId)
+    set({ progressPanel: { sessionId } })
+  },
+
+  closeProgress() {
+    if (get().progressPanel) set({ progressPanel: null })
   },
 
   openHarnessTemplates(focus) {
@@ -3359,6 +3425,8 @@ useOrbital.subscribe((state, prevState) => {
   if (output && output.sessionId !== state.ui.selectedId) useOrbital.getState().closeTaskOutput()
   const harness = state.harnessPanel
   if (harness && harness.sessionId !== state.ui.selectedId) useOrbital.getState().closeHarness()
+  const progress = state.progressPanel
+  if (progress && progress.sessionId !== state.ui.selectedId) useOrbital.getState().closeProgress()
   const left = prevState.ui.selectedId
   if (left) dropTranscript(left)
 })
@@ -3384,11 +3452,22 @@ function sessionsEventPatch(
       after.push(() => void useOrbital.getState().loadSessionHistory(id))
     }
     const sessions = { ...state.sessions, [msg.session.id]: withHeldHistory(held, msg.session) }
+    // A worktree launch that just started: the transcript held had nothing
+    // of it (the setup block showed its prompt and queue), and the file has
+    // nothing yet either, so its first prompt goes in as a sent turn the echo
+    // replaces. The queue stays where it was drawn, at the bottom, until the
+    // server sends each once the first turn has ended; its echo lands then.
+    const started = held && !pendingSetup(msg.session) ? pendingSetup(held) : null
+    const seeded =
+      started && (msg.session.id in state.transcripts || state.ui.selectedId === msg.session.id)
+        ? { transcripts: { ...state.transcripts, [msg.session.id]: withSetupTurns(state.transcripts[msg.session.id] ?? [], started) } }
+        : {}
     // A sent rewind is settled once the row stops carrying it — the CLI took
     // the truncating resume (or a refusal took it back).
     const rewindSettled = !msg.session.rewindPending && state.rewindSending[msg.session.id]
     if (rewindSettled) delete rewindSentText[msg.session.id]
     return {
+      ...seeded,
       ...(rewindSettled ? { rewindSending: withoutKey(state.rewindSending, msg.session.id) } : {}),
       ...liveNoticeSettled(state, msg.session.id, msg.session.status),
       sessions,
@@ -3455,6 +3534,7 @@ function sessionsEventPatch(
       if (store.subagentPanel?.sessionId === msg.sessionId) store.closeSubagent()
       if (store.taskOutput?.sessionId === msg.sessionId) store.closeTaskOutput()
       if (store.harnessPanel?.sessionId === msg.sessionId) store.closeHarness()
+      if (store.progressPanel?.sessionId === msg.sessionId) store.closeProgress()
     })
     return {
       sessions,
@@ -3599,7 +3679,8 @@ export function recordedFailureFor(
   sessionId: string,
 ): ErrorRecord | undefined {
   const latest = state.errors.find(
-    (error) => error.sessionId === sessionId && error.kind !== 'compaction_failed',
+    (error) =>
+      error.sessionId === sessionId && error.kind !== 'compaction_failed' && !isSetupFailure(error, state.sessions),
   )
   if (!latest) return undefined
   const turnAt = state.lastTurnResultAt[sessionId]
@@ -3607,6 +3688,34 @@ export function recordedFailureFor(
   const lastAt = state.sessions[sessionId]?.lastAt
   if (lastAt != null && lastAt > latest.at) return undefined
   return latest
+}
+
+/**
+ * A `worktree_failed` record of a session whose worktree launch has a setup:
+ * its block says it, so neither the toast nor the transcript's alert does.
+ * The record says so itself, since a setup that fails at once can be
+ * recorded before this client holds the session's row.
+ */
+function isSetupFailure(error: ErrorRecord, sessions: Record<string, ApiSession>): boolean {
+  if (error.kind !== 'worktree_failed') return false
+  return error.context?.setup === true || (error.sessionId != null && sessions[error.sessionId]?.setup != null)
+}
+
+/**
+ * `held` with the first prompt of a setup that just started put in as a
+ * sent turn — unless it is already there, as this tab's own launch turn is —
+ * ahead of anything the session has said since. The queue is not: it goes
+ * in later, each message once the server has sent it.
+ */
+export function withSetupTurns(held: readonly ChatMessage[], setup: Pick<SessionSetup, 'prompt' | 'attachments'>): ChatMessage[] {
+  if (setup.prompt.trim() === '' && setup.attachments.length === 0) return held.slice()
+  // No provenance: this tab may not be the one they were attached in, and
+  // a caption it made up would only be replaced by the file's.
+  const plain = optimisticTurn(setup.prompt)
+  const turn = setup.attachments.length > 0
+    ? { ...plain, images: setup.attachments.map((ref) => ({ ref, w: null, h: null, bytes: 0 })) }
+    : plain
+  return held.some((m) => echoes(m, turn)) ? held.slice() : [turn, ...held]
 }
 
 /**
@@ -4190,7 +4299,10 @@ export function statusCounts(
   // to hold its place, not to be counted, and the sidebar's lists already
   // leave it out.
   for (const session of mapSessions(state, nowMs, hidden)) {
-    if (matchesSidebarFilters(session, state.ui)) counts[shownStatus(session)] += 1
+    // A worktree launch not started yet reads `idle` on the wire, but is
+    // neither idle nor anything else here: the readout counts it by its own
+    // words (`readoutSegments`).
+    if (matchesSidebarFilters(session, state.ui) && !pendingSetup(session)) counts[shownStatus(session)] += 1
   }
   return counts
 }

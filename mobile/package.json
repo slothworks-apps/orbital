@@ -1,6 +1,6 @@
 {
   "name": "@orbital/mobile",
-  "version": "0.24.3",
+  "version": "0.25.0",
   "private": true,
   "description": "Orbital on the phone: the Capacitor shell around web/'s mobile entry.",
   "author": "SlothWorks s.r.o.",
@@ -34,7 +34,7 @@
     "@capgo/capacitor-updater": "8.51.25"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.5.2",
+    "@capacitor/cli": "^8.6.0",
     "@types/node": "^24.19.1",
     "typescript": "^5.9.3"
   }

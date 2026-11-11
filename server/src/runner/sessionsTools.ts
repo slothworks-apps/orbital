@@ -24,6 +24,12 @@ export interface ListedSession {
   archivedAt: string | null;
   /** The session that is calling the tool. */
   self: boolean;
+  /**
+   * A session launched into a worktree that has not started: its worktree
+   * is being made, or could not be. Its `status` reads `idle`. Absent for
+   * every other session.
+   */
+  setup?: 'setting_up' | 'not_started';
 }
 
 export interface ListSessionsInput {
@@ -34,6 +40,8 @@ export interface ListSessionsInput {
 
 export type ArchiveOutcome =
   | { id: string; result: 'archived' | 'already_archived' | 'not_found' }
+  /** Not started yet, archived with force: gone, as the user's Discard. */
+  | { id: string; result: 'discarded' }
   | { id: string; result: 'refused'; reason: string };
 
 /** The back end, assigned by the routes, which own the rows and `endSession`. */
@@ -46,14 +54,14 @@ export interface SessionKeeper {
 export const LIST_SESSIONS_TOOL = 'mcp__orbital__list_sessions';
 
 const LIST_DESCRIPTION = [
-  'List Orbital sessions — the planets on the user\'s map — with their id, title, cwd, status (working, needs_input, idle, ended), whether a process is alive, and the time of their last activity.',
+  'List Orbital sessions — the planets on the user\'s map — with their id, title, cwd, status (working, needs_input, idle, ended), whether a process is alive, and the time of their last activity. A session with setup (setting_up, not_started) has not started yet: its worktree is being made or could not be.',
   'Use it to find sessions to look after, for example before archiving ones that are done. Archived sessions (status ended) are left out unless include_archived is set.',
 ].join(' ');
 
 const ARCHIVE_DESCRIPTION = [
   'Archive Orbital sessions by id: the same as the user pressing End — the session leaves the map and moves to history, and its process stops. The user can bring it back.',
   'Use it to clean up sessions that are finished or no longer used, when the user asked you to look after sessions. Call list_sessions first to get the ids.',
-  'Refused unless force is set: a session that is working or waiting for the user\'s input, and one the user pinned. Never forced: this session itself, and a terminal session that is still running.',
+  'Refused unless force is set: a session that is working or waiting for the user\'s input, one the user pinned, and one that has not started (setup in list_sessions), which force discards with its first prompt rather than archiving it. Never forced: this session itself, and a terminal session that is still running.',
   'Archiving an archived session does nothing. The result lists, for every id, what was done.',
 ].join(' ');
 

@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from 'react'
-import { api } from '../../lib/api'
+import { api, ApiError } from '../../lib/api'
 import { reportError } from '../../lib/errors'
 import { tagColor, type ApiSession } from '../../lib/types'
 import { useMedia } from '../../store/media'
 import { useOrbital } from '../../store/store'
+import { reportClearFailure } from '../../store/sessionActions'
 import { patchSession } from '../session/patchSession'
 import { useMobile } from '../state'
 import { sessionSupports } from '../version'
@@ -13,11 +14,14 @@ import { useSessionDeviceName, useSessionRefusedLine } from '../useDevice'
 import { BottomSheet, ConfirmBody } from '../ui'
 import { noteOutcome } from './MenuOutcome'
 import { RenameSheet } from './RenameSheet'
-import { menuFor, type MenuItem } from '../../lib/sessionMenu'
+import { DELIBERATE_ITEMS, menuFor, type MenuItem } from '../../lib/sessionMenu'
+import { discardLabel, discardSentence } from '../../lib/setup'
+import { copySetupPrompt, discardSetup, retrySetup } from '../../store/setupActions'
+import { startWithoutWorktreeOnPhone } from './withoutWorktree'
 import { carriesHarness, clearKeepsLines, endStopsLines } from './sessionMenu'
 import { SHEET_LABEL, TagSheet } from './TagSheet'
 
-type View = 'menu' | 'end' | 'clear' | 'takeover' | 'rename' | 'tag'
+type View = 'menu' | 'end' | 'clear' | 'takeover' | 'rename' | 'tag' | 'discard'
 
 /**
  * The ⋯ sheet (spec 2026-10-05-mobile-next § 4; canvas 10i, 10j): one
@@ -134,15 +138,58 @@ export function SessionMenuSheet({
         useMobile.getState().openSession(result.sessionId)
       }
     } catch (err) {
-      reportError(err, 'Failed to clear session')
+      reportClearFailure(err)
       onClose()
+    }
+  }
+
+  // A worktree launch that has not started (spec
+  // 2026-11-09-worktree-setup-in-background-design; canvas 66d).
+  const [copied, setCopied] = useState(false)
+  const copyPrompt = () => void copySetupPrompt(id).then(setCopied)
+  const discard = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await discardSetup(id)
+      onClose()
+      // The session is gone: back to the list it was opened from.
+      if (useMobile.getState().sessionId === id) useMobile.getState().goBack()
+    } catch (err) {
+      setBusy(false)
+      // 409: the worktree got ready while the sheet was open; a session that
+      // ran is ended, not discarded.
+      if (err instanceof ApiError && err.status === 409) setView('end')
+      else reportError(err, 'Failed to discard the session')
     }
   }
 
   const title = session.title || 'Untitled session'
 
   let body: ReactNode
-  if (view === 'end') {
+  if (view === 'discard') {
+    body = (
+      <ConfirmBody
+        eyebrow="/END"
+        title="Discard this session?"
+        body={
+          <>
+            <span className="block font-mono text-ink-100 [overflow-wrap:anywhere]">{title}</span>
+            <span className="mt-0.5 block">
+              {session.setup ? discardSentence(session.setup) : 'Nothing was set up and nothing is on disk.'}
+            </span>
+          </>
+        }
+        confirmLabel="Discard"
+        // 66d: Copy prompt sits between the two, so the text can leave with you.
+        also={{ label: copied ? 'Copied' : 'Copy prompt', onPress: copyPrompt }}
+        onConfirm={() => void discard()}
+        onCancel={() => setView('menu')}
+        busy={busy}
+        cancelWaits
+      />
+    )
+  } else if (view === 'end') {
     const stops = endStopsLines(session, Date.now())
     body = (
       <ConfirmBody
@@ -270,9 +317,51 @@ export function SessionMenuSheet({
           onPress={() => setView('end')}
         />
       ),
+      // Canvas 66d: the ways out of a worktree launch that has not started.
+      retry: (
+        <Row
+          key="retry"
+          glyph={<span className="text-ink-500/70">↻</span>}
+          label="Try again"
+          onPress={() => {
+            onClose()
+            retrySetup(id)
+          }}
+        />
+      ),
+      'without-worktree': (
+        <Row
+          key="without-worktree"
+          glyph={<span className="text-ink-500/70">→</span>}
+          label="Start without a worktree"
+          onPress={() => {
+            onClose()
+            startWithoutWorktreeOnPhone(id)
+          }}
+        />
+      ),
+      'copy-prompt': (
+        <Row
+          key="copy-prompt"
+          glyph={<span className="text-ink-500/70">⧉</span>}
+          label={copied ? 'Copied' : 'Copy first prompt'}
+          onPress={copyPrompt}
+        />
+      ),
+      // The phone has no error log of its own; the Mac's holds the detail.
+      'error-log': null,
+      discard: (
+        <Row
+          key="discard"
+          glyph={<span className="box-border block h-[9px] w-[9px] rounded-[1.5px] border-[1.5px] border-ink-500/70" />}
+          label={session.setup ? discardLabel(session.setup) : 'Discard'}
+          hint={<AsksFirst />}
+          onPress={() => setView('discard')}
+        />
+      ),
     }
-    const quick = shape.items.filter((item) => item === 'rename' || item === 'tag' || item === 'pin')
-    const deliberate = shape.items.filter((item) => item === 'takeover' || item === 'clear' || item === 'end')
+    const quick = shape.items.filter((item) => !DELIBERATE_ITEMS.has(item))
+    const deliberate = shape.items.filter((item) => DELIBERATE_ITEMS.has(item))
     const list = (
       <>
         {mediaCount > 0 && (

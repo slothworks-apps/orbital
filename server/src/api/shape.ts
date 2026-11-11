@@ -20,6 +20,9 @@ import type { IdeContext, IdeEditor } from '../ide/protocol.js';
 import type { LimitsService } from '../limits/service.js';
 import type { LimitWait } from '../limits/logic.js';
 import type { LoginService, LoginWait } from '../login/service.js';
+import type { ProgressFigure, ProgressService } from '../progress/service.js';
+import type { SessionSetup } from '@orbital/shared/worktree';
+import type { SetupStore } from '../worktree/setup.js';
 
 /** The usage-limit wire types, beside the session shape that carries one of them. */
 export type { LimitWait, LimitWindow, LimitsSnapshot, ExtraUsage } from '../limits/logic.js';
@@ -44,11 +47,15 @@ export interface ShapeContext {
   limits?: Pick<LimitsService, 'waitFor'>;
   /** The continuation lists of the logins. Optional so a context built without one shapes every session as waiting on none. */
   logins?: Pick<LoginService, 'waitFor'>;
+  /** Worktree launches' setups. Optional so a context built without one shapes every session without `setup`. */
+  setups?: Pick<SetupStore, 'setupOf'>;
   /**
    * Where each session works now. Optional so a context built without one
    * shapes every session as working in its home, with no other trees.
    */
   trees?: Pick<WorkingTrees, 'places' | 'sessionsAt'>;
+  /** The progress lists. Optional so a context built without one shapes every session as having none. */
+  progress?: Pick<ProgressService, 'figureOf'>;
 }
 
 /** The working-tree wire type, beside the session shape that carries it. */
@@ -258,6 +265,14 @@ export interface ApiSession {
    */
   harnessStep: { index: number; total: number } | null;
   /**
+   * The session's progress list as a figure: done of the items not dropped,
+   * and `frozen` once a harness is attached and leads in its place. Null
+   * for a session started without a list, and before its first is written
+   * (spec 2026-11-09-progress-list-design). The list itself is in the
+   * transcript, as the tool's calls.
+   */
+  progress: ProgressFigure | null;
+  /**
    * The usage-limit window this session waits for, or null (spec
    * 2026-10-03-usage-limits-design § 1). While it waits the session reads
    * `idle`; like `awaitingSubagents` this is a label on a status, not a
@@ -281,6 +296,12 @@ export interface ApiSession {
    * directories are configured.
    */
   claudeDirId: number;
+  /**
+   * The worktree setup of a session launched into a worktree (spec
+   * 2026-11-09-worktree-setup-in-background-design); absent for any other.
+   * While it is not `ready` the session has no process and reads `idle`.
+   */
+  setup?: SessionSetup;
 }
 
 /** The gate the session's live harness stands at, or null. */
@@ -434,10 +455,18 @@ export function toApiSession(
     purpose: row.purpose ?? null,
     harnessGate: harnessGateOf(ctx.db, row.id),
     harnessStep: harnessStepOf(ctx.db, row.id),
+    progress: ctx.progress?.figureOf(row) ?? null,
     limitWait: ctx.limits?.waitFor(row.id) ?? null,
     loginWait: ctx.logins?.waitFor(row.id) ?? null,
     claudeDirId: row.claude_dir_id,
+    ...setupOf(ctx, row.id),
   };
+}
+
+/** `{ setup }` for a worktree launch's session, `{}` otherwise — the key is omitted, not null. */
+function setupOf(ctx: ShapeContext, id: string): { setup?: SessionSetup } {
+  const setup = ctx.setups?.setupOf(id);
+  return setup ? { setup } : {};
 }
 
 /** Where the session works now: its home and nothing else without a `trees` reader. */

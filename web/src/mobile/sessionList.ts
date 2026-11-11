@@ -12,23 +12,35 @@ import { isListable } from '../lib/harnessSession'
  * `pinned` is 10a's headless band of ended sessions kept above the ENDED
  * fold by their pin (spec 2026-10-05-mobile-next-design § 4).
  */
-export type GroupKey = 'input' | 'working' | 'limit' | 'idle' | 'pinned' | 'ended'
+export type GroupKey = 'input' | 'working' | 'setting_up' | 'limit' | 'not_started' | 'idle' | 'pinned' | 'ended'
 
 /**
  * 10a's order (spec 2026-10-05-mobile-next-design § 4, § 5): what asks for
  * you first, a limit wait between WORKING and IDLE, the pinned ended rows
- * above the fold, what is over last.
+ * above the fold, what is over last. A worktree launch not started yet sits
+ * right after WORKING while it is set up, and after the limit wait once it
+ * failed — above IDLE, never with NEEDS INPUT (canvas 66d).
  */
-export const GROUP_ORDER: readonly GroupKey[] = ['input', 'working', 'limit', 'idle', 'pinned', 'ended']
+export const GROUP_ORDER: readonly GroupKey[] = [
+  'input',
+  'working',
+  'setting_up',
+  'limit',
+  'not_started',
+  'idle',
+  'pinned',
+  'ended',
+]
 
 /** The band's heading; the pinned band has none (canvas 10a). */
 export const GROUP_LABEL: Record<GroupKey, string> = {
-  input: 'NEEDS INPUT', working: 'WORKING', limit: 'WAITING FOR LIMIT', idle: 'IDLE', pinned: '', ended: 'ENDED',
+  input: 'NEEDS INPUT', working: 'WORKING', setting_up: 'SETTING UP', limit: 'WAITING FOR LIMIT', not_started: 'NOT STARTED',
+  idle: 'IDLE', pinned: '', ended: 'ENDED',
 }
 
 type StateFields = Pick<
   ApiSession,
-  'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate'
+  'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate' | 'setup'
 >
 
 type GroupFields = StateFields & Pick<ApiSession, 'source' | 'limitWait' | 'pinnedAt'>
@@ -63,6 +75,7 @@ export function groupOf(session: GroupFields): GroupKey {
   const key = sessionStateKey(session)
   if (key === 'needs_input') return 'input'
   if (key === 'working' || key === 'waiting') return 'working'
+  if (key === 'setting_up' || key === 'not_started') return key
   if (key === 'ended') return session.pinnedAt ? 'pinned' : 'ended'
   if (waitsForLimit(session)) return 'limit'
   return 'idle'
@@ -281,6 +294,9 @@ export const GLYPH: Record<SessionStateKey, StateDot> = {
   working: { shape: 'solid', motion: 'pulse' },
   interrupted: { shape: 'solid', motion: 'steady' },
   done: { shape: 'hollow', motion: 'steady' },
+  // Canvas 66d: half filled while setting up, hollow once it failed.
+  setting_up: { shape: 'half', motion: 'steady' },
+  not_started: { shape: 'hollow', motion: 'steady' },
   idle: { shape: 'solid', motion: 'steady' },
   ended: { shape: 'hollow', motion: 'steady' },
 }
@@ -293,7 +309,7 @@ export function glyphFor(key: SessionStateKey, offline: boolean): StateDot {
 
 export const STATE_WORD: Record<SessionStateKey, string> = {
   needs_input: 'NEEDS INPUT', waiting: 'WAITING', interrupted: 'INTERRUPTED', done: 'DONE',
-  working: 'WORKING', idle: 'IDLE', ended: 'ENDED',
+  working: 'WORKING', setting_up: 'SETTING UP', not_started: 'NOT STARTED', idle: 'IDLE', ended: 'ENDED',
 }
 
 /** 9b's header state: live, the word; offline, what it was and when (spec § 5). */

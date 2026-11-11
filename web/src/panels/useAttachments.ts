@@ -15,6 +15,7 @@ import {
 import type { AttachmentSource, FileEntry, ImageRefEntry } from '../lib/types'
 import type { SentAttachment } from '../store/store'
 import type { BrowserShot } from '../lib/browserBridge'
+import { apiImagePath } from '../lib/images'
 
 /**
  * The composer's attachment state machine (spec: 2026-09-20-composer-design
@@ -106,6 +107,13 @@ export interface AttachmentsHandle {
    * like any chip, and a full row takes nothing.
    */
   adoptStored(image: { entry: ImageRefEntry; name: string; previewUrl: string; browser?: BrowserShot }): boolean
+  /**
+   * Puts images the server already stored, by ref, in the row as done chips
+   * — a session's attachments carried into New Session (spec
+   * 2026-11-09-worktree-setup-in-background-design § Ways out). Returns the
+   * chips' ids, for whoever has to take them back out.
+   */
+  adoptRefs(refs: readonly string[]): string[]
   remove(id: string): void
   retry(id: string): void
   /**
@@ -353,9 +361,9 @@ export function useAttachments(
     [foreign, showRefusal, startUpload, sync],
   )
 
-  const adoptStored = useCallback(
-    (image: { entry: ImageRefEntry; name: string; previewUrl: string; browser?: BrowserShot }) => {
-      if (listRef.current.length >= MAX_ATTACHMENTS) return false
+  const adopt = useCallback(
+    (image: { entry: ImageRefEntry; name: string; previewUrl: string; browser?: BrowserShot }): string | null => {
+      if (listRef.current.length >= MAX_ATTACHMENTS) return null
       chipCounter += 1
       const id = `chip:${chipCounter}`
       work.current.set(id, {
@@ -378,9 +386,21 @@ export function useAttachments(
         },
       ]
       sync()
-      return true
+      return id
     },
     [sync],
+  )
+  const adoptStored = useCallback(
+    (image: { entry: ImageRefEntry; name: string; previewUrl: string; browser?: BrowserShot }) => adopt(image) !== null,
+    [adopt],
+  )
+  const adoptRefs = useCallback(
+    (refs: readonly string[]) =>
+      refs.flatMap((ref) => {
+        const id = adopt({ entry: { ref, w: null, h: null, bytes: 0 }, name: 'attachment', previewUrl: apiImagePath(ref) })
+        return id === null ? [] : [id]
+      }),
+    [adopt],
   )
 
   const remove = useCallback(
@@ -468,7 +488,7 @@ export function useAttachments(
   const uploading = items.some((chip) => chip.state === 'uploading')
 
   return useMemo(
-    () => ({ items, refusal, armed, uploading, accept, adoptStored, remove, retry, takeForSend, reset }),
-    [items, refusal, armed, uploading, accept, adoptStored, remove, retry, takeForSend, reset],
+    () => ({ items, refusal, armed, uploading, accept, adoptStored, adoptRefs, remove, retry, takeForSend, reset }),
+    [items, refusal, armed, uploading, accept, adoptStored, adoptRefs, remove, retry, takeForSend, reset],
   )
 }

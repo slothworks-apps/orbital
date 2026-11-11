@@ -73,6 +73,29 @@ function writeUserTranscript(claudeDir: string, id: string, text: string) {
   }));
 }
 
+const PROBE_ID = '99999999-8888-4777-8666-555555555555';
+
+/**
+ * Waits until the server's transcript watch delivers events. macOS starts an
+ * FSEvents stream with a delay that grows with the load on the machine, and a
+ * file written before it runs produces no event at all, so a test that writes
+ * a transcript right after the boot can wait forever for it. The probe is
+ * written again on every try, as the CLI keeps writing, until its session
+ * shows up.
+ */
+async function watchIsLive(app: any) {
+  const pdir = join(app.claudeDir, 'projects', '-w-probe');
+  mkdirSync(pdir, { recursive: true });
+  let n = 0;
+  await vi.waitFor(async () => {
+    writeFileSync(join(pdir, `${PROBE_ID}.jsonl`), JSON.stringify({
+      type: 'user', uuid: `p${n++}`, timestamp: '2026-09-01T10:00:00.000Z', cwd: '/w/probe',
+      message: { role: 'user', content: 'probe' },
+    }));
+    expect((await app.inject({ method: 'GET', url: `/api/sessions/${PROBE_ID}` })).statusCode).toBe(200);
+  }, { timeout: 4_000, interval: 100 });
+}
+
 async function serverWith(
   titleQueryFn: ReturnType<typeof fakeTitleQueryFn> | ReturnType<typeof failingTitleQueryFn>,
   opts: { terminal?: boolean } = {},
@@ -234,6 +257,7 @@ describe('naming a session from its first message', () => {
       const { attach, naming } = await withHarness(app, titleQueryFn);
       // Naming off at launch, so the title is the one derived from the message.
       await app.inject({ method: 'PATCH', url: '/api/settings', payload: { name_sessions_automatically: 'false' } });
+      await watchIsLive(app);
       const id = await launch(app, 'fix the zoom');
       writeUserTranscript(app.claudeDir, id, 'fix the zoom');
       await vi.waitFor(async () => expect((await sessionOf(app, id)).title).toBe('fix the zoom'));

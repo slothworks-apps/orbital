@@ -59,6 +59,12 @@ export interface SessionRow {
   purpose: SessionPurpose | null;
   /** The Claude directory the session belongs to. See db/schema.ts. */
   claude_dir_id: number;
+  /** The session was started with a progress list. See db/schema.ts. */
+  progress_list: boolean;
+  /** When the progress list was frozen by a harness, or null. See db/schema.ts. */
+  progress_frozen_at: number | null;
+  /** The New session dialog's progress list switch at launch, or null. See db/schema.ts. */
+  progress_list_choice: boolean | null;
 }
 
 /**

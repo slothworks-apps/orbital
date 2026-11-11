@@ -60,14 +60,17 @@ import { OutputFollower } from './files/taskOutput.js';
 import { MAX_PROMPT_CHARS, NAME_RULES_KEY, SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { nameBranch } from './worktree/naming.js';
 import { worktreeContextOf } from './worktree/service.js';
+import { SetupStore } from './worktree/setup.js';
 import { HarnessService } from './harness/service.js';
+import { PROGRESS_LIST_ENABLED_KEY, ProgressService } from './progress/service.js';
+import { RewindStore } from './rewind/store.js';
 import { askWatcher } from './harness/watcher.js';
 import { askOnce } from './harness/ask.js';
 import { checkDuplicates, DUPLICATE_CHECK_TIMEOUT_MS, DUPLICATE_SYSTEM_PROMPT, listIssues } from './issues/duplicates.js';
 import { DRAFT_SYSTEM_PROMPT } from './harness/drafter.js';
 import { askReviewer } from './harness/reviewer.js';
 import { gateOf } from './harness/logic.js';
-import type { HarnessGate } from './harness/types.js';
+import type { HarnessGate, SessionHarness } from './harness/types.js';
 import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { composeAppendix } from './runner/sessionInstructions.js';
 import { ModelCatalog, catalogKeyFor, recordContextWindows } from './models/catalog.js';
@@ -469,6 +472,9 @@ export async function buildServer(overrides: {
       }),
   });
   limits.load();
+  // The worktree launches' setups (spec 2026-11-09-worktree-setup-in-background-design);
+  // one the previous server left half done is rolled back once the routes can run it.
+  const setups = new SetupStore(db);
 
   // Every session's subagents, keyed by session — running and ended alike,
   // since the subagent list keeps finished rows (subagent list spec § 5). Read back
@@ -536,7 +542,7 @@ export async function buildServer(overrides: {
     transcriptPath: (id, projectDir, claudeDirId) => transcriptPath(id, projectDir, claudeDirId),
     git,
   });
-  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits, logins, trees });
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits, logins, trees, progress, setups });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
   const rowOf = (sessionId: string): SessionRow | undefined =>
     db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get();
@@ -632,6 +638,32 @@ export async function buildServer(overrides: {
   // use of it here runs after it exists.
   /** The gate each session's harness last stood at, to republish only when it flips. */
   const harnessGates = new Map<string, HarnessGate | null>();
+  /** Whether each session last had a live harness: attaching one freezes a progress list. */
+  const harnessesAttached = new Map<string, boolean>();
+  /** The freeze each session's attach recorded in this process, so a discarded attach can take it back. */
+  const frozenByAttach = new Map<string, number>();
+  /**
+   * A harness attached to a session with a progress list freezes the list,
+   * for good (spec 2026-11-09-progress-list-design § Turning it on): the
+   * first attach's time is kept, whatever becomes of the harness. An attach
+   * discarded before it reached the session (no harness row left at all)
+   * takes back the freeze it recorded.
+   */
+  const recordProgressFreeze = (sessionId: string, h: SessionHarness | null) => {
+    if (h) {
+      const frozen = db.update(sessions).set({ progressFrozenAt: h.createdAt })
+        .where(and(eq(sessions.id, sessionId), eq(sessions.progressList, true), isNull(sessions.progressFrozenAt)))
+        .run();
+      if (frozen.changes > 0) frozenByAttach.set(sessionId, h.createdAt);
+      return;
+    }
+    const at = frozenByAttach.get(sessionId);
+    frozenByAttach.delete(sessionId);
+    if (at === undefined || harness.get(sessionId) || harness.removed(sessionId)) return;
+    db.update(sessions).set({ progressFrozenAt: null })
+      .where(and(eq(sessions.id, sessionId), eq(sessions.progressFrozenAt, at)))
+      .run();
+  };
   const harness: HarnessService = new HarnessService({
     db,
     isEnabled: () => settingsStore.get('harness_enabled') === 'true',
@@ -668,9 +700,14 @@ export async function buildServer(overrides: {
       hub.publish(`session:${sessionId}`, { event: 'harness', harness: h });
       // A gate waiting or being reviewed is the session's state (spec
       // 2026-10-02-harness-redesign-design § 2): republish the session when it flips.
+      // So is a harness attached or removed: it freezes the session's progress
+      // list, or lets it go (spec 2026-11-09-progress-list-design).
       const gate = h ? gateOf(h) : null;
-      if ((harnessGates.get(sessionId) ?? null) !== gate) {
+      const attached = h !== null;
+      if ((harnessGates.get(sessionId) ?? null) !== gate || (harnessesAttached.get(sessionId) ?? false) !== attached) {
+        if ((harnessesAttached.get(sessionId) ?? false) !== attached) recordProgressFreeze(sessionId, h);
         harnessGates.set(sessionId, gate);
+        harnessesAttached.set(sessionId, attached);
         republish(sessionId);
       }
     },
@@ -865,9 +902,10 @@ export async function buildServer(overrides: {
     // resumes included, so nothing about it is stored (spec
     // 2026-11-02-work-in-a-worktree-design § What the session is told). A
     // session without a row yet is in the directory it starts in.
-    appendix: ({ sessionId, cwd }) => {
+    appendix: ({ sessionId, cwd, progressList }) => {
       const row = rowOf(sessionId);
       return composeAppendix({
+        progressList: progress.instructs(sessionId, progressList),
         tipsOn: settingsStore.get('session_instructions_tips') !== 'false',
         commentary: settingsStore.get('narrate_commentary') === 'true',
         customOn: settingsStore.get('session_instructions_custom') !== 'false',
@@ -886,6 +924,8 @@ export async function buildServer(overrides: {
         if (clearCompactionFailure(sessionId)) republish(sessionId);
       }
       hub.publish('sessions', { event: 'status', sessionId, status });
+      // A setup's queue waiting for the first turn to end looks again at every edge.
+      setups.settled(sessionId);
     },
     // The claim that survives a kill: written on every change, cleared only
     // when the process stops. A `tsx watch` restart never reaches the clear,
@@ -893,7 +933,10 @@ export async function buildServer(overrides: {
     // (spec 2026-09-21-session-autoheal-design).
     onOwnership: (sessionId, status) => {
       db.update(sessions).set({ runnerStatus: status }).where(eq(sessions.id, sessionId)).run();
-      if (status === null) released(sessionId);
+      if (status === null) {
+        released(sessionId);
+        setups.settled(sessionId);
+      }
       // The session's live feed changes hands with its owner: the Runner's
       // stream while it holds the session, a transcript tail while it does
       // not (adr: the-tail-yields-to-the-runner). `startTail`/`stopTail` are
@@ -955,8 +998,11 @@ export async function buildServer(overrides: {
     // background tasks still running is working, not waiting for the human
     // (fix: `a-turn-that-launched-an-agent-reads-as-needs-input`; spec
     // 2026-09-28-background-tasks-design § 2 "Working while a task runs").
-    // The harness's checklist tools and `browser_screenshot`, each for as long as its feature is on.
-    sessionTools: (sessionId) => mergeSessionTools(harness.tools(sessionId), browserSessionTools(browser)),
+    // The harness's checklist tools, `browser_screenshot`, and a progress
+    // list's `progress_write`, each for as long as its feature is on.
+    sessionTools: (sessionId, { progressList }) => mergeSessionTools(
+      harness.tools(sessionId), browserSessionTools(browser), progress.sessionTools(sessionId, progressList),
+    ),
     // The step commits the harness asks for, while commit-per-step is on.
     autoAllow: (sessionId, toolName, input) => harness.allowsWithoutAsking(sessionId, toolName, input),
     hasLiveBackgroundWork: (sessionId) => holdsWorking(sessionId),
@@ -974,7 +1020,10 @@ export async function buildServer(overrides: {
     // `working`; and the republish is what carries `awaitingSubagents` to the
     // map, since neither edge necessarily moves the status at all.
     onTurnBoundary: (sessionId, ended) => {
-      if (ended) harness.onTurnEnd(sessionId);
+      if (ended) {
+        harness.onTurnEnd(sessionId);
+        setups.settled(sessionId);
+      }
       // A turn the CLI started by itself is a next turn too, and it moves no
       // status for `onStatus` above to see. Any next turn, the user's or
       // not, also takes the session off a login's continuation list.
@@ -986,7 +1035,10 @@ export async function buildServer(overrides: {
     },
     // Both edges of a parked question, for the map: `pendingDecision` rides
     // the snapshot, and it is what separates NEEDS INPUT from DONE.
-    onDecision: (sessionId) => republish(sessionId),
+    onDecision: (sessionId) => {
+      republish(sessionId);
+      setups.settled(sessionId);
+    },
     // Usage limits: every event reads the limits again, a turn ended on the
     // limit may become a wait, and a waiting session settles to `idle`.
     onRateLimit: (sessionId, info) => limits.rateLimitEvent(sessionId, info),
@@ -1105,6 +1157,20 @@ export async function buildServer(overrides: {
     return row ? transcriptPath(id, row.project_dir, row.claude_dir_id) : null;
   };
 
+  // The progress lists of the sessions started with one (spec
+  // 2026-11-09-progress-list-design), read from their transcripts and kept
+  // up to date by the calls the tool accepts. The branch they follow is the
+  // one the messages route presents, a rewind's cut included.
+  const progressRewinds = new RewindStore(db);
+  const progress = new ProgressService({
+    isEnabled: () => settingsStore.get(PROGRESS_LIST_ENABLED_KEY) === 'true',
+    frozenAt: (sessionId) =>
+      db.select({ at: sessions.progressFrozenAt }).from(sessions).where(eq(sessions.id, sessionId)).get()?.at ?? null,
+    transcriptPathOf,
+    rewindCut: (sessionId) => progressRewinds.cutTarget(sessionId),
+    onChange: (sessionId) => republish(sessionId),
+  });
+
   /**
    * Settings → General → "Delete sessions older than" (spec
    * 2026-09-21-settings-sections-design § 4). Runs at boot and again whenever
@@ -1121,6 +1187,8 @@ export async function buildServer(overrides: {
     const now = Date.now();
     const cutoff = retentionCutoff(parseRetentionDays(settingsStore.get(RETENTION_KEY)), now);
     const swept = sweepSessions(db, cutoff, now);
+    // Their setup rows went with them; a queue still being handed over stops.
+    setups.forget(swept);
     for (const id of swept) hub.publish('sessions', { event: 'remove', sessionId: id });
     return swept;
   }
@@ -1366,6 +1434,8 @@ export async function buildServer(overrides: {
         // `publishSession`, which the store's own change republishes through and
         // would feed back into a recount.
         const ids = batchSessionIds(batch);
+        // A rewind's new branch landing moves the progress list it follows.
+        progress.transcriptsWritten(ids);
         if (ids === null) {
           branchStatus.transcriptActivityAnywhere();
           republishMoved(trees.shapedSessions());
@@ -1446,6 +1516,12 @@ export async function buildServer(overrides: {
   // stood at `working` was cut off mid-turn, which is what `interrupted_at`
   // records — stamped first, while the flag still says so.
   const bootedAt = Date.now();
+  // A claim on a session whose setup had not yet written `sessionStarted`:
+  // the process did start, in its worktree, which the setup's recovery
+  // must not roll back from under it.
+  for (const { id } of db.select({ id: sessions.id }).from(sessions).where(isNotNull(sessions.runnerStatus)).all()) {
+    setups.claimedBeforeStop(id);
+  }
   db.update(sessions)
     .set({ interruptedAt: bootedAt })
     .where(eq(sessions.runnerStatus, 'working'))
@@ -1682,7 +1758,7 @@ export async function buildServer(overrides: {
   registerBrowserRoutes(app, browser);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
-    images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
+    images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees, progress,
     foreign, browser,
     // About no session: the default directory's account, as the harness drafter.
     // Bounded: a stuck call would otherwise keep its `claude` process and the
@@ -1720,6 +1796,7 @@ export async function buildServer(overrides: {
     mcpFor,
     limits,
     logins,
+    setups,
     controlKey,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,

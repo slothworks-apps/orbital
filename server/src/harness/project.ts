@@ -5,7 +5,8 @@
  * outside git, the directory itself.
  */
 
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { resolveGitDirs } from '../git/gitState.js';
 import type { HarnessProject } from './types.js';
 
@@ -24,6 +25,36 @@ export function projectRootOf(cwd: string): string {
   if (!linked) return dirs.root;
   // `<repo>/.git` → `<repo>`; a bare repository has no working tree, so its git dir names it.
   return basename(dirs.commonDir) === '.git' ? dirname(dirs.commonDir) : dirs.commonDir;
+}
+
+/**
+ * A path through symlinks, as far as it exists: its nearest existing
+ * ancestor is resolved and the missing rest kept as written. A removed
+ * worktree's path still names the repository it was under, and `/tmp/x`
+ * and `/private/tmp/x` come out the same.
+ */
+export function canonicalPath(path: string): string {
+  const absolute = resolve(path);
+  let dir = absolute;
+  for (;;) {
+    try {
+      const real = realpathSync.native(dir);
+      return dir === absolute ? real : join(real, relative(dir, absolute));
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return absolute;
+      dir = parent;
+    }
+  }
+}
+
+/**
+ * `projectRootOf` for a path that may have gone away or run through a
+ * symlink, in one spelling: what a stored session cwd and a launch's
+ * directory are compared in.
+ */
+export function canonicalProjectRoot(cwd: string): string {
+  return canonicalPath(projectRootOf(canonicalPath(cwd)));
 }
 
 /** The name a project is shown under: its directory's basename. */

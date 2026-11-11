@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode, RefObject } from 'react'
 import { api } from '../lib/api'
 import { detachSession, hasDesktopBridge, openInMainWindow } from '../lib/desktop'
 import { shortenPath } from '../lib/format'
 import { useCommand } from '../lib/commands'
 import { headerLineChanges, headerPullRequest, useOrbital } from '../store/store'
-import { workingDirOf } from '../lib/types'
+import { pendingSetup, workingDirOf } from '../lib/types'
+import { discardLabel, setupGit } from '../lib/setup'
 import type { ApiSession, WalkthroughSummary } from '../lib/types'
 import { MENU_SEPARATOR, MenuButton } from '../ui/Menu'
 import type { MenuEntry } from '../ui/Menu'
@@ -335,12 +336,17 @@ export function UtilityStrip({
     if (session) useOrbital.getState().openHarness(session.id)
   }
 
+  // A worktree launch not started yet has nothing to measure, steer or
+  // clear (canvas 66c STRIP): left out, not greyed. End stays, as discard.
+  const setup = session ? pendingSetup(session) : null
+  // Where it will work: the branch it is getting, or what stands in for one (66c `panel()`).
+  const settingUpGit = useMemo(() => (setup ? setupGit(setup) : null), [setup])
   const present: StripPresence = {
-    stats: Boolean(session) && statsVariant === 'button',
-    harness: harness === null,
+    stats: Boolean(session) && statsVariant === 'button' && !setup,
+    harness: harness === null && !setup,
     pin: Boolean(session),
     // Clear and End are Orbital's own: it does not own a terminal's process.
-    clear: session?.source === 'web',
+    clear: session?.source === 'web' && !setup,
     end: session?.source === 'web' && session.status !== 'ended',
     // Desktop only — a browser cannot focus or close the window it would open.
     detach: Boolean(session) && !standalone && hasDesktopBridge(),
@@ -441,7 +447,8 @@ export function UtilityStrip({
         ref={cellRef}
         path={session ? shortenPath(workingDirOf(session)) : ''}
         fullPath={session ? workingDirOf(session) : ''}
-        git={session?.git ?? null}
+        git={settingUpGit?.git ?? session?.git ?? null}
+        standIn={settingUpGit?.standIn}
         sessionId={session?.id ?? null}
         panelWidthPx={pathBudgetPx}
         cellWidthPx={cellPx}
@@ -514,7 +521,8 @@ export function UtilityStrip({
             'harness',
             <Tooltip
               variant="name"
-              title="Start a harness"
+              // 67h 8: a harness freezes the session's progress list, and the button says so.
+              title={session?.progress ? 'Start a harness · the progress list freezes' : 'Start a harness'}
               shortcut="session.harness"
               align="right"
               delayMs={PIN_TOOLTIP_DELAY_MS}
@@ -571,17 +579,32 @@ export function UtilityStrip({
         {present.end &&
           seat(
             'end',
-            <Tooltip
-              title="End session"
-              shortcut="session.end"
-              description="Stops the agent and moves the session to history."
-              align="right"
-              delayMs={PIN_TOOLTIP_DELAY_MS}
-            >
-              <UtilityButton aria-label="End session" onClick={onEnd}>
-                <EndGlyph />
-              </UtilityButton>
-            </Tooltip>,
+            setup ? (
+              // 66c: before the session runs, the tooltip is the word alone.
+              <Tooltip
+                variant="name"
+                title={discardLabel(setup)}
+                shortcut="session.end"
+                align="right"
+                delayMs={PIN_TOOLTIP_DELAY_MS}
+              >
+                <UtilityButton aria-label={discardLabel(setup)} onClick={onEnd}>
+                  <EndGlyph />
+                </UtilityButton>
+              </Tooltip>
+            ) : (
+              <Tooltip
+                title="End session"
+                shortcut="session.end"
+                description="Stops the agent and moves the session to history."
+                align="right"
+                delayMs={PIN_TOOLTIP_DELAY_MS}
+              >
+                <UtilityButton aria-label="End session" onClick={onEnd}>
+                  <EndGlyph />
+                </UtilityButton>
+              </Tooltip>
+            ),
           )}
         {/* The ⋯ (23c form 4), mounted whenever the strip can fold so that
             folding has a seat to grow. No tooltip: the menu under it names

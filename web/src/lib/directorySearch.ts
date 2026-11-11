@@ -6,6 +6,12 @@ export interface DirectoryRow {
   cwd: string
   lastModel: string | null
   lastAt: number | null
+  /**
+   * Whether the newest Orbital session started here had a progress list:
+   * New session's switch remembers it per directory (spec
+   * 2026-11-09-progress-list-design). Absent from a Mac older than the feature.
+   */
+  lastProgressList?: boolean
 }
 
 /** How many directories the list shows before anything is typed. */

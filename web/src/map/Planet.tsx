@@ -3,7 +3,7 @@ import { type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
-import { gateWaits, loginLost, sessionStateKey, shownStatus, statePill, type SessionStateKey } from '../lib/types'
+import { gateWaits, loginLost, sessionStateKey, statePill, type SessionStateKey } from '../lib/types'
 import {
   OFFLINE_STATE_INK,
   stateBorder,
@@ -16,6 +16,7 @@ import { StateDot } from '../ui/StateDot'
 import {
   BADGE_OFFSET_X,
   BADGE_OFFSET_Y,
+  BLINK_DEPTH,
   BODY_RADIUS,
   BRACKET_INSET,
   COMPACT_BADGE_OFFSET_X,
@@ -41,6 +42,9 @@ import {
   easeOut,
   labelRestY,
   oscillate,
+  PROGRESS_FIGURE_GAP_PX,
+  PROGRESS_FIGURE_TRACKING_EM,
+  progressFigurePx,
   truncateLabel,
   typedLabel,
   LIMIT_PILL_BORDER_PX,
@@ -52,6 +56,7 @@ import {
   LIMIT_PILL_PAD_X_PX,
   LIMIT_PILL_PAD_Y_PX,
   LIMIT_PILL_TRACKING_EM,
+  planetStateOf,
 } from './visuals'
 import { limitPillText } from '../lib/limits'
 import {
@@ -62,6 +67,7 @@ import {
   RETICLE_ENTER_MS,
   RETICLE_EXIT_MS,
   RETICLE_LINGER_GRACE_MS,
+  SETUP_READY_MS,
   STATE_TRANSITION_MS,
   advancePointTween,
   advanceStateMix,
@@ -157,6 +163,8 @@ const BORDER_OUTER = px(50.5)
 const BORDER_OPACITY_ACTIVE = 0.6
 const BORDER_OPACITY_IDLE = 0.45
 const BORDER_OPACITY_ENDED = 0.35
+/** 66b `planet('prep')` and `planet('failed')`: `1px solid hue/.14`. */
+const BORDER_OPACITY_FAINT = 0.14
 
 /**
  * Working body's `inset 0 0 0 6px` rim inside the edge, in `void`: at .25 on a
@@ -206,8 +214,6 @@ const ARC_COUNT = 4
 const ARC_SWEEP_DEG = 60
 const ARC_PITCH_DEG = 90
 
-/** `orb-blink` keyframes: opacity 1 → .3 → 1. */
-const BLINK_DEPTH = 0.7
 
 /** `orb-pulse-out 2.4s ease-out`: scale 1 → 1.9, opacity .9 → 0, at the idle tick ring's radius (inset -21).
  * Amber `--state-input` (the palette's `warning`), not white: the ring says "you are
@@ -290,6 +296,8 @@ const LABEL_COLOR_ACTIVE = swatch('ink-200', 0.85)
 const LABEL_COLOR_DIMMED = swatch('ink-900', 0.6)
 /** Family line under the title (canvas 4a). Subordinate to the name in both states. */
 const LABEL_MODEL_COLOR = swatch('ink-900', 0.7)
+/** 67e: `rgba(160,190,225,.72)`. */
+const PROGRESS_FIGURE_COLOR = swatch('ink-900', 0.72)
 
 /**
  * Hover-expanded label (idea doc `expand-a-planet-label-on-hover`). The
@@ -580,6 +588,8 @@ export interface PlanetProps {
   dated?: boolean
   /** The login pill under the name (`ScenePlanet.loginPill`), drawn as the limit's is. */
   loginPill?: string | null
+  /** The progress list's figure after the name (`ScenePlanet.progressFigure`, canvas 67e), or null. */
+  progressFigure?: string | null
   /**
    * The session's device is offline (`ScenePlanet.offline`): the planet keeps
    * its last state at `OFFLINE_OPACITY` and holds still — no spin, no blink,
@@ -1539,6 +1549,7 @@ function PlanetBody({
   secondLine = null,
   dated = false,
   loginPill = null,
+  progressFigure = null,
   offline = false,
   deviceOff = false,
   labelTitlePx = 11,
@@ -1569,14 +1580,17 @@ function PlanetBody({
   if (compactingSince !== null) compactingSinceRef.current = compactingSince
   const compactEdgeRef = useRef(compacting)
   const compactEdge = compactEdgeRef.current !== compacting
-  const mix = useStateMix(
-    PLANET_STATES,
-    // A login being restored rests as a limit wait does (`shownStatus`).
-    compacting ? 'idle' : shownStatus(session),
-    compactEdge ? COMPACTING_SWITCH_MS : STATE_TRANSITION_MS,
-  )
+  // A login being restored rests as a limit wait does (`shownStatus`); a
+  // worktree still being made is drawn as its setup (`planetStateOf`).
+  const planetState = compacting ? 'idle' : planetStateOf(session)
+  // Born out of SETTING UP: the one slower change of 66a, size included.
+  const bornRef = useRef(planetState)
+  const born = bornRef.current === 'setting_up' && planetState !== 'setting_up'
+  const stateMs = compactEdge ? COMPACTING_SWITCH_MS : born ? SETUP_READY_MS : STATE_TRANSITION_MS
+  const mix = useStateMix(PLANET_STATES, planetState, stateMs)
   useLayoutEffect(() => {
     compactEdgeRef.current = compacting
+    bornRef.current = planetState
   })
   const compactFade = useFadeTween(compacting, COMPACTING_SWITCH_MS, COMPACTING_SWITCH_MS)
   const compactingPillMounted = useLingering(compacting, COMPACTING_SWITCH_MS)
@@ -1585,7 +1599,7 @@ function PlanetBody({
   // curve and duration as the material crossfade — un-tweened it snapped the
   // body size in one frame and masked the whole transition
   // (docs/fixes/state-change-snaps-the-planet-scale.md).
-  const scaleTween = useScaleTween(scale)
+  const scaleTween = useScaleTween(scale, born ? SETUP_READY_MS : STATE_TRANSITION_MS)
   // Retagging moves the session into another cluster and renumbers both
   // spirals, so the planet walks there rather than cutting.
   const move = usePointTween(x, y)
@@ -1867,6 +1881,9 @@ function PlanetBody({
       muteFade.value,
     )
     const idleShare = w.idle + w.needs_input
+    // A worktree launch not started: the body under 66b's dark wash, its
+    // share of the flat fill by weight and its strength by `faintOp`.
+    const faintShare = w.setting_up + w.not_started
     // Glows paint on a dark theme only (1l `--glow-k`); a light one draws an
     // edge and a shadow instead.
     const glowK = palette.glowK
@@ -1894,9 +1911,13 @@ function PlanetBody({
     materials.coreHollow.color.copy(hueC)
 
     if (hasBodyTextures) {
-      // Bottom-to-top: flat ended fill, idle gradient, working gradient.
-      const alphas = stackAlphas([w.ended, idleShare, w.working], bodyAlphas.current)
-      materials.bodyEnded.opacity = alphas[0] * DIMMED_OPACITY * fade
+      // Bottom-to-top: flat ended fill, idle gradient, working gradient. The
+      // dark wash of a planet not started is the ended fill without the
+      // ended wrapper's dimming (66b `faintOp` over the body).
+      const flatShare = w.ended + faintShare
+      const alphas = stackAlphas([flatShare, idleShare, w.working], bodyAlphas.current)
+      const flatOpacity = flatShare > 1e-6 ? (w.ended * DIMMED_OPACITY + b.faint) / flatShare : DIMMED_OPACITY
+      materials.bodyEnded.opacity = alphas[0] * flatOpacity * fade
       materials.bodyEnded.visible = alphas[0] > 0.001
       materials.bodyIdle.opacity = alphas[1] * fade
       materials.bodyIdle.visible = alphas[1] > 0.001
@@ -1924,7 +1945,8 @@ function PlanetBody({
     materials.border.opacity =
       (w.working * BORDER_OPACITY_ACTIVE +
         idleShare * BORDER_OPACITY_IDLE +
-        w.ended * BORDER_OPACITY_ENDED) *
+        w.ended * BORDER_OPACITY_ENDED +
+        faintShare * BORDER_OPACITY_FAINT) *
       b.dim *
       fade
 
@@ -2507,6 +2529,21 @@ function PlanetBody({
                   </span>
                 )}
                 {truncateLabel(session.title)}
+                {progressFigure && (
+                  // 67e: the figure after the cut name, in the second line's
+                  // muted ink; it hides with the label and never takes a colour.
+                  <span
+                    data-progress-figure
+                    style={{
+                      marginLeft: dirMark ? PROGRESS_FIGURE_GAP_PX - MAP_MARK_GAP_PX : PROGRESS_FIGURE_GAP_PX,
+                      fontSize: progressFigurePx(labelTitlePx),
+                      letterSpacing: `${PROGRESS_FIGURE_TRACKING_EM}em`,
+                      color: dimmedLabel ? LABEL_COLOR_DIMMED : PROGRESS_FIGURE_COLOR,
+                    }}
+                  >
+                    {progressFigure}
+                  </span>
+                )}
               </span>
               {limitPill !== null ? (
                 // `Feature - Plan limits` 31b/31d: a session waiting for a
@@ -2643,6 +2680,19 @@ function PlanetBody({
                 <span ref={overlayCursorRef} style={{ display: 'none' }}>
                   ▌
                 </span>
+                {/* 67e: hovering brings the whole label back, the figure with it. */}
+                {progressFigure && (
+                  <span
+                    style={{
+                      marginLeft: PROGRESS_FIGURE_GAP_PX,
+                      fontSize: progressFigurePx(labelTitlePx),
+                      letterSpacing: `${PROGRESS_FIGURE_TRACKING_EM}em`,
+                      color: PROGRESS_FIGURE_COLOR,
+                    }}
+                  >
+                    {progressFigure}
+                  </span>
+                )}
               </span>
             </Html>
           )}

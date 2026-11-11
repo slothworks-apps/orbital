@@ -36,6 +36,8 @@ export const SHARED_SETTING_KEYS: readonly string[] = [
   // Which releases every Mac, server and phone of the group takes (spec 2026-11-02-experimental-release-channel-design).
   'update_channel',
   'worktree_auto_on_when_occupied',
+  // Labs (spec 2026-11-09-progress-list-design).
+  'progress_list_enabled',
 ];
 
 /**

@@ -4,6 +4,8 @@ import type { ComposerTarget } from '../lib/questionCard'
 import { isRewindCommand } from '../lib/rewind'
 import { formatResetAt } from '../lib/limits'
 import type { LimitWait, PendingDecision } from '../lib/types'
+import type { SessionSetup } from '@orbital/shared/worktree'
+import { setupComposer } from '../lib/setup'
 import type { Toast } from '../store/store'
 
 /**
@@ -46,6 +48,8 @@ export function composerPlaceholder(input: {
   /** The step a Reopen left to the user (1-based), or null. */
   reopenStep?: number | null
   limitWait?: Pick<LimitWait, 'resetsAt'> | null
+  /** A worktree launch not started yet: what is written is queued (canvas 66d). */
+  setup?: Pick<SessionSetup, 'phase'> | null
   now?: number
 }): { text: string; answering: boolean } {
   const { pending, target } = input
@@ -64,6 +68,7 @@ export function composerPlaceholder(input: {
     return { text: composerPlaceholderFor(pending.kind), answering: true }
   }
   if (input.reopenStep != null) return { text: `What should change in step ${input.reopenStep}?`, answering: false }
+  if (input.setup && input.setup.phase !== 'ready') return { text: setupComposer(input.setup).placeholder, answering: false }
   if (input.limitWait) {
     return { text: `Queue a message for ${formatResetAt(input.limitWait.resetsAt, input.now)}…`, answering: false }
   }

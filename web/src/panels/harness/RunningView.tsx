@@ -29,7 +29,8 @@ import {
   stepWho,
   type StepKind,
 } from './model'
-import { AccentLink, FilledButton, HeadButton, HeaderBlock, Kicker, Label, Marker, OutlineButton, ScopeChip, Switch, type Chrome } from './parts'
+import { AccentLink, FilledButton, HeadButton, HeaderBlock, Kicker, Label, Marker, OutlineButton, ScopeChip, type Chrome } from './parts'
+import { Switch } from '../../ui/Switch'
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 

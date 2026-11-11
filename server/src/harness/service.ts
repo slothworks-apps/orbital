@@ -13,6 +13,7 @@ import { verifyShell } from '../env/shell.js';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { and, desc, eq, gte, isNull, lt, ne } from 'drizzle-orm';
 import { z } from 'zod';
+import type { DeliveryOutcome } from '../api/delivery.js';
 import type { OrbitalDb } from '../db/database.js';
 import {
   harnessEvents, harnessInterviews, harnessMessages, harnessTemplates, sessionHarnesses, sessions,
@@ -20,7 +21,7 @@ import {
 import type { SessionTools } from '../runner/runner.js';
 import { ORBITAL_MCP_SERVER as HARNESS_MCP_SERVER } from '../runner/spawnTool.js';
 import { derivedTitle } from '../transcript/parser.js';
-import type { ChatMessage } from '../types.js';
+import type { ChatMessage, ImageRefEntry } from '../types.js';
 import {
   activeIndex, advanceMessage, approve, checklistLines, decideTurnEnd, goBack, initialState, kickoffMessage, namingSubject,
   normalizeOptions, nudgeMessage, patchStep, reviewerReopen, reviewerReopenMessage, reviewerTakes, snapshotSteps,
@@ -33,7 +34,7 @@ import type {
 import { buildReviewPrompt, parseReviewReply } from './reviewer.js';
 import { buildWatcherPrompt, parseWatcherReply } from './watcher.js';
 import { TEMPLATE_GUIDE, buildDraftPrompt, digestTranscript, draftTemplate, type ParsedDraft } from './drafter.js';
-import { projectName, projectOf, projectRootOf } from './project.js';
+import { canonicalProjectRoot, projectName, projectOf, projectRootOf } from './project.js';
 
 const TOOL_STATUS = 'harness_status';
 const TOOL_COMPLETE = 'harness_complete_step';
@@ -85,7 +86,7 @@ export interface VerifyResult {
 
 /** What a delivery into a session did, and the uuid of the user entry it became. */
 export interface Delivery {
-  outcome: 'sent' | 'revived' | 'not_found' | 'terminal';
+  outcome: DeliveryOutcome;
   uuid: string | null;
 }
 
@@ -134,12 +135,22 @@ export interface HarnessDeps {
   /** Pushes the session's harness (or its removal) to the panel. */
   publish(sessionId: string, harness: SessionHarness | null): void;
   /** Announces a message Orbital sent on the harness's account, for the live transcript. */
-  publishMessage?(sessionId: string, message: { uuid: string; kind: HarnessMessageKind; step: number; text: string; at: number }): void;
+  publishMessage?(sessionId: string, message: HarnessMessageEvent): void;
   onError?(sessionId: string, err: unknown, during: string): void;
   runVerify?(cwd: string, command: string): Promise<VerifyResult>;
   now?(): number;
   /** Deferral for the turn-end work, so the Runner's frame handling finishes first. Tests pass a sync one. */
   defer?: (fn: () => void) => void;
+}
+
+/**
+ * The `harness_message` event: a message Orbital sent on the harness's
+ * account. `images` only on a launch's kickoff that carried attachments, in
+ * the shape a transcript user turn carries them, so the live row shows them
+ * before the session's echo arrives.
+ */
+export interface HarnessMessageEvent {
+  uuid: string; kind: HarnessMessageKind; step: number; text: string; at: number; images?: ImageRefEntry[];
 }
 
 /** What a template is saved from: the editor's document, the drafter's, or the save tool's. */
@@ -271,6 +282,13 @@ function cleanBody(body: Partial<TemplateBody>) {
   };
 }
 
+/** A template's inputs as filled in, and its steps with them: what a session's harness is a snapshot of. */
+function snapshotOf(template: HarnessTemplate, inputs: Record<string, string>): { values: Record<string, string>; steps: HarnessStep[] } {
+  const values: Record<string, string> = {};
+  for (const input of template.inputs) values[input.key] = (inputs[input.key] ?? '').trim();
+  return { values, steps: snapshotSteps(template.steps, values) };
+}
+
 /** The step's state without the review's live marks. */
 function stripReviewing(state: StepState[], index: number): StepState[] {
   return state.map((s, j) => {
@@ -337,10 +355,43 @@ export class HarnessService {
    * (spec 2026-10-02-harness-redesign-design, 30c).
    */
   templatesForSession(sessionId: string): { project: HarnessProject | null; templates: HarnessTemplate[] } {
-    const cwd = this.deps.cwdOf(sessionId);
+    return this.templatesForCwd(this.deps.cwdOf(sessionId));
+  }
+
+  /** The same offer for a directory no session runs in yet: what New session lists (spec 2026-11-09-harness-from-new-session-design). */
+  templatesForCwd(cwd: string | undefined): { project: HarnessProject | null; templates: HarnessTemplate[] } {
     const project = cwd ? projectOf(cwd) : null;
     const own = project ? this.listTemplates({ scope: { project: project.root }, savedOnly: true }) : [];
     return { project, templates: [...own, ...this.listTemplates({ scope: 'global', savedOnly: true })] };
+  }
+
+  /**
+   * The template of the latest harness put into a session of the project at
+   * `root`, removed ones included, or null when none was. Reads the newest
+   * `PROJECTS_SCAN_ROWS` harnesses at most. Both sides are compared through
+   * `canonicalProjectRoot`: a session's worktree may be gone by now, and a
+   * stored cwd may spell a symlinked path the other way.
+   */
+  lastTemplateIn(root: string): number | null {
+    const target = canonicalProjectRoot(root);
+    const rows = this.deps.db
+      .select({ templateId: sessionHarnesses.templateId, cwd: sessions.cwd })
+      .from(sessionHarnesses)
+      .innerJoin(sessions, eq(sessions.id, sessionHarnesses.sessionId))
+      .orderBy(desc(sessionHarnesses.createdAt))
+      .limit(PROJECTS_SCAN_ROWS)
+      .all();
+    const rootOfCwd = new Map<string, string>();
+    for (const { templateId, cwd } of rows) {
+      if (!cwd) continue;
+      let rowRoot = rootOfCwd.get(cwd);
+      if (rowRoot === undefined) {
+        rowRoot = canonicalProjectRoot(cwd);
+        rootOfCwd.set(cwd, rowRoot);
+      }
+      if (rowRoot === target) return templateId;
+    }
+    return null;
   }
 
   /**
@@ -564,9 +615,7 @@ export class HarnessService {
     if (this.get(sessionId)) return { ok: false, status: 409, error: 'this session already has a harness' };
     const template = this.getTemplate(templateId);
     if (!template) return { ok: false, status: 404, error: 'template not found' };
-    const values: Record<string, string> = {};
-    for (const input of template.inputs) values[input.key] = (inputs[input.key] ?? '').trim();
-    const steps = snapshotSteps(template.steps, values);
+    const { values, steps } = snapshotOf(template, inputs);
     const now = this.now();
     this.deps.db.delete(sessionHarnesses).where(eq(sessionHarnesses.sessionId, sessionId)).run();
     const row = this.deps.db
@@ -584,8 +633,36 @@ export class HarnessService {
     return { ok: true, value: { harness, kickoff, subject: namingSubject(harness, template.inputs) } };
   }
 
-  /** Undoes an attach that never reached the session: no record is kept of a harness that never ran. */
+  /**
+   * What `attach` would name a session from, written nowhere: a launch names
+   * its worktree's branch before the session exists.
+   */
+  preview(templateId: number, inputs: Record<string, string>): Result<{ subject: string }> {
+    const template = this.getTemplate(templateId);
+    if (!template) return { ok: false, status: 404, error: 'template not found' };
+    const { values, steps } = snapshotOf(template, inputs);
+    const subject = namingSubject({ name: template.name, steps, inputs: values, state: initialState(steps) }, template.inputs);
+    return { ok: true, value: { subject } };
+  }
+
+  /**
+   * Undoes an attach that never reached the session: no record is kept of a
+   * harness that never ran — its row, and its log from its `attached` event
+   * on. A removed harness the session had before keeps its events.
+   */
   discard(sessionId: string): void {
+    const attached = this.deps.db
+      .select({ id: harnessEvents.id })
+      .from(harnessEvents)
+      .where(and(eq(harnessEvents.sessionId, sessionId), eq(harnessEvents.kind, 'attached')))
+      .orderBy(desc(harnessEvents.id))
+      .limit(1)
+      .get();
+    if (attached) {
+      this.deps.db.delete(harnessEvents)
+        .where(and(eq(harnessEvents.sessionId, sessionId), gte(harnessEvents.id, attached.id)))
+        .run();
+    }
     this.deps.db.delete(sessionHarnesses).where(eq(sessionHarnesses.sessionId, sessionId)).run();
     this.tickedThisTurn.delete(sessionId);
     this.deps.publish(sessionId, null);
@@ -895,11 +972,25 @@ export class HarnessService {
     this.sentByUs.set(sessionId, list.slice(-10));
   }
 
+  /**
+   * A harness message that went into the session some other way than `say`:
+   * a launch's first prompt, which the session is started with (spec
+   * 2026-11-09-harness-from-new-session-design § The first message). The
+   * caller noted the text with `noteSent` before the session could echo it.
+   */
+  recordSent(
+    sessionId: string, uuid: string, kind: HarnessMessageKind, step: number, text: string, images?: ImageRefEntry[],
+  ): void {
+    this.recordMessage(sessionId, uuid, kind, step, text, images);
+  }
+
   /** Remembers which user entry a harness message became, so the transcript can tell it apart. */
-  private recordMessage(sessionId: string, uuid: string, kind: HarnessMessageKind, step: number, text: string): void {
+  private recordMessage(
+    sessionId: string, uuid: string, kind: HarnessMessageKind, step: number, text: string, images?: ImageRefEntry[],
+  ): void {
     const at = this.now();
     this.deps.db.insert(harnessMessages).values({ uuid, sessionId, kind, stepIndex: step, at }).onConflictDoNothing().run();
-    this.deps.publishMessage?.(sessionId, { uuid, kind, step, text, at });
+    this.deps.publishMessage?.(sessionId, { uuid, kind, step, text, at, ...(images && images.length > 0 ? { images } : {}) });
     // The indexer may have named the session after this message before it
     // was known as the harness's: the harness's name stands in instead.
     const name = this.get(sessionId)?.name;

@@ -17,6 +17,7 @@ import type { OrbitalDb } from '../src/db/database.js';
 import { SharedSettingsStore } from '../src/settings/sharedSettings.js';
 import { SharedTagsStore } from '../src/tags/sharedTags.js';
 import type { StampedTag } from '@orbital/shared/sharedSettings';
+import { PROGRESS_TOOL } from '@orbital/shared/progress';
 import {
   countSweepable,
   parseRetentionDays,
@@ -25,7 +26,7 @@ import {
   RETENTION_KEY,
 } from '../src/retention.js';
 import {
-  harnessMessages, pendingRewinds, sessionColumns, sessions, sessionStats, sessionTags, settings as settingsTable, tags,
+  harnessMessages, pendingRewinds, sessionColumns, sessions, sessionSetups, sessionStats, sessionTags, settings as settingsTable, tags,
 } from '../src/db/schema.js';
 import type { Finding } from '../src/stats/compute.js';
 import { HIST_BUCKET_COUNT } from '../src/stats/constants.js';
@@ -758,6 +759,45 @@ describe('REST routes', () => {
       'say F (reply with just the letter)',
       'say I (reply with just the letter)',
     ]);
+  });
+
+  // Spec 2026-11-09-progress-list-design § Where the state comes from: the
+  // client folds its list from these instead of paging the transcript back.
+  describe('GET /api/sessions/:id/progress-calls', () => {
+    const entry = (type: 'user' | 'assistant', uuid: string, parentUuid: string | null, content: unknown[]) =>
+      JSON.stringify({ type, uuid, parentUuid, message: { role: type, content } });
+    const use = (id: string, name = PROGRESS_TOOL) => ({ type: 'tool_use', id, name, input: { items: [] } });
+    const answer = (id: string) => ({ type: 'tool_result', tool_use_id: id, content: 'ok' });
+
+    it('returns only the live branch\'s progress calls and their results, oldest first, under the messages route\'s ids', async () => {
+      const projectsDir = makeTmpDir('msg-routes');
+      mkdirSync(join(projectsDir, 'p'), { recursive: true });
+      writeFileSync(join(projectsDir, 'p', 's1.jsonl'), [
+        entry('user', 'u0', null, [{ type: 'text', text: 'go' }]),
+        entry('assistant', 'a1', 'u0', [use('p1'), use('b1', 'Bash')]),
+        entry('user', 'u1', 'a1', [answer('p1'), answer('b1')]),
+        // Rewound away: the branch that ends at the newest leaf skips it.
+        entry('user', 'u2', 'u1', [{ type: 'text', text: 'first try' }]),
+        entry('assistant', 'a2', 'u2', [use('gone')]),
+        entry('user', 'r2', 'a2', [answer('gone')]),
+        entry('user', 'u3', 'u1', [{ type: 'text', text: 'second try' }]),
+        entry('assistant', 'a3', 'u3', [use('p2')]),
+        entry('user', 'r3', 'a3', [answer('p2')]),
+      ].join('\n') + '\n');
+      const { app } = makeApp({ projectsDir });
+      const body = res200(await app.inject({ method: 'GET', url: '/api/sessions/s1/progress-calls' }));
+      expect(body.messages.map((m: any) => [m.role, m.toolUseId])).toEqual([
+        ['tool_use', 'p1'], ['tool_result', 'p1'], ['tool_use', 'p2'], ['tool_result', 'p2'],
+      ]);
+      const page = res200(await app.inject({ method: 'GET', url: '/api/sessions/s1/messages' })).messages;
+      for (const m of body.messages) expect(page).toContainEqual(m);
+    });
+
+    it('answers an empty list for a session with no file yet, and 404s an unknown session', async () => {
+      expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/s1/progress-calls' }))).toEqual({ messages: [] });
+      const res = await app.inject({ method: 'GET', url: '/api/sessions/does-not-exist/progress-calls' });
+      expect(res.statusCode).toBe(404);
+    });
   });
 
   it('GET /api/sessions/:id/messages still 404s for a session nobody has heard of', async () => {
@@ -1704,8 +1744,8 @@ describe('REST routes', () => {
     db.update(sessions).set({ model: null, resolvedModel: 'claude-haiku-4-5-20251001' }).where(eq(sessions.id, 's2')).run();
     const res = await app.inject({ method: 'GET', url: '/api/projects' });
     expect(res.json().projects).toEqual([
-      { cwd: '/w/x', lastModel: 'opus[1m]', lastAt: 200 },
-      { cwd: '/w/y', lastModel: 'claude-haiku-4-5-20251001', lastAt: 100 },
+      { cwd: '/w/x', lastModel: 'opus[1m]', lastAt: 200, lastProgressList: false },
+      { cwd: '/w/y', lastModel: 'claude-haiku-4-5-20251001', lastAt: 100, lastProgressList: false },
     ]);
   });
 
@@ -1716,8 +1756,8 @@ describe('REST routes', () => {
     }).run();
     const res = await app.inject({ method: 'GET', url: '/api/projects' });
     expect(res.json().projects).toEqual([
-      { cwd: '/w/y', lastModel: null, lastAt: 300 },
-      { cwd: '/w/x', lastModel: null, lastAt: 200 },
+      { cwd: '/w/y', lastModel: null, lastAt: 300, lastProgressList: false },
+      { cwd: '/w/x', lastModel: null, lastAt: 200, lastProgressList: false },
     ]);
   });
 
@@ -1730,13 +1770,13 @@ describe('REST routes', () => {
     }))).run();
     const projects = res200(await app.inject({ method: 'GET', url: '/api/projects' })).projects;
     expect(projects).toHaveLength(62);
-    expect(projects[0]).toEqual({ cwd: '/many/59', lastModel: null, lastAt: 1059 });
+    expect(projects[0]).toEqual({ cwd: '/many/59', lastModel: null, lastAt: 1059, lastProgressList: false });
   });
 
   it('GET /api/sessions/defaults answers the three new-session settings', async () => {
     const { app, db } = makeApp();
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
-      permissionMode: 'acceptEdits', model: 'sonnet', rememberModelPerProject: true,
+      permissionMode: 'acceptEdits', model: 'sonnet', rememberModelPerProject: true, progressListEnabled: false,
       claudeDirs: [expect.objectContaining({ id: 1, name: 'Personal' })], defaultClaudeDir: 1, lastClaudeDir: null,
     });
     for (const [key, value] of [
@@ -1745,7 +1785,7 @@ describe('REST routes', () => {
       db.update(settingsTable).set({ value }).where(eq(settingsTable.key, key)).run();
     }
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
-      permissionMode: 'plan', model: null, rememberModelPerProject: false,
+      permissionMode: 'plan', model: null, rememberModelPerProject: false, progressListEnabled: false,
       claudeDirs: [expect.objectContaining({ id: 1, name: 'Personal' })], defaultClaudeDir: 1, lastClaudeDir: null,
     });
   });
@@ -1754,7 +1794,7 @@ describe('REST routes', () => {
     const { app, db } = makeApp();
     db.delete(settingsTable).run();
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' }))).toEqual({
-      permissionMode: 'acceptEdits', model: null, rememberModelPerProject: true,
+      permissionMode: 'acceptEdits', model: null, rememberModelPerProject: true, progressListEnabled: false,
       claudeDirs: [expect.objectContaining({ id: 1, name: 'Personal' })], defaultClaudeDir: 1, lastClaudeDir: null,
     });
   });
@@ -1987,6 +2027,78 @@ describe('.mcp.json approval', () => {
   });
 });
 
+describe('a launch with a progress list', () => {
+  const launch = (app: FastifyInstance, extra: Record<string, unknown>) =>
+    app.inject({ method: 'POST', url: '/api/sessions', payload: { cwd: '/w/p', prompt: 'go', permissionMode: 'acceptEdits', ...extra } });
+  const enable = (db: OrbitalDb) => db.insert(settingsTable).values({ key: 'progress_list_enabled', value: 'true' }).run();
+
+  it('is refused while Labs is off, and starts nothing', async () => {
+    const { app, startCalls } = makeApp();
+    const res = await launch(app, { progressList: true });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ error: 'progress_list_disabled' });
+    expect(startCalls).toEqual([]);
+  });
+
+  it('starts the session with one and records it on the row, and remembers it for the directory', async () => {
+    const { app, db, startCalls } = makeApp();
+    enable(db);
+    expect((await launch(app, { progressList: true })).statusCode).toBe(201);
+    expect(startCalls[0].progressList).toBe(true);
+    const row = db.select({ progressList: sessions.progressList }).from(sessions).where(eq(sessions.id, 'web-9')).get();
+    expect(row?.progressList).toBe(true);
+    const projects = res200(await app.inject({ method: 'GET', url: '/api/projects' })).projects;
+    expect(projects.find((p: { cwd: string }) => p.cwd === '/w/p').lastProgressList).toBe(true);
+    // A terminal session has no choice to remember.
+    expect(projects.find((p: { cwd: string }) => p.cwd === '/w/x').lastProgressList).toBe(false);
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' })).progressListEnabled).toBe(true);
+  });
+
+  it('remembers only what the dialog chose: a session started another way resets nothing', async () => {
+    const { app, db } = makeApp();
+    enable(db);
+    expect((await launch(app, { cwd: '/w/q', progressList: true })).statusCode).toBe(201);
+    expect(db.select({ choice: sessions.progressListChoice }).from(sessions).where(eq(sessions.id, 'web-9')).get()?.choice).toBe(true);
+    // Newer, without the dialog's choice: a spawn_session child, a Clear.
+    db.insert(sessions).values({
+      id: 'spawned', projectDir: 'p', cwd: '/w/q', source: 'web', spawnedBy: 'web-9', lastAt: Date.now() + 1_000,
+    }).run();
+    const lastHere = async () => (res200(await app.inject({ method: 'GET', url: '/api/projects' })).projects as
+      { cwd: string; lastProgressList: boolean }[]).find((p) => p.cwd === '/w/q')?.lastProgressList;
+    expect(await lastHere()).toBe(true);
+    // The dialog's own "off" is a choice, and counts.
+    db.update(sessions).set({ progressListChoice: false, lastAt: Date.now() + 2_000 }).where(eq(sessions.id, 'spawned')).run();
+    expect(await lastHere()).toBe(false);
+  });
+
+  it('starts without one when the flag is false or absent', async () => {
+    const { app, db, startCalls } = makeApp();
+    expect((await launch(app, { progressList: false })).statusCode).toBe(201);
+    expect((await launch(app, {})).statusCode).toBe(201);
+    expect(startCalls.map((c) => c.progressList)).toEqual([false, false]);
+    expect(db.select({ progressList: sessions.progressList }).from(sessions).where(eq(sessions.id, 'web-9')).get()?.progressList)
+      .toBe(false);
+  });
+
+  it('refuses a flag that is not a boolean, and one on a resume', async () => {
+    const { app, db, startCalls } = makeApp();
+    enable(db);
+    for (const extra of [{ progressList: 'yes' }, { progressList: 1 }, { progressList: true, resume: 's1' }]) {
+      const res = await launch(app, extra);
+      expect(res.statusCode, JSON.stringify(extra)).toBe(400);
+      expect(res.json()).toEqual({ error: 'invalid_progress_list' });
+    }
+    expect(startCalls).toEqual([]);
+  });
+
+  it('gives a resume what its row was started with', async () => {
+    const { app, db, startCalls } = makeApp();
+    db.update(sessions).set({ progressList: true }).where(eq(sessions.id, 's2')).run();
+    expect((await launch(app, { resume: 's2' })).statusCode).toBe(201);
+    expect(startCalls[0]).toMatchObject({ resume: 's2', progressList: true });
+  });
+});
+
 describe('buildServer smoke', () => {
   it('boots, serves /api/sessions and /ws upgrade route exists', async () => {
     const dir = makeTmpDir('boot');
@@ -2020,8 +2132,10 @@ describe('POST /api/sessions with a browser-minted session id', () => {
   // A real Runner, not the fake at the top of this file: the point of the
   // 400 case is that no CLI was spawned, and a fake whose `active()` is a
   // hardcoded `[]` could never show that.
-  function makeLaunchApp() {
+  /** `seed` writes rows before the routes load what is stored. */
+  function makeLaunchApp(seed?: (db: OrbitalDb) => void) {
     const db = openTmpDb('mint');
+    seed?.(db);
     const hub = new Hub();
     const claudeDirs = testClaudeDirs(db, { get: () => '', set: () => {} }, '/nonexistent', { list: async () => [] });
     /** The env each spawned CLI was given, in order. */
@@ -2231,9 +2345,18 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     const IDLE = 'idle-1';
     const ENDED = 'ended-1';
 
-    /** The caller running, a session it spawned working, one asleep and one archived. */
+    /** A worktree launch whose worktree could not be made. */
+    const NOT_STARTED = 'not-started-1';
+
+    /** The caller running, a session it spawned working, one asleep, one archived, and one not started. */
     async function withSessions() {
-      const launched = makeLaunchApp();
+      const launched = makeLaunchApp((db) => {
+        db.insert(sessions).values({ id: NOT_STARTED, projectDir: '', cwd: '/repo', source: 'web', claudeDirId: 1, lastAt: 500 }).run();
+        db.insert(sessionSetups).values({
+          sessionId: NOT_STARTED, phase: 'failed', step: 2, repoRoot: '/repo', made: 'none',
+          launch: { cwd: '/repo', base: 'origin/main', permissionMode: 'default' }, prompt: 'go', startedAt: 0,
+        }).run();
+      });
       const cwd = makeTmpDir('keeper');
       await launch(launched.app, { sessionId: CLIENT_ID, cwd });
       await launched.runner.spawner!(CLIENT_ID, { prompt: 'go' });
@@ -2251,7 +2374,10 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     it('lists sessions without the archived ones, the caller marked', async () => {
       const { keeper, close } = await withSessions();
       const listed = keeper.list(CLIENT_ID, {});
-      expect(listed.map((s) => s.id).sort()).toEqual([CLIENT_ID, IDLE, SERVER_MINTED].sort());
+      expect(listed.map((s) => s.id).sort()).toEqual([CLIENT_ID, IDLE, NOT_STARTED, SERVER_MINTED].sort());
+      // Idle on the wire, and said to be not started: archiving it would not be tidying up.
+      expect(listed.find((s) => s.id === NOT_STARTED)).toMatchObject({ status: 'idle', setup: 'not_started' });
+      expect(listed.find((s) => s.id === IDLE)).not.toHaveProperty('setup');
       expect(listed.find((s) => s.id === CLIENT_ID)).toMatchObject({ self: true, alive: true });
       expect(listed.find((s) => s.id === IDLE)).toMatchObject({
         self: false, alive: false, status: 'idle', lastAt: new Date(2000).toISOString(), archivedAt: null,
@@ -2265,6 +2391,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       const { keeper, cwd, close } = await withSessions();
       expect(keeper.list(CLIENT_ID, { cwd: join(cwd, 'sub') }).map((s) => s.id)).toEqual([IDLE]);
       expect(keeper.list(CLIENT_ID, { cwd: `${cwd}/` })).toHaveLength(3);
+      expect(keeper.list(CLIENT_ID, { cwd: '/repo' }).map((s) => s.id)).toEqual([NOT_STARTED]);
       expect(keeper.list(CLIENT_ID, { cwd: `${cwd}-other` })).toEqual([]);
       expect(() => keeper.list(CLIENT_ID, { cwd: 'relative' })).toThrow(/absolute/);
       close();
@@ -2298,6 +2425,235 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       expect(runner.status(CLIENT_ID)).toBeDefined();
       close();
     });
+
+    it('refuses a session that has not started without force, and discards it with force', async () => {
+      const { keeper, db, close } = await withSessions();
+      const [refused] = await keeper.archive(CLIENT_ID, [NOT_STARTED], false);
+      expect(refused).toMatchObject({ id: NOT_STARTED, result: 'refused' });
+      expect(db.select().from(sessions).where(eq(sessions.id, NOT_STARTED)).get()).toBeDefined();
+      expect(await keeper.archive(CLIENT_ID, [NOT_STARTED], true)).toEqual([{ id: NOT_STARTED, result: 'discarded' }]);
+      expect(db.select().from(sessions).where(eq(sessions.id, NOT_STARTED)).get()).toBeUndefined();
+      expect(db.select().from(sessionSetups).where(eq(sessionSetups.sessionId, NOT_STARTED)).get()).toBeUndefined();
+      close();
+    });
+  });
+});
+
+describe('POST /api/sessions with a harness', () => {
+  const CLIENT_ID = '7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b';
+  const harnessSteps = [
+    { id: 'read', title: 'Read the task', instructions: 'Read {{task}}.', mode: 'auto' as const, doneWhen: 'it is understood' },
+    { id: 'build', title: 'Build it', instructions: 'Build.', mode: 'gate' as const, doneWhen: 'it works' },
+  ];
+
+  /**
+   * A real Runner over an SDK fake that records every user message it is fed
+   * and answers nothing, and a real harness behind the routes: the point is
+   * what the session's first turn was, and that a refused launch spawned
+   * nothing and wrote nothing.
+   */
+  function makeHarnessLaunchApp(opts: { enabled?: boolean } = {}) {
+    const db = openTmpDb('harness-launch');
+    const hub = new Hub();
+    const stored = new Map<string, string>([['harness_enabled', opts.enabled === false ? 'false' : 'true']]);
+    const settings = { get: (k: string) => stored.get(k) ?? '', set: (k: string, v: string) => void stored.set(k, v) };
+    const claudeDirs = testClaudeDirs(db, settings, '/nonexistent', { list: async () => [] });
+    /** Each user message the CLI was handed: its text blocks, and the uuid it is written under. */
+    const turns: { id: string; text: string; uuid?: string }[] = [];
+    const runner = new Runner({
+      hub,
+      queryFn: (({ prompt, options }: any) => {
+        async function* gen(): AsyncGenerator<any> {
+          for await (const msg of prompt) {
+            const text = (msg.message.content as any[]).filter((b) => b.type === 'text').map((b) => b.text).join('');
+            turns.push({ id: options.sessionId, text, uuid: msg.uuid });
+          }
+        }
+        return gen() as any;
+      }) as any,
+    });
+    const harness = new HarnessService({
+      db, isEnabled: () => stored.get('harness_enabled') === 'true',
+      cwdOf: (id) => db.select({ cwd: sessions.cwd }).from(sessions).where(eq(sessions.id, id)).get()?.cwd,
+      decisionPending: () => false, backgroundWork: () => false, isWaiting: () => false, send: () => null,
+      askWatcher: async () => 'STOP', askDrafter: async () => '', askReviewer: async () => '',
+      git: async () => ({ ok: false, output: 'not a git repository' }), publish: () => {},
+      publishMessage: (sessionId, message) => void published.push({ sessionId, message }),
+    });
+    const published: { sessionId: string; message: unknown }[] = [];
+    const nameFromHarness = vi.fn(async () => false);
+    const app = Fastify();
+    registerRoutes(app, {
+      harness, db, runner, hub, claudeDirs,
+      registry: { get: () => undefined, all: () => [], rescan: () => {}, drop: () => {} },
+      transcriptPath: (id, projectDir) => join('/nonexistent', projectDir, `${id}.jsonl`),
+      subagents: new SubagentStore(),
+      backgroundTasks: new BackgroundTaskStore(),
+      terminals: new TerminalStore({ shell: { file: '/bin/sh', args: [] } }),
+      recentTools: new RecentToolsStore(),
+      git: gitStore,
+      ide: ideStore,
+      branchStatus: branchStatusStore,
+      subagentTranscripts: new SubagentTranscripts(),
+      errors: new ErrorLog({ db, hub }),
+      titler: { ...stubTitler(), nameFromHarness },
+      narrator: new Narrator({ db, queryFn: noNarrateQuery, model: () => '' }),
+      // Every ref names a stored image, so a launch's attachments come back as entries.
+      images: { put: () => null, putBytes: () => null, read: () => null, entry: (ref: string) => ({ ref, w: 4, h: 3, bytes: 10 }), bytes: () => null },
+      imagesDir: '/nonexistent',
+      files: { putBytes: () => null },
+      remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null, entry: () => null, bytes: () => null }, '/nonexistent', settings),
+      settings,
+      mcpFor: () => noMcp,
+      retention: retentionFor(db),
+    });
+    const made = harness.createTemplate({
+      name: 'ClickUp task', description: '', tags: [],
+      inputs: [{ key: 'task', label: 'Task link' }, { key: 'notes', label: 'Notes', hint: 'optional' }],
+      steps: harnessSteps,
+    });
+    if (!made.ok) throw new Error(made.error);
+    const launch = (payload: Record<string, unknown>) => app.inject({
+      method: 'POST', url: '/api/sessions',
+      payload: { cwd: '/p', prompt: '', permissionMode: 'acceptEdits', sessionId: CLIENT_ID, ...payload },
+    });
+    return {
+      app, db, runner, harness, turns, nameFromHarness, launch, published, templateId: made.value.id,
+      close: () => { runner.dispose(); db.$client.close(); },
+    };
+  }
+
+  /** Lets the fake CLI take what the runner queued for it. */
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+
+  it('starts the session on the checklist: the kickoff is its first and only turn, recorded as the harness\'s', async () => {
+    const { db, harness, turns, nameFromHarness, launch, templateId, close } = makeHarnessLaunchApp();
+    const res = await launch({ harness: { templateId, inputs: { task: 'https://app.clickup.com/t/1' }, lucky: false } });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toEqual({ sessionId: CLIENT_ID });
+    await settle();
+    expect(turns).toHaveLength(1);
+    expect(turns[0].text).toMatch(/^This session follows the Orbital harness "ClickUp task"/);
+    expect(turns[0].text).toContain('Read https://app.clickup.com/t/1.');
+    expect(turns[0].text).not.toContain('A note from the user');
+    const h = harness.get(CLIENT_ID);
+    expect(h).toMatchObject({ templateId, inputs: { task: 'https://app.clickup.com/t/1', notes: '' } });
+    // The kickoff is marked as Orbital's under the uuid it went out with, and began step 1.
+    expect([...harness.messagesOf(CLIENT_ID)]).toEqual([[turns[0].uuid, { kind: 'kickoff', step: 0 }]]);
+    expect(h?.state[0]).toMatchObject({ status: 'active', startMessageUuid: turns[0].uuid });
+    expect(nameFromHarness).toHaveBeenCalledWith(CLIENT_ID, expect.stringContaining('Harness: ClickUp task'));
+    expect(db.select({ id: sessions.id }).from(sessions).all()).toEqual([{ id: CLIENT_ID }]);
+    close();
+  });
+
+  it('appends a prompt to the kickoff as the user\'s note, in the same one turn', async () => {
+    const { turns, launch, templateId, close } = makeHarnessLaunchApp();
+    const res = await launch({ prompt: '  Mind the mobile layout.  ', harness: { templateId, inputs: { task: 'T-1' }, lucky: false } });
+    expect(res.statusCode).toBe(201);
+    await settle();
+    expect(turns).toHaveLength(1);
+    expect(turns[0].text).toMatch(/^This session follows the Orbital harness/);
+    expect(turns[0].text.endsWith('\n\nA note from the user for step 1:\n\nMind the mobile layout.')).toBe(true);
+    close();
+  });
+
+  it('carries the launch\'s images on the kickoff\'s harness_message, and none without attachments', async () => {
+    const ref = `${'a'.repeat(64)}.png`;
+    const { published, launch, templateId, close } = makeHarnessLaunchApp();
+    await launch({ attachments: [ref], harness: { templateId, inputs: { task: 'T-1' }, lucky: false } });
+    expect(published).toEqual([{
+      sessionId: CLIENT_ID,
+      message: expect.objectContaining({ kind: 'kickoff', step: 0, images: [{ ref, w: 4, h: 3, bytes: 10 }] }),
+    }]);
+    close();
+    const plain = makeHarnessLaunchApp();
+    await plain.launch({ harness: { templateId: plain.templateId, inputs: { task: 'T-1' }, lucky: false } });
+    expect(plain.published).toHaveLength(1);
+    expect(plain.published[0].message).not.toHaveProperty('images');
+    plain.close();
+  });
+
+  it('a spawn that fails leaves no harness and no log behind for the session that never was', async () => {
+    const { runner, harness, launch, templateId, close } = makeHarnessLaunchApp();
+    vi.spyOn(runner, 'start').mockRejectedValueOnce(new Error('spawn failed'));
+    const res = await launch({ harness: { templateId, inputs: { task: 'T-1' }, lucky: true } });
+    expect(res.statusCode).toBeGreaterThanOrEqual(500);
+    expect(harness.get(CLIENT_ID)).toBeNull();
+    expect(harness.events(CLIENT_ID)).toEqual([]);
+    close();
+  });
+
+  it('applies Feeling lucky only where it differs from the template\'s default', async () => {
+    const { harness, launch, templateId, close } = makeHarnessLaunchApp();
+    await launch({ harness: { templateId, inputs: { task: 'T-1' }, lucky: true } });
+    expect(harness.get(CLIENT_ID)?.options.lucky).toBe(true);
+    expect(harness.events(CLIENT_ID).map((e) => e.kind)).toContain('options');
+    close();
+  });
+
+  it('refuses a missing input, an unknown template, a draft and another project\'s, before anything spawns', async () => {
+    const { db, runner, harness, turns, launch, templateId, close } = makeHarnessLaunchApp();
+    const draft = harness.createTemplate({ name: 'Draft', description: '', tags: [], inputs: [], steps: harnessSteps, draft: true });
+    const elsewhere = harness.createTemplate({
+      name: 'Billing', description: '', tags: [], inputs: [], steps: harnessSteps, scope: { kind: 'project', root: '/work/billing' },
+    });
+    if (!draft.ok || !elsewhere.ok) throw new Error('templates');
+    for (const [body, status, error] of [
+      [{ templateId, inputs: { task: '  ' }, lucky: false }, 400, 'Task link is required'],
+      [{ templateId: String(templateId), inputs: {}, lucky: false }, 400, 'templateId must be a number'],
+      [{ templateId: 999, inputs: {}, lucky: false }, 404, 'template not found'],
+      [{ templateId: draft.value.id, inputs: {}, lucky: false }, 404, 'template not found'],
+      [{ templateId: elsewhere.value.id, inputs: {}, lucky: false }, 404, 'template not found'],
+    ] as const) {
+      const res = await launch({ harness: body });
+      expect(res.statusCode, error).toBe(status);
+      expect(res.json()).toEqual({ error });
+    }
+    expect(runner.active()).toEqual([]);
+    expect(db.select({ id: sessions.id }).from(sessions).all()).toEqual([]);
+    expect(harness.get(CLIENT_ID)).toBeNull();
+    expect(turns).toEqual([]);
+    close();
+  });
+
+  it('accepts a template of the repository a worktree belongs to', async () => {
+    const repo = realpathSync(makeTmpDir('launch-repo'));
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'x'], { cwd: repo });
+    const tree = join(repo, '.claude', 'worktrees', 'tray');
+    execFileSync('git', ['worktree', 'add', '-q', tree], { cwd: repo });
+    const { harness, launch, close } = makeHarnessLaunchApp();
+    const scoped = harness.createTemplate({
+      name: 'Repo only', description: '', tags: [], inputs: [], steps: harnessSteps, scope: { kind: 'project', root: repo },
+    });
+    if (!scoped.ok) throw new Error(scoped.error);
+    const res = await launch({ cwd: tree, harness: { templateId: scoped.value.id, inputs: {}, lucky: false } });
+    expect(res.statusCode).toBe(201);
+    expect(harness.get(CLIENT_ID)?.templateId).toBe(scoped.value.id);
+    close();
+  });
+
+  it('403s while the feature is off, and starts nothing', async () => {
+    const { db, runner, launch, templateId, close } = makeHarnessLaunchApp({ enabled: false });
+    const res = await launch({ harness: { templateId, inputs: { task: 'T-1' }, lucky: false } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ error: 'harness_disabled' });
+    expect(runner.active()).toEqual([]);
+    expect(db.select({ id: sessions.id }).from(sessions).all()).toEqual([]);
+    close();
+  });
+
+  it('a repeated launch gets the first one\'s answer: one harness, one kickoff', async () => {
+    const { harness, turns, launch, templateId, close } = makeHarnessLaunchApp();
+    const body = { prompt: 'note', harness: { templateId, inputs: { task: 'T-1' }, lucky: false } };
+    const [first, again] = await Promise.all([launch(body), launch(body)]);
+    const later = await launch(body);
+    for (const res of [first, again, later]) expect(res.json()).toEqual({ sessionId: CLIENT_ID });
+    await settle();
+    expect(turns).toHaveLength(1);
+    expect(harness.messagesOf(CLIENT_ID).size).toBe(1);
+    expect(harness.events(CLIENT_ID).filter((e) => e.kind === 'attached')).toHaveLength(1);
+    close();
   });
 });
 

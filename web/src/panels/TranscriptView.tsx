@@ -19,6 +19,7 @@ import { useCommand } from '../lib/commands'
 import { MessageView } from './MessageView'
 import { NoticeRow } from './NoticeRow'
 import { HarnessTranscriptRow } from './HarnessTranscriptRow'
+import { ProgressTranscriptRow } from './ProgressTranscriptRow'
 import { CompactionMark } from './CompactionMark'
 import { compactionOrdinals, newestFailedCompactionId } from '../lib/compaction'
 import { QuestionCard } from './QuestionCard'
@@ -259,7 +260,7 @@ function isSystemDivider(group: TranscriptGroup): boolean {
   if (group.kind === 'model-divider') return true
   if (group.kind !== 'message') return false
   const role = group.item.message.role
-  return role === 'rewind' || role === 'compaction' || role === 'harness'
+  return role === 'rewind' || role === 'compaction' || role === 'harness' || role === 'progress'
 }
 
 /**
@@ -407,6 +408,11 @@ export interface TranscriptViewProps {
    */
   backgroundTasks?: BackgroundTask[]
   onOpenTaskOutput?: (task: BackgroundTask) => void
+  /**
+   * Opens the session's progress list beside the transcript, for a frozen
+   * list's `open beside ›` (canvas 67d). Absent, the row only unfolds.
+   */
+  onOpenProgressList?: () => void
   /** Pick mode is on (spec 2026-09-29-rewind-design § Behaviour 2). Absent, the transcript is exactly as it always was. */
   rewind?: TranscriptRewind
   /** Which surface the jump-to-bottom indicator is sized and inked for (canvas 43a/43b/43c). */
@@ -434,6 +440,13 @@ export interface TranscriptViewProps {
    */
   isWaiting?: (message: ChatMessage) => boolean
   waitCaption?: (count: number) => ReactNode
+  /**
+   * Drawn under the session's first message, when that is a user turn and
+   * nothing older is held out of sight: a worktree launch's setup block,
+   * which keeps its place there for the life of the session (spec
+   * 2026-11-09-worktree-setup-in-background-design).
+   */
+  afterFirstTurn?: ReactNode
 }
 
 /**
@@ -727,6 +740,7 @@ export function TranscriptView({
   onOpenSubagent,
   backgroundTasks,
   onOpenTaskOutput,
+  onOpenProgressList,
   compaction,
   rewind,
   surface = 'panel',
@@ -735,6 +749,7 @@ export function TranscriptView({
   liveRow,
   isWaiting,
   waitCaption,
+  afterFirstTurn,
 }: TranscriptViewProps) {
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_MESSAGES)
   // The row under the pointer in pick mode. Forgotten when the mode ends, so
@@ -963,6 +978,13 @@ export function TranscriptView({
   // would bring, and a fetch cursored on the store's oldest message would
   // skip right over them.
   const hiddenCount = pairedAll.length - items.length
+  // The first row on screen is the session's opening turn only with nothing
+  // windowed away above it.
+  const firstTurnHeld =
+    afterFirstTurn != null &&
+    hiddenCount === 0 &&
+    groups[0]?.kind === 'message' &&
+    groups[0].item.message.role === 'user'
   const canFetch = Boolean(onLoadOlder) && !exhausted && messages.length > 0
   const pages = hiddenCount > 0 || canFetch
 
@@ -1259,6 +1281,9 @@ export function TranscriptView({
         ) : group.item.message.role === 'harness' ? (
           // Orbital's own line (canvas 30b): never `MessageView`, never a bubble.
           <HarnessTranscriptRow message={group.item.message} />
+        ) : group.item.message.role === 'progress' ? (
+          // The progress list's dashed row (canvas 67d): never a tool row's JSON.
+          <ProgressTranscriptRow message={group.item.message} onOpenList={onOpenProgressList} />
         ) : group.item.message.role === 'notice' && group.item.message.notice?.kind === 'limit_reset' ? (
           // `Feature - Plan limits` 31d AFTER: where a limit wait fired, the
           // notice row folds into a divider; the message it sent follows as
@@ -1310,6 +1335,7 @@ export function TranscriptView({
             turnImageCount={group.item.message.uuid ? turnImages.get(group.item.message.uuid) : undefined}
           />
         )}
+        {index === 0 && firstTurnHeld && <div className="mt-[14px]">{afterFirstTurn}</div>}
         </div>
         )
       }))}

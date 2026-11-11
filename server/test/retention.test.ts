@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sessions, sessionTags, tags } from '../src/db/schema.js';
+import { sessions, sessionSetups, sessionTags, tags } from '../src/db/schema.js';
 import {
   countSweepable,
   parseRetentionDays,
@@ -118,5 +118,21 @@ describe('sweeping', () => {
       .all()
       .map((r) => r.sessionId);
     expect(left).toEqual(['recent']);
+  });
+
+  /** A session not started yet has its first prompt only in its setup row; one that started is a session like any. */
+  it('spares a session whose worktree setup has not started it, and takes its setup row with a started one', () => {
+    const db = makeDb();
+    const setup = (sessionId: string, phase: 'failed' | 'ready') => ({
+      sessionId, phase, step: 3, repoRoot: '/repo', launch: { cwd: '/repo', base: 'main', permissionMode: 'default' }, startedAt: 0,
+    });
+    db.insert(sessions).values([
+      { id: 'not-started', projectDir: 'p', lastAt: NOW - 100 * DAY },
+      { id: 'started', projectDir: 'p', lastAt: NOW - 100 * DAY },
+    ]).run();
+    db.insert(sessionSetups).values([setup('not-started', 'failed'), setup('started', 'ready')]).run();
+    expect(countSweepable(db, cutoff)).toBe(2);
+    expect(sweepSessions(db, cutoff, NOW).sort()).toEqual(['old', 'started']);
+    expect(db.select({ id: sessionSetups.sessionId }).from(sessionSetups).all()).toEqual([{ id: 'not-started' }]);
   });
 });

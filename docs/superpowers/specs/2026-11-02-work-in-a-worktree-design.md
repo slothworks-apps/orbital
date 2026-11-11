@@ -8,6 +8,7 @@ related:
   - a-session-has-a-home-and-a-working-tree
   - orbital-makes-the-worktree-and-names-its-branch
   - 2026-10-07-live-working-tree-design
+  - 2026-11-09-worktree-setup-in-background-design
 tags:
   - git
   - worktree
@@ -154,6 +155,8 @@ With the switch on, the summary line under the fields reads "<model> ·
 reads "… · Orbital names the branch at launch".
 
 ## Launch
+
+Since [[2026-11-09-worktree-setup-in-background-design]] the steps below run after the launch has answered; that spec says how.
 
 `POST /api/sessions` gains an optional `worktree` object:
 
@@ -315,21 +318,33 @@ The local branch is never deleted.
    in the soft error ink, and the End button to *End and discard* (63h).
    `POST /api/sessions/:id/end` gains `removeWorktree?: 'clean' | 'force'`
    and `worktreePath`, the path the row showed; another path now is refused
-   with `worktree_state_changed` before anything ends. The server removes the
-   worktree after the session has stopped. Once the session has ended, the
-   answer is 200 whatever became of the worktree: `worktreeRemoved: false`
-   with `worktree_failed` (git refused, and the error is recorded) or
-   `not_worktree`. Ending with the box unticked counts as *Keep*: the strip
-   does not come back for that worktree.
+   with `worktree_state_changed` before anything ends. Ending with the box
+   unticked counts as *Keep*: the strip does not come back for that
+   worktree.
+   **Removed after End answers.** The answer comes once the checks pass and
+   the session has ended; it does not wait for git. Waiting for the
+   process to stop and deleting the tree (a `node_modules` included) took
+   long enough that the confirmation held the user up. The server then
+   waits for the process and removes the worktree on its own. Until it is
+   gone, the worktree's state reads `null`: no row, strip or ⋯ entry offers
+   it a second time, and a second End meanwhile (the Mac and a phone at
+   once) answers `not_worktree`. A session working in the tree again by
+   then — continued from history, or started in the folder — keeps it: the
+   removal is skipped and recorded. A removal git refuses is recorded in the
+   error log, whose record raises the desktop's error toast; a
+   `worktree_failed` record for the session makes the client read the
+   worktree again, so the strip and the ⋯ entry offer it again where the
+   user is looking. The answer is 200 `{ ok: true }`, or `worktreeRemoved:
+   false` with `not_worktree` for a session no longer in a worktree. A Mac
+   before this answered after git, with `worktreeRemoved: true` or
+   `worktree_failed`; the web still reads both.
    The session's title sits on its own line above "Stops and moves to
    history…" (63h, 63i), so a long one does not break the sentence. From the
    moment End is pressed until the answer, the row holds what it showed:
-   the server ends the session before it removes the worktree, and the
-   worktree read again on that status change must not move the tick. The
-   End button reads *Ending…*; Cancel, the row and the key hint dim and wait,
-   and esc (on the phone, a tap on the backdrop or back) does nothing. Every
-   step of the server's End is bounded (the stop wait, git's timeout), so
-   the wait always ends.
+   the server ends the session before it answers, and the worktree read
+   again on that status change must not move the tick. The End button reads
+   *Ending…*; Cancel, the row and the key hint dim and wait, and esc (on the
+   phone, a tap on the backdrop or back) does nothing.
 2. **A strip in the detail panel** (63e). It is 46 px tall, directly under the
    where row, and never in the transcript. It is shown only for an ended
    session whose branch is pushed and has a PR (open, merged or closed), and
@@ -373,6 +388,11 @@ phone's New Session posts to the same `POST /api/sessions`.
   itself.
   Tapping it opens a sheet with the same two choices. The phone's End
   confirmation gains the same row as `EndDialog`.
+- **A removal that fails after End answered:** the phone raises no toast
+  for the Mac's error-log records, on purpose (they are the Mac's). Its
+  signal is the cleanup row coming back: the same `worktree_failed` record
+  makes it read the worktree again. A phone before that read waits for the
+  screen to be opened again.
 - **Allowlist:**
   - `spawn` group: `GET /api/worktree/options`, `POST /api/worktree/fetch`;
   - `sessions` group: `GET /api/sessions/:id/worktree`, `POST

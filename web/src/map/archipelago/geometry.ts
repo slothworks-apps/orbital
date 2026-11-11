@@ -156,6 +156,8 @@ export function berthGroup(state: SessionStateKey): 'orbit' | 'hove' | 'pier' | 
     case 'interrupted':
       return 'roads'
     case 'idle':
+    case 'setting_up':
+    case 'not_started':
       return 'bay'
     case 'ended':
       return 'aside'

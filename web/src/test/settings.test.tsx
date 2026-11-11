@@ -673,8 +673,8 @@ describe('Settings — remembered section', () => {
     expect(initialSection({ settings_last_section: 'harness' })).toBe('harness')
   })
 
-  // Labs holds the browser bridge, which the dev web app (and so the suite) offers.
-  it('resumes Labs while it holds the browser bridge', () => {
+  // Labs holds the progress list everywhere.
+  it('resumes Labs', () => {
     expect(initialSection({ settings_last_section: 'labs' })).toBe('labs')
   })
 

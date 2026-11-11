@@ -45,6 +45,8 @@ import type {
   KnownHarnessProject,
   DraftModel,
   SessionHarness,
+  HarnessLaunch,
+  LaunchHarnessTemplates,
   HarnessEvent,
   HarnessOptions,
   JoinAnswer,
@@ -375,6 +377,16 @@ export const api = {
     return data.items
   },
 
+  /**
+   * The progress tool's calls and their results across the session's whole
+   * transcript, oldest first, in the messages route's shape and ids (spec
+   * 2026-11-09-progress-list-design § Where the state comes from).
+   */
+  async getProgressCalls(id: string): Promise<ChatMessage[]> {
+    const data = await request<{ messages: ChatMessage[] }>('GET', apiPath`/api/sessions/${id}/progress-calls`)
+    return data.messages
+  },
+
   async getWalkthrough(id: string): Promise<{ session: ApiSession; walkthrough: Walkthrough }> {
     return request('GET', apiPath`/api/sessions/${id}/walkthrough`)
   },
@@ -491,6 +503,17 @@ export const api = {
      * `worktree_invalid_branch` or 500 `worktree_failed` (`worktreeLaunchError`).
      */
     worktree?: WorktreeLaunch
+    /**
+     * Start on a harness (spec 2026-11-09-harness-from-new-session-design):
+     * its kickoff is the first turn, `prompt` appended to it as a note. A
+     * missing template or input refuses the launch before anything spawns.
+     */
+    harness?: HarnessLaunch
+    /**
+     * Start with a progress list (spec 2026-11-09-progress-list-design). Only
+     * while the Labs setting is on: otherwise 403 `progress_list_disabled`.
+     */
+    progressList?: boolean
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
@@ -1342,6 +1365,25 @@ export const api = {
     await request<unknown>('POST', apiPath`/api/sessions/${id}/limit-wait/undo`)
   },
 
+  /**
+   * Try again for a worktree launch that did not start: the same settings,
+   * from step 1 (spec 2026-11-09-worktree-setup-in-background-design § Ways
+   * out of NOT STARTED). 409 `not_failed` once it is no longer NOT STARTED.
+   */
+  async retrySetup(id: string): Promise<void> {
+    await request<unknown>('POST', apiPath`/api/sessions/${id}/setup/retry`)
+  },
+
+  /**
+   * Discards a worktree launch that has not started: its setup stops, what
+   * it made is taken away and the session goes (spec § Discard). The server
+   * publishes `remove` on the sessions topic. 409 `not_in_setup` for a
+   * session that has started.
+   */
+  async discardSession(id: string): Promise<void> {
+    await request<unknown>('POST', apiPath`/api/sessions/${id}/discard`)
+  },
+
   // Settings API
   async getSettings(): Promise<Record<string, string>> {
     return request<Record<string, string>>('GET', '/api/settings')
@@ -1426,6 +1468,11 @@ export const api = {
     templates: HarnessTemplate[]
   }> {
     return request('GET', `/api/harness/templates?sessionId=${encodeURIComponent(sessionId)}`)
+  },
+
+  /** What New session offers for a directory on this device or on `machine`: its project's templates, then global ones. */
+  async listHarnessTemplatesForLaunch(cwd: string, machine?: string): Promise<LaunchHarnessTemplates> {
+    return request('GET', `/api/sessions/harness-templates?${new URLSearchParams(machine === undefined ? { cwd } : { cwd, machine })}`)
   },
 
   /** Projects sessions ran in and templates belong to, newest first. */
@@ -1921,6 +1968,8 @@ export type {
   HarnessStep,
   HarnessInput,
   SessionHarness,
+  HarnessLaunch,
+  LaunchHarnessTemplates,
   HarnessEvent,
   StepStatus,
   StepState,

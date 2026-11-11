@@ -23,15 +23,18 @@
  *   only while this server holds it, and deleting the row under a live
  *   process would leave the Runner writing to a session that no longer
  *   exists.
+ * - **A session that has not started is exempt** — one whose worktree is
+ *   being set up, or could not be: its first prompt and queue live only in
+ *   its setup record, and a sweep would discard them for the user.
  * - **A session with no `lastAt` is exempt.** There is no date to compare, and
  *   guessing one would delete on a null rather than on an age.
  */
 
-import { and, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, inArray, isNull, lt, ne, notExists, sql } from 'drizzle-orm';
 import type { OrbitalDb } from './db/database.js';
 import {
-  backgroundTasks, compactionFailures, narrations, pendingRewinds, permissionWaits, rewinds, sessions, sessionTags,
-  sweptSessions,
+  backgroundTasks, compactionFailures, narrations, pendingRewinds, permissionWaits, rewinds, sessions, sessionSetups,
+  sessionTags, sweptSessions,
 } from './db/schema.js';
 
 /** The "off" value, stored verbatim so the row reads as what the UI shows. */
@@ -72,11 +75,15 @@ export function retentionCutoff(days: number | null, now: number): number | null
  * `lastAt IS NULL` needs no clause of its own: `NULL < cutoff` evaluates to
  * NULL in SQLite, which is not true, so an undated session never matches.
  */
-function sweepable(cutoff: number) {
+function sweepable(cutoff: number, db: OrbitalDb) {
   return and(
     lt(sessions.lastAt, cutoff),
     isNull(sessions.pinnedAt),
     isNull(sessions.runnerStatus),
+    // A session that has not started yet keeps its first prompt nowhere
+    // else; a clock does not discard it for the user.
+    notExists(db.select({ one: sql`1` }).from(sessionSetups)
+      .where(and(sql`${sessionSetups.sessionId} = ${sessions.id}`, ne(sessionSetups.phase, 'ready')))),
   );
 }
 
@@ -90,9 +97,33 @@ export function countSweepable(db: OrbitalDb, cutoff: number | null): number {
   const row = db
     .select({ total: sql<number>`COUNT(*)` })
     .from(sessions)
-    .where(sweepable(cutoff))
+    .where(sweepable(cutoff, db))
     .get();
   return row?.total ?? 0;
+}
+
+/**
+ * Deletes the sessions' rows and every row that hangs off them, as one
+ * transaction — the sweep's, or a discard of a session that never started.
+ */
+export function deleteSessions(db: OrbitalDb, ids: string[], opts: { keepSetup?: boolean } = {}): void {
+  if (ids.length === 0) return;
+  db.transaction((tx) => deleteSessionRows(tx, ids, opts.keepSetup === true));
+}
+
+type Tx = Parameters<Parameters<OrbitalDb['transaction']>[0]>[0];
+
+/** `keepSetup`: a discard's setup row stays as its tombstone until the rollback is done. */
+function deleteSessionRows(tx: Tx, ids: string[], keepSetup = false): void {
+  tx.delete(sessionTags).where(inArray(sessionTags.sessionId, ids)).run();
+  tx.delete(compactionFailures).where(inArray(compactionFailures.sessionId, ids)).run();
+  tx.delete(backgroundTasks).where(inArray(backgroundTasks.sessionId, ids)).run();
+  tx.delete(pendingRewinds).where(inArray(pendingRewinds.sessionId, ids)).run();
+  tx.delete(rewinds).where(inArray(rewinds.sessionId, ids)).run();
+  tx.delete(narrations).where(inArray(narrations.sessionId, ids)).run();
+  tx.delete(permissionWaits).where(inArray(permissionWaits.sessionId, ids)).run();
+  if (!keepSetup) tx.delete(sessionSetups).where(inArray(sessionSetups.sessionId, ids)).run();
+  tx.delete(sessions).where(inArray(sessions.id, ids)).run();
 }
 
 /**
@@ -114,20 +145,13 @@ export function sweepSessions(db: OrbitalDb, cutoff: number | null, now: number)
   const doomed = db
     .select({ id: sessions.id })
     .from(sessions)
-    .where(sweepable(cutoff))
+    .where(sweepable(cutoff, db))
     .all()
     .map((row) => row.id);
   if (doomed.length === 0) return [];
 
   db.transaction((tx) => {
-    tx.delete(sessionTags).where(inArray(sessionTags.sessionId, doomed)).run();
-    tx.delete(compactionFailures).where(inArray(compactionFailures.sessionId, doomed)).run();
-    tx.delete(backgroundTasks).where(inArray(backgroundTasks.sessionId, doomed)).run();
-    tx.delete(pendingRewinds).where(inArray(pendingRewinds.sessionId, doomed)).run();
-    tx.delete(rewinds).where(inArray(rewinds.sessionId, doomed)).run();
-    tx.delete(narrations).where(inArray(narrations.sessionId, doomed)).run();
-    tx.delete(permissionWaits).where(inArray(permissionWaits.sessionId, doomed)).run();
-    tx.delete(sessions).where(inArray(sessions.id, doomed)).run();
+    deleteSessionRows(tx, doomed);
     // Stamped with `now`, not with the session's own `lastAt`: the question
     // the indexer asks later is "has this transcript been written to since we
     // swept it", and the sweep is what has to be dated for that to work.

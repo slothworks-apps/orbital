@@ -65,6 +65,8 @@ import {
   TERMINAL_CURSOR_KEY,
   TERMINAL_CURSOR_BLINK_KEY,
   LIMIT_SUNS_ENABLED_KEY,
+  PROGRESS_LIST_ENABLED_KEY,
+  progressListEnabled,
   LIMIT_SUN_COLORS_KEY,
   LIMIT_SUN_POSITIONS_KEY,
   LIMIT_SUN_STYLE_KEY,
@@ -370,8 +372,9 @@ const SECTION_KEYS = {
   delivery: [NOTIFICATION_SETTING_KEYS.sound, NOTIFICATION_SETTING_KEYS.onlyWhenBackground],
   approving: ['permission_guard_gesture', 'questions_review_before_send'],
   reports: [ISSUE_CHECK_ENABLED_KEY],
-  // The browser bridge, offered only where it can work (`browserBridgeOfferedHere`).
-  labs: [BROWSER_BRIDGE_SETTING] as string[],
+  // The browser bridge, offered only where it can work (`browserBridgeOfferedHere`),
+  // and the progress list (spec 2026-11-09-progress-list-design).
+  labs: [PROGRESS_LIST_ENABLED_KEY, BROWSER_BRIDGE_SETTING] as string[],
   experimental: [
     ARCHIPELAGO_ENABLED_KEY,
     WALKTHROUGH_ENABLED_KEY,
@@ -451,9 +454,9 @@ function visibleNavItems(settings: Record<string, string | undefined>, hasUpdate
   return NAV_ITEMS.filter(
     (item) =>
       (item.key !== 'experimental' || experimentalUnlocked(settings)) &&
-      // Labs holds only the browser bridge, which the Linux server's web app
-      // does not offer.
-      (item.key !== 'labs' || (SECTION_KEYS.labs.length > 0 && browserBridgeOfferedHere())) &&
+      // Labs holds the progress list everywhere, and the browser bridge
+      // where it is offered (`browserBridgeOfferedHere`).
+      (item.key !== 'labs' || SECTION_KEYS.labs.length > 0) &&
       (item.key !== 'updates' || hasUpdates),
   )
 }
@@ -1608,7 +1611,18 @@ export function Settings({ open, onClose }: SettingsProps) {
                       {/* `Feature - Browser bridge` 64e/64f: LABS, and what Labs is on the same line. */}
                       <ScopeSection keys={SECTION_KEYS.labs}>
                       <SectionLabel first aside="Finished features, each off until you turn it on.">LABS</SectionLabel>
-                      <BrowserBridgeRows settings={settings} patchAndSet={patchAndSet} />
+                      <Row
+                        title="Progress list"
+                        setting={PROGRESS_LIST_ENABLED_KEY}
+                        desc="New session offers a switch for it: the agent keeps a list of what it is going to do and how far it has got, beside the session panel and in the transcript. You only read it."
+                      >
+                        <Toggle
+                          aria-label="Progress list"
+                          checked={progressListEnabled(settings)}
+                          onChange={(checked) => void patchAndSet({ [PROGRESS_LIST_ENABLED_KEY]: checked ? 'true' : 'false' })}
+                        />
+                      </Row>
+                      {browserBridgeOfferedHere() && <BrowserBridgeRows settings={settings} patchAndSet={patchAndSet} />}
                       </ScopeSection>
                     </>
                   )}

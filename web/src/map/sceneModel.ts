@@ -5,7 +5,7 @@ import { compactingOf } from '../lib/compaction'
 import { contextFractionFor, contextLevel, type ContextLevel } from '../lib/usage'
 import { CONTEXT_GAUGE_OUTER, MOON_TICK_LENGTH, MOON_TICK_RADIUS, moonVisuals } from './visuals'
 import type { OrbitalState } from '../store/store'
-import { moonOrbits } from '../lib/experimental'
+import { moonOrbits, progressListEnabled } from '../lib/experimental'
 import { placeMoons, type MoonSlot } from './moonSlots'
 import { asOfLabel, deviceOf, machineOffline } from '../lib/devices'
 import {
@@ -160,6 +160,13 @@ export interface ScenePlanet {
    * otherwise, and under a limit wait, whose own pill wins.
    */
   loginPill: string | null
+  /**
+   * The progress list's figure after the name (`3/7`; canvas `Feature -
+   * Progress list` 67e): label text, muted, never a mark on the planet. Null
+   * without a list, for a frozen one, for an ended session, and while Labs
+   * has it off.
+   */
+  progressFigure: string | null
   /**
    * The session's device is offline: the planet keeps its place and its last
    * state, at half opacity and without motion (canvas 50e).
@@ -407,6 +414,15 @@ export function deskCardMeta(
  * turning a chip off moves nothing else (canvas 50e); the counts and the
  * cluster labels leave them out.
  */
+/**
+ * The figure a planet's label and a Desk card end with (67e), or null for
+ * none. A frozen list shows none: the harness has taken its place.
+ */
+export function progressFigureOf(session: Pick<ApiSession, 'progress' | 'status'>, enabled: boolean): string | null {
+  if (!enabled || !session.progress || session.progress.frozen || session.status === 'ended') return null
+  return `${session.progress.done}/${session.progress.total}`
+}
+
 export function buildSceneModel(
   state: OrbitalState,
   nowMs: number,
@@ -425,6 +441,7 @@ export function buildSceneModel(
     absorptionFor(session, nowMs, state.leavingSince[session.id]) === 'leaving'
   const isDeviceOff = (session: ApiSession) => hidden.length > 0 && hidden.includes(deviceOf(session))
   const showModel = state.settings.map_show_model !== 'false'
+  const progressOn = progressListEnabled(state.settings)
   const planets: ScenePlanet[] = []
   const moons: SceneMoon[] = []
   const planetScale = parsePlanetScale(state.settings)
@@ -512,6 +529,7 @@ export function buildSceneModel(
         // No age: going offline and the minute tick must not move a body.
         outlineLine: planetSecondLine(modelFamily, rowName),
         loginPill: loginPillOf(session, state.claudeDirs),
+        progressFigure: progressFigureOf(session, progressOn),
         offline,
         deviceOff,
         contextFill,

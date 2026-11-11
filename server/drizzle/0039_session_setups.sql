@@ -1,0 +1,20 @@
+CREATE TABLE `session_setups` (
+	`session_id` text PRIMARY KEY NOT NULL,
+	`phase` text NOT NULL,
+	`step` integer NOT NULL,
+	`branch` text,
+	`path` text,
+	`repo_root` text NOT NULL,
+	`made` text DEFAULT 'none' NOT NULL,
+	`title` text,
+	`launch` text NOT NULL,
+	`prompt` text DEFAULT '' NOT NULL,
+	`attachments` text DEFAULT '[]' NOT NULL,
+	`mcpjson` text,
+	`queued` text DEFAULT '[]' NOT NULL,
+	`session_started` integer DEFAULT 0 NOT NULL,
+	`message` text,
+	`error_id` integer,
+	`started_at` integer NOT NULL,
+	`ready_in_ms` integer
+);

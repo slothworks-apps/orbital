@@ -14,7 +14,7 @@ import { getSocket } from './lib/socket'
 import { useCommand } from './lib/commands'
 import { notifyDesktopSettingsChanged, setMenuCommands } from './lib/desktop'
 import { menuCommands } from './lib/keymap'
-import { harnessEnabled, terminalEnabled } from './lib/experimental'
+import { harnessEnabled, progressListEnabled, terminalEnabled } from './lib/experimental'
 import { nextNeedingInput, sidebarOrder, stepSession } from './lib/sidebarOrder'
 import { useViewportWidth } from './lib/useViewportWidth'
 import { useTranscriptCheck } from './lib/useTranscriptCheck'
@@ -29,6 +29,7 @@ import { DetailPanel } from './panels/DetailPanel'
 import { SubagentPanel } from './panels/SubagentPanel'
 import { TaskOutputPanel } from './panels/TaskOutputPanel'
 import { HarnessPanel } from './panels/HarnessPanel'
+import { ProgressPanel } from './panels/ProgressPanel'
 import { NewSessionDialog } from './panels/NewSessionDialog'
 import { Settings } from './panels/Settings'
 import { ErrorLog } from './panels/ErrorLog'
@@ -128,9 +129,10 @@ export default function App() {
   // takes its menu row with it.
   const harnessOn = useOrbital((s) => harnessEnabled(s.settings))
   const terminalOn = useOrbital((s) => terminalEnabled(s.settings))
+  const progressOn = useOrbital((s) => progressListEnabled(s.settings))
   useEffect(() => {
     setMenuCommands(menuCommands(useOrbital.getState().settings))
-  }, [harnessOn, terminalOn])
+  }, [harnessOn, terminalOn, progressOn])
 
   // Task 8 (spec § 8 "Layout"): with the subagent panel open, it docks at
   // the right edge and the detail panel is pushed left to make room —
@@ -393,6 +395,9 @@ export default function App() {
         </ErrorBoundary>
         <ErrorBoundary label="Harness">
           <HarnessPanel widthPx={subagentWidthPx} />
+        </ErrorBoundary>
+        <ErrorBoundary label="Progress list">
+          <ProgressPanel widthPx={subagentWidthPx} />
         </ErrorBoundary>
         {terminal.sideOnScreen && selectedId && (
           <ErrorBoundary label="Terminal">

@@ -41,6 +41,12 @@ export const TERMINAL_CURSOR_BLINK_KEY = 'terminal_cursor_blink'
  * out (spec 2026-10-20-limit-suns-design § 4; Settings → Appearance). Off, the map draws none.
  */
 export const LIMIT_SUNS_ENABLED_KEY = 'limit_suns_enabled'
+/**
+ * Labs: Orbital sessions may be started with a progress list, the agent's
+ * own list of what it will do (spec 2026-11-09-progress-list-design). Off,
+ * the New session dialog offers no switch and the server refuses the flag.
+ */
+export const PROGRESS_LIST_ENABLED_KEY = 'progress_list_enabled'
 /** Where each sun sits: JSON, account key to map coordinates. The server's default is `{}`. */
 export const LIMIT_SUN_POSITIONS_KEY = 'map_limit_sun_positions'
 /** The suns' style, `eclipse` (the server's default) or `dim` (canvas 60e). */
@@ -92,6 +98,10 @@ export function terminalEnabled(settings: Settings): boolean {
 
 export function limitSunsEnabled(settings: Settings): boolean {
   return settings[LIMIT_SUNS_ENABLED_KEY] === 'true'
+}
+
+export function progressListEnabled(settings: Settings): boolean {
+  return settings[PROGRESS_LIST_ENABLED_KEY] === 'true'
 }
 
 /** The stored limit as a whole number in the slider's range, the default when unset or unparsable. */

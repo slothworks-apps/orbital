@@ -1,4 +1,3 @@
-import { swatch } from '../../lib/palette'
 import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
 import { MARKER, type StepKind } from './model'
 
@@ -41,30 +40,6 @@ export function Marker({ kind, gate, size = 9 }: { kind: StepKind; gate: boolean
         boxShadow: m.shadow,
       }}
     />
-  )
-}
-
-/** Canvas 30b's switch: 26 × 14, a 10 px knob; acts at once, never confirmed (30f). */
-export function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
-  return (
-    <label className="flex cursor-pointer items-center gap-2 fs-12 text-ink-200/88">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={label}
-        onClick={() => onChange(!on)}
-        className="relative block h-[14px] w-[26px] shrink-0 rounded-[7px]"
-        style={{ background: on ? swatch('accent') : swatch('line', 0.16) }}
-      >
-        <span
-          aria-hidden
-          className="absolute top-[2px] block size-[10px] rounded-full transition-[left] duration-150 ease-out"
-          style={{ left: on ? 14 : 2, background: on ? swatch('space-deep') : swatch('ink-500', 0.7) }}
-        />
-      </button>
-      {label}
-    </label>
   )
 }
 

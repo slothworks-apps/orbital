@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import type { ApiSession, SessionStatus, Subagent } from '../lib/types'
+import type { SessionSetup } from '@orbital/shared/worktree'
+import type { PlanetState } from '../map/visuals'
 import { Planet } from '../map/Planet'
 import { Moon } from '../map/Moon'
 import { moonOrbitRadius, type ContextFill } from '../map/sceneModel'
@@ -88,10 +90,12 @@ const sandboxMoons = (count: number): Subagent[] =>
  * so the label and the orbit are checkable against each other here.
  */
 function sandboxSession(
-  status: SessionStatus,
+  state: PlanetState,
   subagents: Subagent[],
   awaitingSubagents: boolean
 ): ApiSession {
+  // A worktree launch not started reads `idle` and carries its setup.
+  const status: SessionStatus = state === 'setting_up' || state === 'not_started' ? 'idle' : state
   return {
     id: 'sandbox',
     cwd: '/sandbox',
@@ -107,11 +111,28 @@ function sandboxSession(
     status,
     awaitingSubagents,
     subagents,
+    ...(status === state ? {} : { setup: sandboxSetup(state === 'not_started') }),
+  }
+}
+
+function sandboxSetup(failed: boolean): SessionSetup {
+  return {
+    phase: failed ? 'failed' : 'checkout',
+    step: 2,
+    branch: 'feat/sandbox',
+    path: '/sandbox/.claude/worktrees/sandbox',
+    readyInMs: null,
+    message: failed ? 'Git refused to create the worktree.' : null,
+    errorId: null,
+    prompt: '',
+    attachments: [],
+    queued: [],
+    launch: { cwd: '/sandbox', base: 'main', permissionMode: 'acceptEdits' },
   }
 }
 
 export function SandboxPage() {
-  const [status, setStatus] = useState<SessionStatus>('working')
+  const [status, setStatus] = useState<PlanetState>('working')
   const [hue, setHue] = useState(210)
   const [selected, setSelected] = useState(false)
   const [hidden, setHidden] = useState(false)

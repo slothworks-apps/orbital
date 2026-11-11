@@ -73,6 +73,8 @@ const MARK_INK = swatch('ink-900', 0.75)
 /** A step above the path, so the branch does not read as another path segment. */
 const BRANCH_INK = swatch('ink-500', 0.85)
 const PATH_INK = swatch('ink-900', 0.7)
+/** 66c `panel()` `brInk` for "naming…" and "no worktree": `rgba(160,190,225,.55)`. */
+const STAND_IN_INK = swatch('ink-900', 0.55)
 
 const STROKE = 1.4
 
@@ -333,6 +335,7 @@ export function WhereLine({
   folded = false,
   onFoldReserve,
   otherTrees,
+  standIn = false,
 }: {
   /** Where the session works now, shortened — `shortenPath(workingDirOf(session))`. Fades when it changes (2f). */
   path: string
@@ -365,6 +368,12 @@ export function WhereLine({
   onFoldReserve?: (px: number) => void
   /** The trees running subagents work in, other than this one — the count and its list (2e). */
   otherTrees?: readonly OtherTree[]
+  /**
+   * `git.ref` is not a branch but what stands in for one while a worktree
+   * launch has not started ("naming…", "no worktree"): italic and muted
+   * (canvas 66c `panel()` `brStyle`, `brInk`).
+   */
+  standIn?: boolean
 }) {
   const trees = otherTrees ?? NO_TREES
   const form = useMemo(() => whereFormOf(git, trees), [git, trees])
@@ -451,7 +460,9 @@ export function WhereLine({
       <span className="flex" style={fade(markOpacity)}>
         <Mark />
       </span>
-      <span style={{ color: BRANCH_INK, ...fade(opacity) }}>{fit.branch}</span>
+      <span className={standIn ? 'italic' : undefined} style={{ color: standIn ? STAND_IN_INK : BRANCH_INK, ...fade(opacity) }}>
+        {fit.branch}
+      </span>
     </span>
   ) : null
 

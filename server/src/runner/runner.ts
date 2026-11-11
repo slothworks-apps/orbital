@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { CanUseTool, PermissionResult, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
+import type { CanUseTool, HookCallbackMatcher, PermissionResult, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage, McpServerRow } from '../types.js';
 import type { TurnEndInfo } from '../login/service.js';
@@ -56,10 +56,20 @@ const CONTEXT_USAGE_TIMEOUT_MS = 2_000;
  */
 export const REWIND_STOP_TIMEOUT_MS = 10_000;
 
-/** The session a start composes its appendix for: its id, and the directory it starts in. */
-export interface AppendixSession {
+/** The session a start composes its appendix for: its id, the directory it starts in, and what it was started with. */
+export interface AppendixSession extends StartFacts {
   sessionId: string;
   cwd: string;
+}
+
+/**
+ * What a session was started with that decides its tools and its appendix,
+ * passed on every start, resumes included: a resume is not told again, so
+ * the caller reads it from the session's row.
+ */
+export interface StartFacts {
+  /** Started with a progress list (spec 2026-11-09-progress-list-design). */
+  progressList: boolean;
 }
 
 /**
@@ -96,6 +106,10 @@ export interface SessionTools {
   instructions?: string;
   /** The tools among them that need no permission card. */
   allowedTools: string[];
+  /** Tools taken away from the session — the CLI's own included — while the feature is on. */
+  disallowedTools?: string[];
+  /** `PreToolUse` hooks the feature adds beside Orbital's own. */
+  preToolUse?: HookCallbackMatcher[];
 }
 
 export interface RewindHooks {
@@ -958,7 +972,7 @@ export class Runner {
   private onToolUse?: (sessionId: string, toolName: string, toolInput: unknown, at: number) => void;
   private hasLiveBackgroundWork?: (sessionId: string) => boolean;
   private keepsAwake?: (sessionId: string) => boolean;
-  private sessionTools?: (sessionId: string) => SessionTools | undefined;
+  private sessionTools?: (sessionId: string, facts: StartFacts) => SessionTools | undefined;
   private autoAllow?: (sessionId: string, toolName: string, input: Record<string, unknown>) => boolean;
   private onTaskOutputPath?: (sessionId: string, toolUseId: string, path: string) => void;
   private onTurnBoundary?: (sessionId: string, ended: boolean) => void;
@@ -1132,7 +1146,7 @@ export class Runner {
      * 2026-09-30-session-harness-design § The agent's tools). Asked at every
      * start, so a revive picks up a switch turned on since.
      */
-    sessionTools?: (sessionId: string) => SessionTools | undefined;
+    sessionTools?: (sessionId: string, facts: StartFacts) => SessionTools | undefined;
     /**
      * A permission ask to allow without a card, decided per call rather than
      * at start — the harness's local commits, while its session has one
@@ -1586,6 +1600,8 @@ export class Runner {
      * transcripts, its limits. Absent, the CLI's own default environment.
      */
     claudeDirId?: number;
+    /** Started with a progress list; a resume passes what its row says. */
+    progressList?: boolean;
   }): Promise<string> {
     // A resume keeps the transcript's own id; otherwise the caller's pinned
     // id if it brought one, and a freshly minted one if it did not.
@@ -1636,6 +1652,7 @@ export class Runner {
         yield msg;
       }
     }
+    const facts: StartFacts = { progressList: opts.progressList === true };
     const options: Record<string, unknown> = {
       cwd: opts.cwd,
       permissionMode: opts.permissionMode,
@@ -1643,7 +1660,7 @@ export class Runner {
       // unless the session was launched in it. It grants nothing by itself:
       // the mode stays whatever the user picked until they pick another.
       allowDangerouslySkipPermissions: true,
-      systemPrompt: systemPromptOption(this.appendix?.({ sessionId, cwd: opts.cwd }) ?? null),
+      systemPrompt: systemPromptOption(this.appendix?.({ sessionId, cwd: opts.cwd, ...facts }) ?? null),
       settingSources: ['user', 'project', 'local'],
       // The subagent panel's whole feed: without this only tool_use/tool_result
       // blocks cross from a subagent to the stream, and prose/thinking never
@@ -1678,10 +1695,6 @@ export class Runner {
       // plain prose (spec 2026-09-20-interactive-decisions-design).
       canUseTool: ((toolName, input, canUseOpts) =>
         this.decide(sessionId, toolName, input, canUseOpts)) satisfies CanUseTool,
-      // A background shell without its `[wait]`/`[keep]` marker is refused
-      // before `canUseTool` is asked; everything else passes the hook with no
-      // decision of its own (spec 2026-10-08-kept-shells-design § 2).
-      hooks: shellIntentHooks(),
     };
     // `sessionId` and `resume` are mutually exclusive in the SDK; resuming
     // already fixes the id, so it is only pinned for a fresh session.
@@ -1703,9 +1716,9 @@ export class Runner {
     // `strictMcpConfig` stays off. One `orbital` server holds every tool
     // Orbital gives a session: `spawn_session`, `list_sessions` and
     // `archive_session`, the control tools over Orbital's own routes, and the
-    // harness's checklist tools while that feature is on. Listing and reading
-    // need no permission card.
-    const harnessTools = this.sessionTools?.(sessionId);
+    // tools of the features that are on — the harness's checklist, a progress
+    // list's `progress_write`. Listing and reading need no permission card.
+    const harnessTools = this.sessionTools?.(sessionId, facts);
     const { sessionKeeper: keeper, control } = this;
     if (this.spawner || keeper || control || harnessTools) {
       options.mcpServers = {
@@ -1723,6 +1736,14 @@ export class Runner {
     if (allowedTools.length > 0) {
       options.allowedTools = allowedTools;
     }
+    if (harnessTools?.disallowedTools?.length) options.disallowedTools = harnessTools.disallowedTools;
+    // A background shell without its `[wait]`/`[keep]` marker is refused
+    // before `canUseTool` is asked; everything else passes the hook with no
+    // decision of its own (spec 2026-10-08-kept-shells-design § 2). A
+    // feature's own hooks run beside it.
+    const hooks = shellIntentHooks();
+    if (harnessTools?.preToolUse?.length) hooks.PreToolUse = [...(hooks.PreToolUse ?? []), ...harnessTools.preToolUse];
+    options.hooks = hooks;
     // The SDK starts every `.mcp.json` server nobody turned down, where the
     // CLI would ask first. Every start path comes through here, so the ones
     // not yet decided are kept out of all of them — flag tier, in memory,

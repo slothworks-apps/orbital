@@ -4,6 +4,16 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.49.0] — 2026-11-11
+### Added
+- New session → With harness…: start a session straight on a harness template, its inputs filled in the dialog, without a first prompt; anything you write there goes to the first step as a note. Shown while Harness is on.
+- Settings → Labs → Progress list: a session can be started with a progress list, the agent's own list of what it is going to do and how far it has got, shown beside the session, as a figure next to its name on the map, and in the transcript whenever the agent adds or drops an item and says why.
+
+### Changed
+- New session in a worktree closes at once: the session appears right away as SETTING UP while its worktree is made, starts on its own when it is ready, and anything you write meanwhile is queued. If the worktree cannot be made, the session stays as NOT STARTED with Try again, Without a worktree, Copy prompt and Discard.
+- End session with “Also remove worktree” closes as soon as the session has ended; the worktree is removed in the background, and if that fails you see it in the error log.
+- Updated dependencies, including the Claude Agent SDK.
+
 ## [0.48.0] — 2026-11-07
 ### Added
 - Settings → Labs → Browser bridge: an extension for Chrome, Arc and other Chromium browsers sends what you select in a page, or a screenshot you take, to the session open in Orbital, and a session can take a screenshot of the browser when it needs to see the page.

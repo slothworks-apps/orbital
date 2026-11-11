@@ -6,7 +6,7 @@ import {
   resolvePanelPairWidths,
   PANEL_GUTTER_PX,
 } from '../../store/store'
-import { sessionStateKey, shownStatus, type SessionStateKey } from '../../lib/types'
+import { readoutSegments } from '../readout'
 import type { SceneModel } from '../sceneModel'
 import { stateColor, stateDot } from '../../lib/stateStyle'
 import { StateDot } from '../../ui/StateDot'
@@ -102,32 +102,7 @@ export function MapShell(props: {
     : 'transition-[left] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]'
 
   const { model } = props
-  // Split like `SpaceMap`'s readout: only a parked question is NEEDS INPUT,
-  // an interrupted one says so, the rest finished. Muted planets are left out,
-  // and so are those of a device whose chip is off.
-  const aggregateSegments = useMemo(() => {
-    const { working, needs_input: needsInput, idle, ended } = model.counts
-    let asking = 0
-    let interrupted = 0
-    for (const p of model.planets) {
-      if (p.muted || p.deviceOff || shownStatus(p.session) !== 'needs_input') continue
-      const key = sessionStateKey(p.session)
-      if (key === 'needs_input') asking++
-      else if (key === 'interrupted') interrupted++
-    }
-    const done = needsInput - asking - interrupted
-    const segments: Array<{ key: SessionStateKey; text: string }> = [
-      { key: 'working', text: `${working} WORKING` },
-      ...(asking > 0 ? [{ key: 'needs_input' as const, text: `${asking} NEEDS INPUT` }] : []),
-      ...(interrupted > 0
-        ? [{ key: 'interrupted' as const, text: `${interrupted} INTERRUPTED` }]
-        : []),
-      ...(done > 0 ? [{ key: 'done' as const, text: `${done} DONE` }] : []),
-      { key: 'idle', text: `${idle} IDLE` },
-      { key: 'ended', text: `${ended} ENDED` },
-    ]
-    return segments
-  }, [model.counts, model.planets])
+  const aggregateSegments = useMemo(() => readoutSegments(model.counts, model.planets), [model.counts, model.planets])
 
   const zoomPercent = Math.round(props.camera.zoom)
   const camX = Math.round(props.camera.x)
