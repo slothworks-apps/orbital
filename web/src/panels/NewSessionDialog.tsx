@@ -1475,7 +1475,6 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 attachments={attachments}
                 dropArmed={dropArmed}
                 fill={!step2}
-                className={step2 ? undefined : 'flex min-h-0 flex-1 flex-col'}
               />
             </div>
           </div>

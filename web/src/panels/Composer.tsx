@@ -256,7 +256,8 @@ export interface ComposerProps {
   /**
    * The well takes the height its mount gives it and the field grows to fill
    * it, past the usual ceiling (canvas 65e: New session's first prompt takes
-   * the dialog's spare height). The mount makes `className` a flex item.
+   * the dialog's spare height). The composer grows as a flex item, so its
+   * mount must be a flex column.
    */
   fill?: boolean
   /** Layout-only passthrough. */
@@ -796,7 +797,7 @@ export function Composer({
   }
 
   return (
-    <div className={className} data-text-scope="transcript">
+    <div className={fill ? ['flex min-h-0 flex-1 flex-col', className].filter(Boolean).join(' ') : className} data-text-scope="transcript">
       <div
         ref={wellRef}
         onMouseOver={handleWellMouseOver}

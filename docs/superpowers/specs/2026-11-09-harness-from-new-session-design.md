@@ -128,8 +128,10 @@ checklist.
 - **Where it lives:** in the existing Harness feature, behind its switch
   (off by default). No new switch.
 - **What someone updating notices:** with Harness off, New session's size
-  only (from 0.49.1: larger on a large window, filling a small one). With
-  it on, also one more button in the New session footer, With harness….
+  only (from 0.49.1: larger on a large window, filling a small one; after
+  0.49.1 also taller on a tall window, its first prompt filling the height
+  the options leave). With it on, also one more button in the New session
+  footer, With harness…, whose template list takes that height.
 - **What can be set:** nothing new; templates and their defaults are set
   where they are today.
 
