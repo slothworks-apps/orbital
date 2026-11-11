@@ -1,5 +1,5 @@
 ---
-import { REPO_URL } from '../site'
+import { CONTACT_EMAIL, REPO_URL } from '../site'
 
 interface Props {
   /** The page this footer sits on; its own link is drawn as current. */
@@ -18,6 +18,7 @@ const { current } = Astro.props
   </div>
   <nav aria-label="Footer">
     <a href={REPO_URL}>GitHub</a>
+    <a href={`mailto:${CONTACT_EMAIL}`}>Contact</a>
     <a
       href="/privacy/"
       class:list={{ current: current === 'privacy' }}

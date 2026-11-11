@@ -108,7 +108,7 @@ ai,agent,code,developer,terminal,cli,session,remote,companion,mac,assistant,prog
 
 | field | value |
 |---|---|
-| Support URL | `https://orbital.slothworks.io/` **once it shows a contact address** (see Open points); until then `https://github.com/slothworks-apps/orbital/issues` |
+| Support URL | `https://orbital.slothworks.io/` (its footer links the contact address) |
 | Marketing URL | `https://orbital.slothworks.io/` |
 | Privacy Policy URL | `https://orbital.slothworks.io/privacy/` (the form without the slash answers with a redirect) |
 
@@ -156,8 +156,8 @@ view of its own.
 | Chance-based | Gambling; Simulated Gambling; Contests; Loot Boxes | None / No | |
 | Age categories | | Not Applicable | Not made for kids |
 
-This yields **4+**. Whether to override it is an open point below: the app
-shows whatever the agent writes, and Claude accounts are for adults.
+This yields **4+**. Override it to **18+** (decided): the app shows whatever
+the agent writes, and Claude accounts are for adults.
 
 ### Accessibility Nutrition Labels (optional)
 
@@ -450,27 +450,20 @@ website first.
 1. **Privacy policy link in the app.** Done in phone app 0.26.0 (native
    0.10.0, build 15): Settings → About, and the pairing screen, which a
    reviewer sees first. Submit that build or a later one.
-2. **Support URL.** The site shows no contact address once
-   `PHONE_RELEASE` is `public` (the invite mailto goes away;
-   `site/src/pages/index.astro`). Put `orbital@slothworks.io` in the footer
-   or on a `/support/` page, then use the site as the Support URL.
-3. **The website still offers SlothWorks' relay.** `site/src/pages/index.astro`
-   says "Testers can ask to use ours instead" and "your own, or ours by
-   arrangement", and lists notifications among the phone's features. For App
-   Store users neither holds: change the site before the store link goes on
-   it.
-4. **No push with a self-hosted relay** ([Push notifications with your own
-   relay](#push-notifications-with-your-own-relay)). Accepted for the first
-   release, or designed for later; either way the site and the privacy
-   policy should say it (proposed wording below).
-5. **Age rating.** The questionnaire gives 4+. The app shows whatever the
-   agent writes, and Claude accounts are for adults. Overriding to a higher
-   rating (13+ or 18+) is the cautious choice; 4+ is defensible since the app
-   itself makes no content.
-6. **Linked or not linked.** The recommendation is "not linked"; the cautious
-   alternative is above.
-7. **The privacy policy's inaccuracies.** Proposed wording below; the
-   maintainer edits `site/content/privacy.md`.
+2. **Support URL.** Done: the site's footer links `orbital@slothworks.io`.
+3. **The website and SlothWorks' relay.** Done: once `PHONE_RELEASE` is
+   `public`, the site says the relay is one you run yourself and that
+   notifications arrive while the app is open; testers keep the old wording.
+   The switch covers both stores, so it waits for Google Play
+   (`docs/ops/release-to-the-app-store.md` → After approval).
+4. **No push with a self-hosted relay.** Accepted for the first release; the
+   paid relay or push gateway is an idea
+   (`docs/ideas/a-paid-slothworks-relay-with-push.md`).
+5. **Age rating.** Decided: override to 18+.
+6. **Linked or not linked.** Decided: not linked.
+7. **The privacy policy's inaccuracies.** Done: the wording below is applied
+   to `site/content/privacy.md`. The Firebase claim follows the code and
+   Firebase's documentation; it has not been watched on a device.
 8. **Firebase at launch.** Optional: set `FirebaseMessagingAutoInitEnabled`
    to `NO` in `Info.plist` (and `firebase_messaging_auto_init_enabled` to
    `false` in the Android manifest), so no token is made until a
@@ -500,8 +493,10 @@ website first.
 
 ## Proposed privacy policy changes
 
-For the maintainer to apply to `site/content/privacy.md`; nothing here is
-applied. Quoted text is the policy as it stands; the replacement follows.
+Applied to `site/content/privacy.md` on 11 November 2026, with one change:
+the relay sentence in 3 also says that a few testers use a relay SlothWorks
+runs by arrangement. Quoted text is the policy as it stood; the replacement
+follows.
 
 ### 1. The install id survives a reinstall on iPhone
 
