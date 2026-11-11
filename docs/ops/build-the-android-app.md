@@ -9,6 +9,7 @@ related:
   - 2026-10-08-builds-for-testers-design
   - 2026-10-02-mobile-app-design
   - run-the-relay
+  - release-to-google-play
 tags:
   - mobile
   - android
@@ -303,7 +304,7 @@ updater on and needs `mobile/ota-public-key.pem`; without it `cap sync` stops
 the same bundle and uploads it to the Internal testing track, rolled out at
 once — the Android side of `ios:release`. It needs the service account
 below and stops with "No Play service account" without it. Production stays
-a release made by hand in the Console.
+a release made by hand in the Console ([[release-to-google-play]]).
 
 The bundle is `mobile/android/app/build/outputs/bundle/release/orbital-<versionName>.aab`.
 `google-services.json` must be in place before `build`, or the release has
@@ -387,17 +388,18 @@ Actions has the rest, and how build 12 of 0.8.0 gets its tags.
 2. Testing → Internal testing: a tester list (emails), then a release with
    Play App Signing on and the `.aab`.
 3. App content, which the Console asks for before the first rollout: a
-   privacy policy URL (the app asks for the camera and notifications), Data
-   safety (the app collects nothing; the relay holds a push token and
-   encrypted frames it cannot read), content rating, target audience, ads
+   privacy policy URL, Data safety, content rating, target audience, ads
    (none), and App access (the app needs pairing with a Mac running
-   Orbital).
+   Orbital). The answers are in `mobile/store/google-play.md`. The app does
+   collect data: Beam's install id and diagnostics, and Firebase's
+   installation id and token, none of it shared or linked to a person
+   (`mobile/store/app-store.md` → App Privacy).
 4. Testers join through the opt-in link on the Internal testing page and
    install from Play.
 
-A personal developer account created after November 2023 needs a closed
-test with 12 testers over 14 days before it can publish to production;
-internal testing has no such gate.
+Production is [[release-to-google-play]]. SlothWorks' account is an
+organisation account, so the closed test a personal account needs before
+production (12 testers over 14 days) does not apply.
 
 ## Troubleshooting
 

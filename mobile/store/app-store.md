@@ -303,8 +303,9 @@ collected). The cautious alternative, if the owner prefers it, is to mark
 Device ID and the diagnostics as linked; it changes the label's heading to
 "Data Linked to You" and nothing else.
 
-### For Google Play later
+### For Google Play
 
+The answers themselves are in `mobile/store/google-play.md` → Data safety.
 The same three groups map onto Play's Data safety form: Device or other IDs;
 App info and performance (crash logs, diagnostics, other app performance
 data); App activity (app interactions). Purpose "App functionality" and
