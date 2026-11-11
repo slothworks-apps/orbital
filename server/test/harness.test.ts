@@ -836,7 +836,7 @@ describe('the templates New session offers a directory', () => {
   }
 
   it('lists the project\'s saved templates first, then global ones, never a draft or another project\'s', async () => {
-    const { app, service, list } = makeApp();
+    const { service, list } = makeApp();
     const { repo, other, tree } = repos();
     service.createTemplate(body('Orbital only', { scope: { kind: 'project', root: repo } }));
     service.createTemplate(body('Orbital draft', { scope: { kind: 'project', root: repo }, draft: true }));
@@ -851,7 +851,7 @@ describe('the templates New session offers a directory', () => {
   });
 
   it('names the template of the latest harness in the same project, while it is still offered', async () => {
-    const { app, service, list, ran, templateId } = makeApp();
+    const { service, list, ran, templateId } = makeApp();
     const { repo, other, tree } = repos();
     const own = service.createTemplate(body('Orbital only', { scope: { kind: 'project', root: repo } }));
     const billing = service.createTemplate(body('Billing only', { scope: { kind: 'project', root: other } }));
