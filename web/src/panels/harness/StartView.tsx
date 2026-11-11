@@ -3,7 +3,8 @@ import { useOrbital } from '../../store/store'
 import { api } from '../../lib/api'
 import { reportError } from '../../lib/errors'
 import type { HarnessProject, HarnessTemplate } from '../../lib/types'
-import { HeaderBlock, Kicker, Marker, Switch, type Chrome } from './parts'
+import { HeaderBlock, Kicker, Marker, type Chrome } from './parts'
+import { Switch } from '../../ui/Switch'
 import { GroupHead, TemplateRow, gateCount as gates, isOptional, plural } from './templates'
 
 export { isOptional }

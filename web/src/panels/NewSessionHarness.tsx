@@ -4,7 +4,8 @@ import { api, ApiError } from '../lib/api'
 import { reportError } from '../lib/errors'
 import type { HarnessLaunch, HarnessTemplate, LaunchHarnessTemplates } from '../lib/types'
 import { Input } from '../ui/Input'
-import { Marker, ScopeMark, SwitchTrack } from './harness/parts'
+import { Marker, ScopeMark } from './harness/parts'
+import { SwitchTrack } from '../ui/Switch'
 import { GroupHead, TemplateRow, gateCount, isOptional, missingInputs, plural, templateMeta } from './harness/templates'
 
 /**
