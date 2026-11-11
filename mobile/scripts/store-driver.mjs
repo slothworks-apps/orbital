@@ -10,7 +10,11 @@
 // With `--video`, the page is recorded to <dir>/video (WebM, written when the
 // context closes: POST `await page.context().close()`), and store-iphone.js
 // is applied to every frame instead of before each screenshot.
-// Usage: node mobile/scripts/store-driver.mjs [dir] [--video]   (default /tmp/orbital-store-demo)
+// With `--android`, the page is Chromium shaped like an Android phone for the
+// Google Play set (runbook release-to-google-play → Screenshots): 396×704 at
+// 3×, 1188×2112, the 9:16 Play needs for promotion; its profile is
+// <dir>/chromium and store-android.js takes store-iphone.js's place.
+// Usage: node mobile/scripts/store-driver.mjs [dir] [--video] [--android]   (default /tmp/orbital-store-demo)
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
@@ -18,8 +22,9 @@ import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const args = process.argv.slice(2)
 const video = args.includes('--video')
+const android = args.includes('--android')
 const dir = args.find((a) => !a.startsWith('--')) ?? '/tmp/orbital-store-demo'
-const { webkit } = require('playwright')
+const { webkit, chromium } = require('playwright')
 const token = randomBytes(24).toString('hex')
 mkdirSync(dir, { recursive: true })
 writeFileSync(`${dir}/driver-token`, token, { mode: 0o600 })
@@ -28,19 +33,35 @@ const authorized = (req) => {
   return req.method === 'POST' && got.length === token.length && timingSafeEqual(got, Buffer.from(token))
 }
 
-const ctx = await webkit.launchPersistentContext(`${dir}/webkit`, {
-  viewport: { width: 440, height: 956 },
+const phone = android
+  ? {
+      browser: chromium,
+      profile: 'chromium',
+      size: { width: 396, height: 704 },
+      userAgent:
+        'Mozilla/5.0 (Linux; Android 16; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36',
+      frame: './store-android.js',
+    }
+  : {
+      browser: webkit,
+      profile: 'webkit',
+      size: { width: 440, height: 956 },
+      userAgent:
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 26_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+      frame: './store-iphone.js',
+    }
+const ctx = await phone.browser.launchPersistentContext(`${dir}/${phone.profile}`, {
+  viewport: phone.size,
   deviceScaleFactor: 3,
   isMobile: true,
   hasTouch: true,
-  userAgent:
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 26_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-  ...(video ? { recordVideo: { dir: `${dir}/video`, size: { width: 880, height: 1912 } } } : {}),
+  userAgent: phone.userAgent,
+  ...(video ? { recordVideo: { dir: `${dir}/video`, size: { width: phone.size.width * 2, height: phone.size.height * 2 } } } : {}),
 })
 if (video) {
   // Vite adds stylesheets as modules load, so the safe areas are applied again until the page settles.
-  const iphone = readFileSync(new URL('./store-iphone.js', import.meta.url), 'utf8')
-  await ctx.addInitScript(`addEventListener('DOMContentLoaded', () => setInterval(() => { ${iphone} }, 200))`)
+  const frame = readFileSync(new URL(phone.frame, import.meta.url), 'utf8')
+  await ctx.addInitScript(`addEventListener('DOMContentLoaded', () => setInterval(() => { ${frame} }, 200))`)
 }
 const page = ctx.pages()[0] ?? (await ctx.newPage())
 page.on('console', (m) => m.type() === 'error' && console.log('console:', m.text()))

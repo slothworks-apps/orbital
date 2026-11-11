@@ -9,6 +9,7 @@ related:
   - ship-the-phone-over-the-air
   - store-review-without-a-mac
   - run-the-relay
+  - release-to-google-play
 tags:
   - mobile
   - ios
@@ -31,8 +32,9 @@ store app, which is built with SlothWorks' Firebase project, so the listing
 promises notifications only while the app is open
 (`mobile/store/app-store.md` → Push notifications with your own relay).
 
-Google Play gets a sibling runbook of its own; the shared texts and the
-privacy reasoning in `mobile/store/app-store.md` are written to serve both.
+Google Play has the sibling runbook [[release-to-google-play]]; the privacy
+reasoning in `mobile/store/app-store.md` serves both, and Play's texts and
+answers are in `mobile/store/google-play.md`.
 
 ## Why the app links its privacy policy and the site
 

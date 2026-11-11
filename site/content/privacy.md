@@ -319,6 +319,25 @@ Under the GDPR you can ask us for a copy of the data we hold about you, ask
 us to correct it, delete it, or limit or stop how we use it, and to receive
 it in a portable form. Write to orbital@slothworks.io; we answer within one month.
 
+**Deleting the phone app's data.** The only data of yours that SlothWorks
+holds is what the phone app sends to the update server: the install id, the
+update checks and, with diagnostics on, the reports described under
+[Updates for the phone app](#updates-for-the-phone-app). To have it deleted:
+
+1. Write to orbital@slothworks.io with the subject "Delete my Orbital data",
+   and say which phone it is about (its model and whether it runs Android or
+   iOS) and roughly since when you have used the app.
+2. We delete the update checks and diagnostics we can match to that phone,
+   and tell you when it is done, within one month.
+
+Nothing ties these records to your name, so a phone's model and dates are
+all we can match them by. You can also stop them yourself: Settings → Send
+diagnostics off stops the reports at once, and uninstalling the app on
+Android deletes its install id, so nothing sent later can be joined to what
+was sent before. Firebase's token and installation id are held by Google
+under its own terms; your devices and pairs on a relay are held by whoever
+runs that relay, and Remove device or Leave group deletes them there.
+
 You can also complain to the Czech data protection authority, the Úřad pro
 ochranu osobních údajů ([uoou.gov.cz](https://uoou.gov.cz)), or the
 authority in your own EU country.
