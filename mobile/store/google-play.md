@@ -241,11 +241,11 @@ data be deleted".
 
 | declaration | answer |
 |---|---|
+| App-level trader status and Terms of Service | Yes, the account's trader status applies; no Terms of Service URL (none exists) |
 | Advertising ID | No. The bundle declares no `com.google.android.gms.permission.AD_ID`; check App bundle explorer → the bundle → Permissions before answering |
 | Government apps | No |
 | Financial features | My app doesn't provide any financial features |
 | Health apps | My app does not have any health features |
-| News apps | No |
 
 Play may add declarations (it lists what is missing under Publishing
 overview). Answer them from the same facts and add them here.

@@ -76,6 +76,9 @@ step below; Publishing overview lists whatever is still missing.
   listing.
 - **App icon**, **Feature graphic**, **Phone screenshots** (all seven, in
   order). Leave the video and the tablet and Chromebook screenshots empty.
+- **AI asset declaration** (asked on save): label assets as created or
+  edited using AI, and label the feature graphic, which Claude Design made.
+  The icon and the screenshots are the app's own artwork and screens.
 - Save. The listing is reviewed with the first release.
 
 ### 3. App content (Policy and programs → App content)
@@ -84,16 +87,22 @@ Each item from `mobile/store/google-play.md` → App content:
 
 1. **Privacy policy**: the URL.
 2. **Ads**: no ads.
-3. **App access**: restricted, with the instruction and the video link.
+3. **Sign in details** (called App access until 2026): Yes, restricted, with
+   the instruction and the video link. Target audience stays closed until
+   this is saved.
 4. **Content rating**: start the questionnaire, the e-mail, category All
    Other App Types, the answers in the table; save, then **Submit**. The
-   rating applies at once.
-5. **Target audience and content**: 18 and over only.
+   rating applies at once. It comes out at the lowest rating everywhere
+   (PEGI 3, ESRB Everyone, IARC 3+); the audience is set separately.
+5. **Target audience and content**: 18 and over only; leave "Restrict users
+   that Google has determined to be minors" off.
 6. **Data safety**: the answers in the tables; at the end, **Submit**. The
    summary shows on the listing once the app is public; it can be edited
    later without a release.
 7. **Advertising ID**, **Government apps**, **Financial features**,
-   **Health apps**, **News apps**: as the listing says. Check the
+   **Health apps**: as the listing says. **App-level trader status and Terms
+   of Service**: yes, the account's trader status applies; no Terms of
+   Service URL. Check the
    permissions of the bundle (App bundle explorer → the bundle → Details →
    Permissions) before the Advertising ID answer.
 
@@ -110,14 +119,18 @@ the list to the Production track only.
   same bundle Internal testing has.
 - **Release name**: `<versionName> (<versionCode>)`, Play's default.
 - **Release notes** (en-US): from the listing.
-- **Next** → **Save** → resolve every error the preview shows; warnings
-  (no deobfuscation file, for instance) can stay.
+- **Next** → **Save** → resolve every error the preview shows. The first
+  release had two warnings and no error: no deobfuscation file, and no
+  debug symbols for the native code. Both only make crash reports harder to
+  read; they can stay.
 - **Staged rollout**: 100 % for the first release (there are no users to
   stage); consider a percentage for later native releases. It throttles
   only Play's updates of the native shell; over-the-air bundles are not
   staged by it.
 
 ### 6. Send for review (Publishing overview)
+
+The first submission: 2026-11-11, 0.10.0 (15), twelve changes.
 
 - **Managed publishing**: off, so the app goes live as soon as it is
   approved (decided). With it on, approved changes wait for "Publish".
