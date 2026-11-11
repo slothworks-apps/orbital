@@ -9,6 +9,8 @@ import { readNotificationsCache, writeNotificationsCache } from '../platform/cac
 import { useMobile } from '../state'
 import { DiagnosticsSetting } from '../update/DiagnosticsSetting'
 import { useAppliedChannel } from '../update/channel'
+import { installId } from '../update/platform'
+import { copyToClipboard } from '../../lib/clipboard'
 import { usePhoneUpdate } from '../update/state'
 import { clientRef } from '../transport/clientRef'
 import { PRIVACY_POLICY_URL } from '../constants'
@@ -229,10 +231,22 @@ function SecuritySection() {
 
 /**
  * `Feature - Feedback` 61i: ABOUT, whose row opens Send feedback; under it
- * the privacy policy, which the App Store asks to be reachable in the app.
+ * the privacy policy, which the App Store asks to be reachable in the app,
+ * and the install id a request to delete this phone's data names
+ * (provisional place, until Claude Design gives it one).
  */
 function AboutSection() {
   const [open, setOpen] = useState(false)
+  const [id, setId] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    void installId().then(setId)
+  }, [])
+  const copy = async () => {
+    if (!id) return
+    await copyToClipboard(id)
+    setCopied(true)
+  }
   return (
     <>
       <SectionLabel>ABOUT</SectionLabel>
@@ -249,7 +263,26 @@ function AboutSection() {
           <span className="flex-1 fs-14 font-semibold">Privacy policy</span>
           <span className="font-mono fs-11 text-ink-900/60">opens the website ↗</span>
         </button>
+        {id && (
+          <button
+            type="button"
+            onClick={() => void copy()}
+            className="flex min-h-13 w-full flex-col items-start justify-center gap-0.5 border-t border-line/8 px-3.5 py-2 text-left"
+          >
+            <span className="flex w-full items-center gap-2.5">
+              <span className="flex-1 fs-14 font-semibold">Install ID</span>
+              <span className="font-mono fs-11 text-ink-900/60">{copied ? 'copied' : 'copy'}</span>
+            </span>
+            <span className="break-all font-mono fs-11 text-ink-900/60">{id}</span>
+          </button>
+        )}
       </div>
+      {id && (
+        <p className="px-1 pt-2 fs-12 leading-[1.5] text-ink-900/65">
+          The update server files this phone’s update checks and diagnostics under this ID. To have them deleted, send
+          it to orbital@slothworks.io.
+        </p>
+      )}
       <SheetPresence>{open && <FeedbackSheet onClose={() => setOpen(false)} />}</SheetPresence>
     </>
   )

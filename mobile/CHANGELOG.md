@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.26.1] — 2026-11-11
+### Added
+- Settings → About shows this phone's install ID, to send when you want the data the update server holds about this phone deleted.
+
 ## [0.26.0] — 2026-11-11
 ### Added
 - Settings → About and the pairing screen link to the privacy policy, and the pairing screen says where to get Orbital for your Mac.
