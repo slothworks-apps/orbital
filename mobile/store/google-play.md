@@ -147,7 +147,9 @@ Visual design lives in Claude Design, so the graphic is made there. The prompt:
 |---|---|
 | Name | Pairing with a Mac |
 | Username, password | empty: there is no account |
-| Any other information | the text below |
+| Any other information | the text below (limit 500) |
+| "Sign in details in this declaration provide full access…" | ticked: Play requires it to save, and it confirms nothing more can be given |
+| "Allow Google to use these sign-in details for testing" | off: there are none |
 
 <!-- app-access -->
 ```text
@@ -167,19 +169,16 @@ Email for the certificate: `orbital@slothworks.io`. Category: **All Other App
 Types** (not a game, not social or communication: the only party the user
 talks to is their own agent on their own Mac).
 
-| question | answer | why |
-|---|---|---|
-| Violence, fear, blood | No | |
-| Sexuality, nudity | No | |
-| Language (profanity, crude humour) | No | |
-| Controlled substances (drugs, alcohol, tobacco) | No | |
-| Gambling, simulated gambling | No | |
-| Does the app natively allow users to interact or exchange content with other users through voice, text, images or audio? | No | Everything a user writes goes to their own Mac; there are no other users |
-| Does the app share the user's current physical location with other users? | No | The app never reads the location |
-| Does the app allow users to purchase digital goods? | No | Free, no in-app purchase |
-| Is the app a web browser or search engine? | No | Links open in the system browser |
-| Does the app contain or show AI-generated content? (if asked) | Yes | It shows what the user's own agent writes; the app generates nothing itself |
-| Anything else | No | |
+The questionnaire as of November 2026:
+
+| section | question | answer | why |
+|---|---|---|---|
+| Downloaded App | Ratings-relevant content downloaded as part of the app package? | No | The package holds only the app's interface |
+| User Content Sharing | Users interact or exchange content with other users? | No | Everything a user writes goes to their own Mac; there are no other users |
+| Online Content | Content not part of the download but accessed from the app (the examples name generated AI content)? | **Yes** | The app shows what the user's own agent writes, from the user's Mac |
+| → Violence, Sexuality, Language, Controlled Substance | Can the app contain such material (not counting user-generated content)? | No | There is no catalogue; what the agent writes answers the user's own prompts in the user's own coding sessions |
+| Promotion or Sale of Age-Restricted Products | | No | |
+| Miscellaneous | Location shared with other users; digital goods; cash rewards, crypto, NFTs; web browser or search engine; news or educational | No to all | The app never reads the location; free, no purchase; links open in the system browser |
 
 The result is expected to be the lowest rating (IARC 3, PEGI 3, Everyone).
 That is right for the questionnaire; the audience is set separately below.
@@ -189,6 +188,8 @@ That is right for the questionnaire; the audience is set separately below.
 - **Target age groups**: **18 and over** only (decided, as on the App Store:
   Claude accounts are for adults, and the app shows whatever the agent
   writes).
+- **Restrict users that Google has determined to be minors**: off (decided:
+  the age is the user's own concern; the declaration is enough).
 - With 18 and over alone, Play asks nothing about appeal to children.
 
 ### Data safety
@@ -204,7 +205,8 @@ developer's behalf (Firebase, for SlothWorks) as collected, not shared.
 | Does your app collect or share any of the required user data types? | Yes |
 | Is all of the user data collected by your app encrypted in transit? | Yes (Beam and Firebase are HTTPS only) |
 | Which methods of account creation does your app support? | My app does not allow users to create an account |
-| Do you provide a way for users to request that their data is deleted? | Yes: by e-mail to `orbital@slothworks.io` (`site/content/privacy.md` → Your rights) |
+| Can users login to your app with accounts created outside of the app? | No (the Claude account lives on the Mac; pairing is not an account) |
+| Do you provide a way for users to request that their data is deleted? | Yes; Delete data URL `https://orbital.slothworks.io/privacy/#your-rights` (Play takes only a URL; the section's "Deleting the phone app's data" gives the steps, what is deleted and what is not) |
 
 **Data types**: tick these and nothing else.
 
