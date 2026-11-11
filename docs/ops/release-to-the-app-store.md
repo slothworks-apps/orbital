@@ -235,7 +235,11 @@ tap; and the phone UI is the same web code in either.
    (`CLAUDE_CONFIG_DIR=/tmp/orbital-store-demo/claude claude auth login`),
    stop the transcript holders (`store-demo.mjs … --stop`), put the demo
    projects under `/Users/Shared/Projects/` (a path that reads like a Mac's;
-   `/tmp` shows as `/private/tmp`) and start three short sessions with
+   `/tmp` shows as `/private/tmp`). Give each a commit and a local `origin`
+   (a bare repository beside them), or New session shows "Couldn't fetch
+   origin"; give `fieldnotes` a `deploy` script that only echoes a
+   successful deploy, so the approved command succeeds on screen. Then start
+   three short sessions with
    `POST /api/sessions`: one asked to put a choice to you as options, one
    asked to run `npm run deploy` in mode `default` (a permission card), one
    asked to run two background subagents (moons; they finish within a
@@ -293,6 +297,11 @@ project appears.
    ffmpeg -i in.webm -filter_complex "[0:v]crop=440:956:0:0,scale=880:1912:flags=lanczos,trim=<from>,setpts=PTS-STARTPTS[out]" \
      -map "[out]" -c:v libx264 -pix_fmt yuv420p -crf 20 -r 30 -movflags +faststart orbital-app-review.mp4
    ```
+
+The walkthrough marks every tap with a fading disc and, after an answer or
+an approval, waits until the session on the Mac stops working and holds on
+the result for several seconds, so a viewer can follow what each action
+did. Expect about two minutes.
 
 Record it again when a screen it shows changes noticeably before a
 submission.

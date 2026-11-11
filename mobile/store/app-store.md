@@ -424,7 +424,7 @@ Review video), by `mobile/scripts/store-review-video.js` run in
    the list,
 6. Settings → About with the privacy policy link.
 
-About 75 seconds, no sound. If App Review insists on a recording from a
+About two minutes, no sound; each tap is marked on screen, and after each action the video holds on what the session did. If App Review insists on a recording from a
 device, answer in the Resolution Center with the interactive demo on the
 website first.
 
