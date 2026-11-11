@@ -158,7 +158,7 @@ export function PairingScreen() {
       <p className="max-w-[270px] text-center font-mono fs-10.5 leading-[1.6] text-ink-900/55">
         needs Orbital on a Mac ·{' '}
         <button type="button" onClick={() => window.open(ORBITAL_SITE_URL, '_blank', 'noopener')} className="text-ink-100">
-          orbital.slothworks.io ↗
+          {new URL(ORBITAL_SITE_URL).host} ↗
         </button>
         {/* Settings → About holds the same link, but only a paired phone reaches Settings. */}
         {' · '}

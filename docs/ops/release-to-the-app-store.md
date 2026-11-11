@@ -34,15 +34,24 @@ promises notifications only while the app is open
 Google Play gets a sibling runbook of its own; the shared texts and the
 privacy reasoning in `mobile/store/app-store.md` are written to serve both.
 
+## Why the app links its privacy policy and the site
+
+App Review asks for a privacy policy reachable inside the app (guideline
+5.1.1(i)), and a reviewer without a Mac has to see at once that the app is a
+companion to Orbital for Mac (4.2.3). So since phone app 0.26.0 the pairing
+screen, the first thing a new phone shows, says it needs Orbital on a Mac
+and links the site and the privacy policy, and Settings → About links the
+policy as a row. For every phone user, on by default, nothing to set.
+
 ## Before the first submission
 
 These come from `mobile/store/app-store.md` → Open points. The first two
 block the submission:
 
 - **A privacy policy link inside the app** (guideline 5.1.1(i)) and a line
-  on the first screen saying where to get Orbital for Mac, both in the build
-  that is submitted. The build is the binary's own bundle; an over-the-air
-  bundle does not count, since review sees the app as installed.
+  on the first screen saying where to get Orbital for Mac: done in native
+  0.10.0 (build 15). Submit that build or a later one; an over-the-air
+  bundle does not count, since review sees the binary's own bundle.
 - **A support URL with a contact address** (guideline 1.5).
 - **The review video**, recorded on a real iPhone ([Review video](#review-video)).
 - **Screenshots** ([Screenshots](#screenshots)).
@@ -206,7 +215,7 @@ tap; and the phone UI is the same web code in either.
      ORBITAL_CLAUDE_DIR=/tmp/orbital-store-demo/claude ORBITAL_DATA_DIR=/tmp/orbital-store-demo/data npm run dev -w server
    ORBITAL_MOBILE_DEV=1 npm run dev:mobile -w @orbital/web       # the phone UI on :4841
    npx playwright install webkit                                 # once
-   node mobile/scripts/store-driver.mjs                          # WebKit, driven over HTTP on :4880
+   node mobile/scripts/store-driver.mjs                          # WebKit, driven over HTTP on 127.0.0.1:4880
    ```
 
    Turn the relay on for the server (`PATCH /api/settings` with
@@ -231,6 +240,11 @@ tap; and the phone UI is the same web code in either.
    asked to run `npm run deploy` in mode `default` (a permission card), one
    asked to run two background subagents (moons; they finish within a
    minute, so shoot while they run).
+   The driver runs every request body as Node code, so it listens on
+   loopback only and takes a request only with the token it writes to
+   `/tmp/orbital-store-demo/driver-token`, in an `x-driver-token` header
+   (`curl -X POST -H "x-driver-token: $(cat …/driver-token)" localhost:4880 --data 'return 1'`).
+   Stop it when the set is done.
 4. **Shoot.** Before each screenshot, evaluate `mobile/scripts/store-iphone.js`
    in the page: it puts the iPhone's safe areas in place of `env()`, which a
    desktop WebKit leaves at 0, and draws a 9:41 status bar. Then

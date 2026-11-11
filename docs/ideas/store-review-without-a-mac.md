@@ -37,8 +37,7 @@ video and review notes.
 - **The review notes** say the app is a companion to the Orbital desktop
   app, why it cannot be paired during review (it needs a Mac running
   Orbital, the user's own Claude subscription and a relay the user runs
-themselves), and link the
-  video. Apple takes them in App Store Connect's App Review Information,
+  themselves), and link the video. Apple takes them in App Store Connect's App Review Information,
   Google Play in App access.
 
 The notes, the shot list as the app stands today and the answers to the
