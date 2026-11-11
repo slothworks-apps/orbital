@@ -208,6 +208,10 @@ developer's behalf (Firebase, for SlothWorks) as collected, not shared.
 | Can users login to your app with accounts created outside of the app? | No (the Claude account lives on the Mac; pairing is not an account) |
 | Do you provide a way for users to request that their data is deleted? | Yes; Delete data URL `https://orbital.slothworks.io/privacy/#your-rights` (Play takes only a URL; the section's "Deleting the phone app's data" gives the steps, what is deleted and what is not) |
 
+The form as submitted is exported in `mobile/store/google-play-data-safety.csv`
+(Data safety → Export to CSV); after a change, export it again, and use
+Import from CSV to restore it.
+
 **Data types**: tick these and nothing else.
 
 | Play category → type | what it is | collected | shared | processed ephemerally | required or optional | purposes |
