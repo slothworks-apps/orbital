@@ -28,7 +28,7 @@ export interface HeaderState {
 export type HeaderSession = Pick<
   ApiSession,
   | 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'
-  | 'harnessGate' | 'limitWait' | 'loginWait'
+  | 'harnessGate' | 'limitWait' | 'loginWait' | 'setup'
 > & { source?: ApiSession['source'] }
 
 export interface HeaderStateInput {

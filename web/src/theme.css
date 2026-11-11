@@ -105,6 +105,8 @@
   --state-done: var(--color-success);
   --state-active: var(--color-accent);
   --state-neutral: color-mix(in oklab, var(--color-ink-900) 60%, transparent);
+  /* SETTING UP and NOT STARTED: canvas 66 `NEU`, rgba(214,230,248,.8) — ink-400 at 80. */
+  --state-pending: color-mix(in oklab, var(--color-ink-400) 80%, transparent);
 
   /* The map pill's own dark fill, so a glow never shows through its text. */
   --state-pill-bg: color-mix(in oklab, var(--color-space) 88%, transparent);
@@ -810,6 +812,29 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .orbital-breathe {
+    animation: none;
+  }
+}
+
+/* A planet being born (canvas 66d `nbBorn`): the core of a session whose
+   worktree is still being made, breathing once every 4s — slower and softer
+   than a working core's pulse. */
+@keyframes orbital-born {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.orbital-born {
+  animation: orbital-born 4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-born {
     animation: none;
   }
 }

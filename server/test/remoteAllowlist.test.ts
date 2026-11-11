@@ -243,13 +243,15 @@ describe('remote allowlist', () => {
     expect(allowedPath('GET', '/api/sessions/harness-templates?cwd=%2Fw%2Fx')?.group).toBe('spawn');
     expect(allowedPath('POST', '/api/sessions')?.group).toBe('spawn');
   });
-  it('allows the worktree routes, each in its group and for its one method', () => {
+  it('allows the worktree and setup routes, each in its group and for its one method', () => {
     for (const [method, path, group] of [
       ['GET', '/api/worktree/options?cwd=%2Fw%2Fx', 'spawn'],
       ['POST', '/api/worktree/fetch', 'spawn'],
       ['GET', '/api/sessions/abc/worktree', 'sessions'],
       ['POST', '/api/sessions/abc/worktree/remove', 'sessions'],
       ['POST', '/api/sessions/abc/worktree/keep', 'sessions'],
+      ['POST', '/api/sessions/abc/setup/retry', 'sessions'],
+      ['POST', '/api/sessions/abc/discard', 'sessions'],
     ] as const) {
       expect(allowedPath(method, path)?.group, `${method} ${path}`).toBe(group);
       for (const m of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) {

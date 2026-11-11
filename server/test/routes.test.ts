@@ -26,7 +26,7 @@ import {
   RETENTION_KEY,
 } from '../src/retention.js';
 import {
-  harnessMessages, pendingRewinds, sessionColumns, sessions, sessionStats, sessionTags, settings as settingsTable, tags,
+  harnessMessages, pendingRewinds, sessionColumns, sessions, sessionSetups, sessionStats, sessionTags, settings as settingsTable, tags,
 } from '../src/db/schema.js';
 import type { Finding } from '../src/stats/compute.js';
 import { HIST_BUCKET_COUNT } from '../src/stats/constants.js';
@@ -2132,8 +2132,10 @@ describe('POST /api/sessions with a browser-minted session id', () => {
   // A real Runner, not the fake at the top of this file: the point of the
   // 400 case is that no CLI was spawned, and a fake whose `active()` is a
   // hardcoded `[]` could never show that.
-  function makeLaunchApp() {
+  /** `seed` writes rows before the routes load what is stored. */
+  function makeLaunchApp(seed?: (db: OrbitalDb) => void) {
     const db = openTmpDb('mint');
+    seed?.(db);
     const hub = new Hub();
     const claudeDirs = testClaudeDirs(db, { get: () => '', set: () => {} }, '/nonexistent', { list: async () => [] });
     /** The env each spawned CLI was given, in order. */
@@ -2343,9 +2345,18 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     const IDLE = 'idle-1';
     const ENDED = 'ended-1';
 
-    /** The caller running, a session it spawned working, one asleep and one archived. */
+    /** A worktree launch whose worktree could not be made. */
+    const NOT_STARTED = 'not-started-1';
+
+    /** The caller running, a session it spawned working, one asleep, one archived, and one not started. */
     async function withSessions() {
-      const launched = makeLaunchApp();
+      const launched = makeLaunchApp((db) => {
+        db.insert(sessions).values({ id: NOT_STARTED, projectDir: '', cwd: '/repo', source: 'web', claudeDirId: 1, lastAt: 500 }).run();
+        db.insert(sessionSetups).values({
+          sessionId: NOT_STARTED, phase: 'failed', step: 2, repoRoot: '/repo', made: 'none',
+          launch: { cwd: '/repo', base: 'origin/main', permissionMode: 'default' }, prompt: 'go', startedAt: 0,
+        }).run();
+      });
       const cwd = makeTmpDir('keeper');
       await launch(launched.app, { sessionId: CLIENT_ID, cwd });
       await launched.runner.spawner!(CLIENT_ID, { prompt: 'go' });
@@ -2363,7 +2374,10 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     it('lists sessions without the archived ones, the caller marked', async () => {
       const { keeper, close } = await withSessions();
       const listed = keeper.list(CLIENT_ID, {});
-      expect(listed.map((s) => s.id).sort()).toEqual([CLIENT_ID, IDLE, SERVER_MINTED].sort());
+      expect(listed.map((s) => s.id).sort()).toEqual([CLIENT_ID, IDLE, NOT_STARTED, SERVER_MINTED].sort());
+      // Idle on the wire, and said to be not started: archiving it would not be tidying up.
+      expect(listed.find((s) => s.id === NOT_STARTED)).toMatchObject({ status: 'idle', setup: 'not_started' });
+      expect(listed.find((s) => s.id === IDLE)).not.toHaveProperty('setup');
       expect(listed.find((s) => s.id === CLIENT_ID)).toMatchObject({ self: true, alive: true });
       expect(listed.find((s) => s.id === IDLE)).toMatchObject({
         self: false, alive: false, status: 'idle', lastAt: new Date(2000).toISOString(), archivedAt: null,
@@ -2377,6 +2391,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       const { keeper, cwd, close } = await withSessions();
       expect(keeper.list(CLIENT_ID, { cwd: join(cwd, 'sub') }).map((s) => s.id)).toEqual([IDLE]);
       expect(keeper.list(CLIENT_ID, { cwd: `${cwd}/` })).toHaveLength(3);
+      expect(keeper.list(CLIENT_ID, { cwd: '/repo' }).map((s) => s.id)).toEqual([NOT_STARTED]);
       expect(keeper.list(CLIENT_ID, { cwd: `${cwd}-other` })).toEqual([]);
       expect(() => keeper.list(CLIENT_ID, { cwd: 'relative' })).toThrow(/absolute/);
       close();
@@ -2408,6 +2423,17 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       // The trash's drop: ended and unpinned in one write.
       expect(db.select({ at: sessions.pinnedAt }).from(sessions).where(eq(sessions.id, IDLE)).get()?.at).toBeNull();
       expect(runner.status(CLIENT_ID)).toBeDefined();
+      close();
+    });
+
+    it('refuses a session that has not started without force, and discards it with force', async () => {
+      const { keeper, db, close } = await withSessions();
+      const [refused] = await keeper.archive(CLIENT_ID, [NOT_STARTED], false);
+      expect(refused).toMatchObject({ id: NOT_STARTED, result: 'refused' });
+      expect(db.select().from(sessions).where(eq(sessions.id, NOT_STARTED)).get()).toBeDefined();
+      expect(await keeper.archive(CLIENT_ID, [NOT_STARTED], true)).toEqual([{ id: NOT_STARTED, result: 'discarded' }]);
+      expect(db.select().from(sessions).where(eq(sessions.id, NOT_STARTED)).get()).toBeUndefined();
+      expect(db.select().from(sessionSetups).where(eq(sessionSetups.sessionId, NOT_STARTED)).get()).toBeUndefined();
       close();
     });
   });

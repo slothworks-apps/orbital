@@ -7,6 +7,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 - New session → With harness…: start a session straight on a harness template from the phone, with the template’s inputs and an optional note for the first step. Needs Orbital 0.49.0 or later on the Mac and Harness turned on there.
 
 ### Changed
+- A session started in a worktree shows SETTING UP while the Mac makes its worktree and starts on its own; messages you send meanwhile are queued. If the worktree cannot be made, it shows NOT STARTED with Try again, Start without a worktree, Copy first prompt and Discard.
 - When the Mac could not remove a worktree after you ended its session, the session's cleanup row comes back so you can try again.
 - A session started on the Mac with a progress list shows how far it has got in its header and in the session list; tapping the figure opens the whole list.
 

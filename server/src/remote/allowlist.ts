@@ -118,6 +118,10 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/sessions/:id/worktree', 'sessions'],
   ['POST', '/api/sessions/:id/worktree/remove', 'sessions'],
   ['POST', '/api/sessions/:id/worktree/keep', 'sessions'],
+  // A worktree launch's setup: Try again and Discard (spec
+  // 2026-11-09-worktree-setup-in-background-design § The phone).
+  ['POST', '/api/sessions/:id/setup/retry', 'sessions'],
+  ['POST', '/api/sessions/:id/discard', 'sessions'],
 
   // spawn group: start sessions
   ['POST', '/api/sessions', 'spawn'],

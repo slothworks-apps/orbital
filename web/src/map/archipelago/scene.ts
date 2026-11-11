@@ -177,7 +177,7 @@ function pathOf(points: Point[]): string {
 
 /** Whether a session draws on the pier's flagpole, and in what tone. */
 function flagFor(key: SessionStateKey): string | null {
-  if (key === 'idle' || key === 'ended') return null
+  if (key === 'idle' || key === 'ended' || key === 'setting_up') return null
   return stateColor(key)
 }
 

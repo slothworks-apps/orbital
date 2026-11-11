@@ -13,6 +13,7 @@ import { verifyShell } from '../env/shell.js';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { and, desc, eq, gte, isNull, lt, ne } from 'drizzle-orm';
 import { z } from 'zod';
+import type { DeliveryOutcome } from '../api/delivery.js';
 import type { OrbitalDb } from '../db/database.js';
 import {
   harnessEvents, harnessInterviews, harnessMessages, harnessTemplates, sessionHarnesses, sessions,
@@ -85,7 +86,7 @@ export interface VerifyResult {
 
 /** What a delivery into a session did, and the uuid of the user entry it became. */
 export interface Delivery {
-  outcome: 'sent' | 'revived' | 'not_found' | 'terminal';
+  outcome: DeliveryOutcome;
   uuid: string | null;
 }
 

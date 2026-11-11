@@ -10,7 +10,7 @@ import { glyphFor, isGateRow, waitsForLimit } from '../sessionList'
 export const GLYPH_SOLID_PX = 7
 export const GLYPH_HOLLOW_PX = 7
 
-type StateFields = Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'>
+type StateFields = Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'setup'>
 
 /** The state's bare dot, beside its word (9b's header). */
 export function Glyph({ session, offline }: { session: StateFields; offline: boolean }) {
@@ -96,6 +96,9 @@ export function PlanetGlyph({ session, hue, offline }: { session: PlanetFields; 
       </span>
     )
   }
+  if (key === 'setting_up' || key === 'not_started') {
+    return <SetupPlanet hue={hue} born={key === 'setting_up' && !offline} />
+  }
   const quiet = key === 'idle' || limit || compacting
   const color = hue !== undefined ? tagColor(hue) : UNTAGGED_INK
   const dot = limit || compacting
@@ -155,6 +158,57 @@ export function PlanetGlyph({ session, hue, offline }: { session: PlanetFields; 
             }}
           />
         )}
+      </span>
+    </span>
+  )
+}
+
+/** Canvas 66d `mini('prep')`: the core's size; `mini('failed')`: a failed one's opacity. */
+const SETUP_CORE_PX = 9
+const SETUP_FAILED_CORE_OPACITY = 0.35
+
+/**
+ * Canvas 66d `mini('prep')` and `mini('failed')`: the dark body,
+ * `radial-gradient(circle at 50% 45%, oklch(18% .02 225), oklch(12% .015 230) 70%)`,
+ * in the nearest tokens — `body-idle-lo` oklch(18% .04 225) for the centre,
+ * `space` (≈ oklch(13% .015 266)) for the rim — so a colour theme reaches it.
+ */
+const SETUP_BODY = 'radial-gradient(circle at 50% 45%, var(--color-body-idle-lo), var(--color-space) 70%)'
+
+/**
+ * A worktree launch not started yet (canvas 66d `mini('prep')`,
+ * `mini('failed')`): the body dark, no tick ring, the border faint in the
+ * tag hue. Being set up, the core is the only light and breathes once every
+ * 4s; once it failed, a smaller core holds still, dimmed. The core is the
+ * tag colour: 66d draws a failed one in it (`T(H)`, oklch(80% .13 H)) and a
+ * setting-up one at oklch(78% .15 H), within a few units of it.
+ */
+function SetupPlanet({ hue, born }: { hue?: number; born: boolean }) {
+  const color = hue !== undefined ? tagColor(hue) : UNTAGGED_INK
+  const mix = (share: number) => `color-mix(in oklab, ${color} ${share}%, transparent)`
+  const core = born ? SETUP_CORE_PX : CORE_SOLID_PX
+  return (
+    <span aria-hidden className="grid h-11 w-11 shrink-0 place-items-center">
+      <span className="relative block" style={{ width: PLANET_PX, height: PLANET_PX }}>
+        <span
+          className="absolute inset-0 rounded-full"
+          style={{
+            background: SETUP_BODY,
+            border: `1px solid ${mix(14)}`,
+          }}
+        />
+        <span
+          className={['absolute left-1/2 top-1/2 rounded-full', born ? 'orbital-born' : ''].join(' ')}
+          style={{
+            width: core,
+            height: core,
+            margin: `-${core / 2}px 0 0 -${core / 2}px`,
+            background: color,
+            ...(born
+              ? { boxShadow: `0 0 0 2px ${mix(20)}, 0 0 9px ${mix(90)}` }
+              : { opacity: SETUP_FAILED_CORE_OPACITY }),
+          }}
+        />
       </span>
     </span>
   )

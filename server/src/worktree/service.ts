@@ -50,20 +50,21 @@ export type LaunchRefusal = {
   message: string;
 };
 
-export interface LaunchPrep {
+/** What `checkLaunch` found: the launch may go ahead. */
+export interface LaunchCheck {
   ok: true;
-  /** Where the session starts: the worktree, or the dialog's subdirectory inside it. */
-  cwd: string;
-  path: string;
-  branch: string;
-  /** The session's name from the naming call, when it made one. */
-  title: string | null;
-  /**
-   * Takes the worktree and its fresh branch away again, for a launch that
-   * failed after this. Never throws: what it could not undo is recorded.
-   */
-  rollback(): Promise<void>;
+  /** The main checkout the worktree is made from. */
+  repoRoot: string;
+  /** The root of the tree the dialog's directory is in. */
+  treeRoot: string;
+  commonDir: string;
+  base: string;
+  /** The branch the user typed, valid and free when checked. */
+  branch: string | null;
 }
+
+/** `git worktree add` refused: nothing was added. */
+export class WorktreeAddError extends Error {}
 
 /**
  * What a removal came to. `ended` says whether the session was ended on
@@ -113,6 +114,11 @@ export interface WorktreeServiceDeps {
   commands?: GitCommands;
   /** Where a removal or a rollback that failed is recorded. */
   errors?: Pick<ErrorLog, 'record'>;
+  /**
+   * Whether the session is a worktree launch whose worktree is not ready:
+   * it works nowhere yet, so it occupies no checkout and has no worktree.
+   */
+  inSetup?: (sessionId: string) => boolean;
 }
 
 /** A directory's linked-worktree reading, or null when it is in the main checkout or no repository. */
@@ -210,7 +216,8 @@ export class WorktreeService {
   /**
    * The live Orbital sessions — any status but `ended` — with the trees they
    * and their running subagents work in. Terminal sessions do not count:
-   * Orbital shows them but does not drive them (spec § States).
+   * Orbital shows them but does not drive them (spec § States), nor do
+   * sessions still in setup: their directory is only where the dialog was.
    */
   private liveSessions(): { row: SessionRow; roots: string[] }[] {
     const { ctx } = this.deps;
@@ -223,7 +230,7 @@ export class WorktreeService {
       .all() as SessionRow[];
     const out: { row: SessionRow; roots: string[] }[] = [];
     for (const row of rows) {
-      if (row.purpose === 'harness_draft') continue;
+      if (row.purpose === 'harness_draft' || this.deps.inSetup?.(row.id)) continue;
       if (sourceOf(ctx, row) !== 'web' || statusOf(ctx, row) === 'ended') continue;
       const workingDir = this.deps.trees?.workingDir(row) ?? row.cwd;
       const others = this.deps.trees?.otherTrees(row, workingDir, ctx.subagents.all(row.id)) ?? [];
@@ -286,14 +293,18 @@ export class WorktreeService {
 
   // -------------------------------------------------------------------------
   // Launch
+  //
+  // The spec's Launch, in the steps setup runs them in the background (spec
+  // 2026-11-09-worktree-setup-in-background-design): `checkLaunch` answers
+  // before the session exists, the rest run after it. A step that fails
+  // throws; what it made is taken away by `rollbackLaunch`.
 
   /**
-   * Steps 1–5 of the spec's Launch, ready for the session to start in.
-   * Anything that fails after the worktree exists takes it away again.
+   * What the launch can be refused for before anything is made: not a
+   * repository, a base that does not resolve, a typed branch that is not a
+   * valid name or already exists.
    */
-  async prepareLaunch(input: {
-    cwd: string; base: string; branch?: string; prompt: string; sessionId: string; claudeDirId?: number;
-  }): Promise<LaunchPrep | LaunchRefusal> {
+  async checkLaunch(input: { cwd: string; base: string; branch?: string }): Promise<LaunchCheck | LaunchRefusal> {
     const failed = (message: string): LaunchRefusal => ({ ok: false, status: 500, error: 'worktree_failed', message });
     const dirs = resolveGitDirs(input.cwd);
     if (!dirs) return failed(`${input.cwd} is not in a git repository.`);
@@ -302,10 +313,6 @@ export class WorktreeService {
     if (!base || base.startsWith('-') || !(await this.cmd.resolves(repoRoot, base))) {
       return failed(`The base ${base || '(empty)'} is not a branch or commit of this repository.`);
     }
-
-    // 1. The branch.
-    let branch: string;
-    let title: string | null = null;
     const typed = input.branch?.trim();
     if (typed) {
       const problem = branchNameProblem(typed);
@@ -315,80 +322,94 @@ export class WorktreeService {
       if (await this.cmd.branchExists(repoRoot, typed)) {
         return { ok: false, status: 409, error: 'worktree_branch_exists', message: `${typed} already exists.` };
       }
-      branch = typed;
-    } else {
-      const branches = await this.cmd.branches(repoRoot);
-      const taken = new Set([...branches.local, ...branches.remote.map(stripOrigin)]);
-      const named = await this.deps.nameBranch?.({
-        sessionId: input.sessionId, prompt: input.prompt, recentNames: [...taken], claudeDirId: input.claudeDirId,
-      }) ?? null;
-      let candidate = named && (await this.cmd.validBranchName(repoRoot, named.branch)) ? named.branch : null;
-      if (candidate) title = named!.title;
-      candidate ??= fallbackBranch(input.sessionId);
-      // A name taken since the list was read is caught by `worktree add` below.
-      const free = withSuffix(candidate, (n) => taken.has(n), MAX_BRANCH_CHARS)
-        ?? withSuffix(fallbackBranch(input.sessionId), (n) => taken.has(n), MAX_BRANCH_CHARS);
-      if (!free) return failed('No free branch name was found.');
-      branch = free;
     }
+    return { ok: true, repoRoot, treeRoot: dirs.root, commonDir: dirs.commonDir, base, branch: typed || null };
+  }
 
-    // 2. The worktree. Its directory is reserved first, by a `mkdir` that
-    // fails when the name is taken, so two launches never settle on the same
-    // one and the rollback only ever takes away what this launch made; git
-    // adds a worktree into an empty directory that exists.
-    const worktreesDir = join(repoRoot, WORKTREES_DIR);
-    let path: string;
-    try {
-      mkdirSync(worktreesDir, { recursive: true });
-      const reserved = reserveDir(worktreesDir, leafOf(branch));
-      if (!reserved) return failed(`No free directory for the worktree was found in ${worktreesDir}.`);
-      path = reserved;
-    } catch (err) {
-      return failed(err instanceof Error ? err.message : String(err));
+  /**
+   * Step 1: a free branch name from the naming call, or the temporary name
+   * when it gives none. A name taken since the list was read is caught by
+   * `worktree add`.
+   */
+  async nameLaunchBranch(
+    check: Pick<LaunchCheck, 'repoRoot'>,
+    input: { prompt: string; sessionId: string; claudeDirId?: number },
+  ): Promise<{ branch: string; title: string | null }> {
+    const { repoRoot } = check;
+    const branches = await this.cmd.branches(repoRoot);
+    const taken = new Set([...branches.local, ...branches.remote.map(stripOrigin)]);
+    const named = await this.deps.nameBranch?.({
+      sessionId: input.sessionId, prompt: input.prompt, recentNames: [...taken], claudeDirId: input.claudeDirId,
+    }) ?? null;
+    let candidate = named && (await this.cmd.validBranchName(repoRoot, named.branch)) ? named.branch : null;
+    const title = candidate ? named!.title : null;
+    candidate ??= fallbackBranch(input.sessionId);
+    const free = withSuffix(candidate, (n) => taken.has(n), MAX_BRANCH_CHARS)
+      ?? withSuffix(fallbackBranch(input.sessionId), (n) => taken.has(n), MAX_BRANCH_CHARS);
+    if (!free) throw new Error('No free branch name was found.');
+    return { branch: free, title };
+  }
+
+  /**
+   * Step 2's start: the worktree's directory, reserved by a `mkdir` that
+   * fails when the name is taken, so two launches never settle on the same
+   * one and the rollback only ever takes away what this launch made; git
+   * adds a worktree into an empty directory that exists.
+   */
+  reserveLaunchDir(check: Pick<LaunchCheck, 'repoRoot'>, branch: string): string {
+    const worktreesDir = join(check.repoRoot, WORKTREES_DIR);
+    mkdirSync(worktreesDir, { recursive: true });
+    const reserved = reserveDir(worktreesDir, leafOf(branch));
+    if (!reserved) throw new Error(`No free directory for the worktree was found in ${worktreesDir}.`);
+    return reserved;
+  }
+
+  /**
+   * The rest of step 2: `git worktree add` into the reserved directory, then
+   * the PR target when the base is not the default branch. Throws
+   * `WorktreeAddError` when git did not add the worktree.
+   */
+  async addLaunchWorktree(check: LaunchCheck, path: string, branch: string): Promise<void> {
+    const add = await this.cmd.addWorktree(check.repoRoot, path, branch, check.base);
+    if (add.code !== 0) throw new WorktreeAddError(add.stderr.trim() || 'git worktree add failed.');
+    const target = stripOrigin(check.base);
+    if (target !== defaultBranchOf(check.commonDir)) {
+      const set = await this.cmd.setMergeBase(path, branch, target);
+      if (set.code !== 0) throw new Error(set.stderr.trim() || 'git config gh-merge-base failed.');
     }
-    const leaf = basename(path);
-    let added = false;
-    const rollback = () => this.rollbackLaunch({ repoRoot, path, branch, added, sessionId: input.sessionId });
-    try {
-      const add = await this.cmd.addWorktree(repoRoot, path, branch, base);
-      if (add.code !== 0) {
-        await rollback();
-        if (/a branch named .* already exists/i.test(add.stderr)) {
-          return { ok: false, status: 409, error: 'worktree_branch_exists', message: `${branch} already exists.` };
-        }
-        return failed(add.stderr.trim() || 'git worktree add failed.');
-      }
-      added = true;
+  }
 
-      // 3. The PR target, when the base is not the default branch.
-      const defaultBranch = defaultBranchOf(dirs.commonDir);
-      const target = stripOrigin(base);
-      if (target !== defaultBranch) {
-        const set = await this.cmd.setMergeBase(path, branch, target);
-        if (set.code !== 0) throw new Error(set.stderr.trim() || 'git config gh-merge-base failed.');
-      }
-
-      // 4. The local files git does not track. A missing one is skipped.
-      await this.copyLocalFiles(repoRoot, path);
-
-      // 5. The worktrees out of the main checkout's `git status`.
-      const rel = `${WORKTREES_DIR}/${leaf}`;
-      if (!(await this.cmd.ignored(repoRoot, rel))) {
-        const exclude = join(dirs.commonDir, 'info', 'exclude');
-        mkdirSync(dirname(exclude), { recursive: true });
-        const current = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
-        appendFileSync(exclude, `${current === '' || current.endsWith('\n') ? '' : '\n'}/${WORKTREES_DIR}/\n`);
-      }
-    } catch (err) {
-      await rollback();
-      return failed(err instanceof Error ? err.message : String(err));
+  /**
+   * Step 3: the local files git does not track, a missing one skipped, then
+   * the worktrees out of the main checkout's `git status`.
+   */
+  async copyLaunchFiles(check: LaunchCheck, path: string): Promise<void> {
+    await this.copyLocalFiles(check.repoRoot, path);
+    const rel = `${WORKTREES_DIR}/${basename(path)}`;
+    if (!(await this.cmd.ignored(check.repoRoot, rel))) {
+      const exclude = join(check.commonDir, 'info', 'exclude');
+      mkdirSync(dirname(exclude), { recursive: true });
+      const current = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
+      appendFileSync(exclude, `${current === '' || current.endsWith('\n') ? '' : '\n'}/${WORKTREES_DIR}/\n`);
     }
+  }
 
-    // 6. The same subdirectory inside the worktree, where it exists there.
-    const sub = relative(dirs.root, input.cwd);
+  /** Where the session starts: the dialog's subdirectory inside the worktree, where it exists there. */
+  launchCwdOf(check: Pick<LaunchCheck, 'treeRoot'>, cwd: string, path: string): string {
+    const sub = relative(check.treeRoot, cwd);
     const inside = sub && !sub.startsWith('..') ? join(path, sub) : path;
-    const cwd = statSync(inside, { throwIfNoEntry: false })?.isDirectory() ? inside : path;
-    return { ok: true, cwd, path, branch, title, rollback };
+    return statSync(inside, { throwIfNoEntry: false })?.isDirectory() ? inside : path;
+  }
+
+  /**
+   * Undoes what a setup the server stopped during had made, from its record
+   * alone: whether `git worktree add` got as far as registering the
+   * directory is read from git, so its branch is deleted only when it was.
+   */
+  async rollbackInterrupted(made: { repoRoot: string; path: string; branch: string; sessionId: string }): Promise<void> {
+    const list = await this.cmd.git(made.repoRoot, ['worktree', 'list', '--porcelain']).catch(() => null);
+    const added = !!list && list.code === 0 && list.stdout.split('\n').some((l) => l === `worktree ${made.path}`);
+    await this.rollbackLaunch({ ...made, added });
   }
 
   /**
@@ -398,7 +419,7 @@ export class WorktreeService {
    * step runs whatever the one before came to; what fails is recorded, and
    * nothing here throws over the launch's own error.
    */
-  private async rollbackLaunch(made: { repoRoot: string; path: string; branch: string; added: boolean; sessionId: string }): Promise<void> {
+  async rollbackLaunch(made: { repoRoot: string; path: string; branch: string; added: boolean; sessionId: string }): Promise<void> {
     const { repoRoot, path, branch, added } = made;
     const problems: string[] = [];
     const step = async (what: string, run: () => Promise<{ code: number | null; stderr: string }> | void) => {
@@ -415,9 +436,8 @@ export class WorktreeService {
     if (added) await step('git branch -D', () => this.cmd.deleteBranch(repoRoot, branch));
     if (problems.length) {
       this.record(`A failed worktree launch could not be fully undone: ${path}`, problems.join('\n'), {
-        // The launch made no session row, so the id is context, not a link.
-        repoRoot, path, branch, sessionId: made.sessionId,
-      }, null);
+        repoRoot, path, branch,
+      }, made.sessionId);
     }
   }
 
@@ -465,6 +485,7 @@ export class WorktreeService {
 
   /** The worktree the session works in now, or null when it does not work in one. */
   linkedTreeOf(row: SessionRow): LinkedWorktree | null {
+    if (this.deps.inSetup?.(row.id)) return null;
     return linkedWorktreeOf(this.deps.trees?.workingDir(row) ?? row.cwd);
   }
 

@@ -8,6 +8,7 @@ related:
   - a-session-has-a-home-and-a-working-tree
   - orbital-makes-the-worktree-and-names-its-branch
   - 2026-10-07-live-working-tree-design
+  - 2026-11-09-worktree-setup-in-background-design
 tags:
   - git
   - worktree
@@ -154,6 +155,8 @@ With the switch on, the summary line under the fields reads "<model> ·
 reads "… · Orbital names the branch at launch".
 
 ## Launch
+
+Since [[2026-11-09-worktree-setup-in-background-design]] the steps below run after the launch has answered; that spec says how.
 
 `POST /api/sessions` gains an optional `worktree` object:
 

@@ -21,12 +21,15 @@ import { useMedia } from '../store/media'
 import { ReplyMediaSession } from './ReplyMedia'
 import { pickRewindTarget, useRewindUi } from '../store/rewind'
 import { rewindTargetIds } from '../lib/rewind'
+import { setupTranscript } from '../lib/setup'
+import { SetupBlock, SetupPending, SetupQueue } from './SetupBlock'
 
 /** Stable empty array — a fresh `[]` fallback on every selector call would
  * defeat `useShallow`'s equality check and re-render on every store tick. */
 const NO_SUBAGENTS: Subagent[] = []
 const NO_TASKS: BackgroundTask[] = []
 const NO_EVENTS: HarnessEvent[] = []
+const NO_MESSAGES: ChatMessage[] = []
 
 /** Puts the caret in the session's composer, when it has one. */
 function focusComposer() {
@@ -251,6 +254,13 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
     [jump],
   )
 
+  // A worktree launch (spec 2026-11-09-worktree-setup-in-background-design):
+  // before it starts the transcript is its prompt, its setup block and its
+  // queue, all from `setup`; after, the block stays under the first turn.
+  // Started, with messages still waiting for the first turn to end, they
+  // stay queued turns at the bottom until the server sends each.
+  const { setup, pending, setupQueued, footerKey: setupKey } = setupTranscript(session)
+
   // An offline device whose history was never read while it was up: one
   // quiet line where the transcript would be, never an error. Its styling is
   // not on the canvas (50a–50k draw no such line).
@@ -269,7 +279,8 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
     // Reply thumbnails read named files through this session (24f A).
     <ReplyMediaSession.Provider value={sessionId}>
     <TranscriptView
-      messages={shown}
+      messages={pending ? NO_MESSAGES : shown}
+      afterFirstTurn={setup && !pending ? <SetupBlock sessionId={sessionId} setup={setup} /> : undefined}
       jumpTo={jumpTo}
       isWorking={isWorking}
       models={models}
@@ -294,7 +305,8 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
       isWaiting={waitingBehind(liveNotice)}
       waitCaption={liveNotice ? (count) => <HookWaitCaption hook={waitedFor(liveNotice)} count={count} /> : undefined}
       footerKey={
-        compacting
+        setupKey ??
+        (compacting
           ? 'compacting'
           : pendingHidden !== null
             ? 'rewind-pending'
@@ -302,10 +314,11 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
               ? `limit-wait:${limitWait.queued.length}`
               : liveNotice
                 ? `live-notice:${liveNotice.id}:${liveNotice.text}`
-                : undefined
+                : undefined)
       }
       footer={
         <>
+          {pending && setup && <SetupPending sessionId={sessionId} setup={setup} hue={hue ?? 205} />}
           {pendingHidden !== null && (
             // Canvas 27a/27c: where the transcript ends while a rewind is
             // pending — dashed, because nothing is final yet.
@@ -347,6 +360,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
               )}
             </div>
           )}
+          {setupQueued && <SetupQueue setup={setupQueued} hue={hue ?? 205} />}
           {/* Always last, under the agent's final message (31d). */}
           {limitWait && <LimitWaitNotice sessionId={sessionId} wait={limitWait} hue={hue ?? 205} />}
         </>

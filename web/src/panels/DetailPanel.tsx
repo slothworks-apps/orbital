@@ -92,7 +92,8 @@ import { useCompactionUi } from '../store/compaction'
 import { harnessEnabled, progressListEnabled, walkthroughEnabled } from '../lib/experimental'
 import { TerminalChip } from '../terminal/TerminalEntry'
 import { useSideSlotWidth } from '../terminal/useTerminalHost'
-import { canTakeOver, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { canTakeOver, gateWaits, isReadOnly, pendingSetup, sessionStateKey, tagColor } from '../lib/types'
+import { setupComposer } from '../lib/setup'
 import { limitWaitStatus } from '../lib/limits'
 import { loginWaitLabels } from '../lib/profileLogin'
 import { ClaudeDirChip, useClaudeDirMark } from '../ui/ClaudeDirMark'
@@ -536,7 +537,7 @@ export function DetailPanel({
     () => {
       if (shown) askToClear(shown.id)
     },
-    shown?.source === 'web'
+    shown?.source === 'web' && !pendingSetup(shown)
   )
   // ⌘⇧H toggles the harness panel, as the pill and the strip button do;
   // terminal sessions cannot take a harness.
@@ -545,7 +546,7 @@ export function DetailPanel({
     () => {
       if (shown) useOrbital.getState().openHarness(shown.id)
     },
-    harnessEnabled(settings) && shown?.source === 'web'
+    harnessEnabled(settings) && shown?.source === 'web' && !pendingSetup(shown)
   )
   // ⌘⇧P toggles the progress list, as its pill does — once the agent has written one.
   useCommand(
@@ -709,7 +710,11 @@ export function DetailPanel({
   // Same predicate the sidebar badges a row with — one definition, so the
   // mark on the row and the refusal at the composer cannot drift apart.
   const isTerminalLive = session ? isReadOnly(session) : false
-  const promptPlaceholder = session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…'
+  // A worktree launch not started yet queues what is written (canvas 66c `composer`).
+  const notStarted = session ? pendingSetup(session) : null
+  const setupWords = notStarted ? setupComposer(notStarted) : null
+  const promptPlaceholder =
+    setupWords?.placeholder ?? (session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…')
 
   // The question the card has open — the first unanswered one, or one
   // reopened to change it — or undefined once the card is sent, which is
@@ -1240,7 +1245,8 @@ export function DetailPanel({
                 so it lines up with the context gauge, and 11c made it
                 optional: button-only drew it into the utility strip above and
                 gives the transcript the 42px back. */}
-            {statsVariant === 'bar' && <SessionStatsRow session={session} className="mt-3.5" />}
+            {/* 66c: a session not started yet has nothing to measure. */}
+            {statsVariant === 'bar' && !setupWords && <SessionStatsRow session={session} className="mt-3.5" />}
           </>
         )}
       </div>
@@ -1396,7 +1402,7 @@ export function DetailPanel({
                     : '⏎ here won’t send them · ⇧⇥ jumps to Send'
                 : openVerdictKind
                   ? composerHintFor(openVerdictKind)
-                  : '⏎ send · ⇧⏎ newline · ⌘V paste image'
+                  : (setupWords?.hint ?? '⏎ send · ⇧⏎ newline · ⌘V paste image')
             }
             answering={
               !picking && !rewindPending && (openDecisionQuestion !== undefined || openVerdictKind !== undefined)
@@ -1478,7 +1484,7 @@ export function DetailPanel({
                 {/* Canvas 27a/27c: ↶ left of Send, a 30px chip lit while
                     pick mode is on. Gone while a rewind is pending — Cancel
                     rewind is the way back. */}
-                {!rewindPending && (
+                {!rewindPending && !setupWords && (
                   <span className="flex shrink-0">
                     <Tooltip
                       title="Rewind"

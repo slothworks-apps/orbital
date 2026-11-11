@@ -4,6 +4,7 @@ import type { MachineRef } from '@orbital/shared/remote/device'
 import { asksForHuman, gateWaits, loginLost } from '@orbital/shared/parked'
 import type { LiveHookNotice } from '@orbital/shared/hookNotice'
 import type { ProgressRow } from './progressList'
+import type { SessionSetup } from '@orbital/shared/worktree'
 
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
@@ -340,6 +341,15 @@ export interface ApiSession {
    * `server/src/api/shape.ts`.
    */
   loginWait?: LoginWait | null
+  /**
+   * A worktree launch's setup (spec 2026-11-09-worktree-setup-in-background-design):
+   * present only for a session launched into a worktree by a Mac that sets it
+   * up in the background. While it is there and not `ready` the session has
+   * no process and `status` reads `idle`; `pendingSetup` and
+   * `sessionStateKey` take it first. Optional: absent from an older Mac and
+   * from the fixtures.
+   */
+  setup?: SessionSetup
 }
 
 /** Which login a profile can lose: its Claude account, or its Claude Design sign-in (spec 2026-10-21-log-in-from-orbital-design § 7). */
@@ -1368,24 +1378,56 @@ export function shownStatus(session: Pick<ApiSession, 'status' | 'loginWait'>): 
 export { asksForHuman, gateWaits, loginLost }
 
 /**
- * Which of the seven state words a session wears — the one answer every
+ * Which of the state words a session wears — the one answer every
  * state surface reads (the map pill, the summary line, the sidebar row, the
  * detail chip, the needs-input ripple). How each is drawn lives in
  * `lib/stateStyle.ts`; this only decides which state it is.
  *
- * Most specific first. INTERRUPTED displaces whatever status the session
- * has: a restart cut its turn short, and that is the thing to say. A
+ * Most specific first. A worktree launch that has not started (`setup`) is
+ * SETTING UP or NOT STARTED, whatever its `idle` status says. INTERRUPTED
+ * displaces whatever status the session has: a restart cut its turn short,
+ * and that is the thing to say. A
  * `needs_input` session splits by WHY it stopped (`parkedLabel`): NEEDS INPUT
  * when something is parked on the human, DONE when the turn merely finished.
  * A `working` session whose work is all happening in its moons is WAITING —
  * labelled so the map does not read as "something is going on here" when the
  * only thing going on is out in orbit.
  */
-export type SessionStateKey = 'needs_input' | 'waiting' | 'interrupted' | 'done' | 'working' | 'idle' | 'ended'
+export type SessionStateKey =
+  | 'needs_input'
+  | 'waiting'
+  | 'interrupted'
+  | 'done'
+  | 'working'
+  | 'setting_up'
+  | 'not_started'
+  | 'idle'
+  | 'ended'
+
+/**
+ * The setup of a worktree launch that has not started its session yet
+ * (SETTING UP or NOT STARTED), null otherwise. The session has no process
+ * meanwhile, whatever `status` says.
+ */
+export const pendingSetup = (session: Pick<ApiSession, 'setup'>): SessionSetup | null =>
+  session.setup != null && session.setup.phase !== 'ready' ? session.setup : null
+
+/**
+ * SETTING UP while the worktree is being made, NOT STARTED once making it
+ * failed, null for every session that has started (or never had a setup).
+ */
+export function setupStateKey(session: Pick<ApiSession, 'setup'>): 'setting_up' | 'not_started' | null {
+  const phase = session.setup?.phase
+  if (phase == null || phase === 'ready') return null
+  return phase === 'failed' ? 'not_started' : 'setting_up'
+}
 
 export function sessionStateKey(
-  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate' | 'loginWait'>,
+  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate' | 'loginWait' | 'setup'>,
 ): SessionStateKey {
+  // A worktree still being made: no process, so nothing else about it holds.
+  const setup = setupStateKey(session)
+  if (setup) return setup
   if (session.interruptedAt) return 'interrupted'
   const status = shownStatus(session)
   // A lost login is the human's to restore, like a parked decision (`asksForHuman`).
@@ -1399,17 +1441,22 @@ export function sessionStateKey(
  * null when the planet wears none. One function for the pill `Planet` draws
  * and the room the simulation keeps around it.
  *
- * Only the four states that say something the planet's own body does not
- * get a pill: NEEDS INPUT, DONE, INTERRUPTED and WAITING. WORKING, IDLE and
- * ENDED are already told by the planet's pulse, rings and dimming (canvas 24c).
+ * Only the states that say something the planet's own body does not get a
+ * pill: NEEDS INPUT, DONE, INTERRUPTED, WAITING and NOT STARTED. WORKING,
+ * SETTING UP, IDLE and ENDED are already told by the planet's pulse, rings
+ * and dimming (canvas 24c, 66b).
  */
 export function statePill(
-  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate' | 'loginWait'>,
+  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate' | 'loginWait' | 'setup'>,
 ): { key: SessionStateKey; label: string } | null {
   const key = sessionStateKey(session)
   switch (key) {
     case 'interrupted':
       return { key, label: 'INTERRUPTED' }
+    // A still planet says nothing about why it never began (canvas 66b);
+    // SETTING UP's breathing core does, and goes without one.
+    case 'not_started':
+      return { key, label: 'NOT STARTED' }
     case 'needs_input':
     case 'done':
       return { key, label: parkedLabel(session) }

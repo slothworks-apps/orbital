@@ -31,9 +31,9 @@ import {
   type LimitWait,
   type LimitWindow,
   type LimitsSnapshot,
-  type QueuedMessage,
   type RejectedLimit,
 } from './logic.js';
+import type { SetupQueuedMessage as QueuedMessage } from '@orbital/shared/worktree';
 
 /** A probe that neither answers nor exits gives up after this long. */
 export const LIMITS_PROBE_TIMEOUT_MS = 15_000;

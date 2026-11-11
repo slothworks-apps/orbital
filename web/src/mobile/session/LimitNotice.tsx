@@ -1,4 +1,3 @@
-import { swatch } from '../../lib/palette'
 import { useState } from 'react'
 import { api } from '../../lib/api'
 import { useNow } from '../../lib/useNow'
@@ -8,6 +7,7 @@ import { limitNoticeKey, phoneLimitNotice, QUEUED_NOTE } from '../limits/limitCo
 import { useSessionDeviceName } from '../useDevice'
 import type { SlotKeyProps, SlotProps } from './slot'
 import { primaryTag } from '../../lib/primaryTag'
+import { QueuedBubble } from '../../ui/QueuedBubble'
 
 /** The bubbles' hue when the session has no tag — the desktop notice's own fallback. */
 const UNTAGGED_HUE = 205
@@ -86,18 +86,7 @@ export function LimitNotice({ session, offline }: SlotProps) {
         // Written during the wait and held by the Mac until the reset: only
         // listed, never removable (spec "Decided before"). Dashed, because it
         // has not gone out yet (canvas 10k).
-        <div key={i} data-limit-queued className="flex max-w-[84%] flex-col items-end gap-1 self-end">
-          <div
-            className="whitespace-pre-wrap rounded-[16px_16px_5px_16px] border border-dashed px-3.5 py-2.5 fs-14 leading-[1.5]"
-            style={{
-              borderColor: `oklch(var(--tb-l) var(--tb-c) ${hue} / ${offline ? '.3' : '.4'})`,
-              color: offline ? swatch('ink-100', 0.7) : swatch('ink-100', 0.85),
-            }}
-          >
-            {text}
-          </div>
-          {!offline && <span className="font-mono fs-10 text-ink-900/60">{QUEUED_NOTE}</span>}
-        </div>
+        <QueuedBubble key={i} kind="limit" surface="phone" text={text} caption={QUEUED_NOTE} hue={hue} asleep={offline} />
       ))}
     </div>
   )

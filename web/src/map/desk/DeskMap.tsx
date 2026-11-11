@@ -15,13 +15,15 @@ import {
   gateWaits,
   isReadOnly,
   sessionStateKey,
+  pendingSetup,
   statePill,
   tagTextColor,
   type PendingDecision,
   type SessionStateKey,
   type Subagent,
 } from '../../lib/types'
-import { stateColor, stateDot, stillDot } from '../../lib/stateStyle'
+import { stateColor, stateDot, stateWord, stillDot } from '../../lib/stateStyle'
+import { setupBranch, setupToolLine } from '../../lib/setup'
 import { decisionHeadline } from '../../lib/decisionCard'
 import { loginWaitLabels } from '../../lib/profileLogin'
 import { LoginCardBlock } from '../../panels/LoginNotice'
@@ -507,7 +509,7 @@ function MatHeader({
       const k = sessionStateKey(p.session)
       c[k] = (c[k] ?? 0) + 1
     }
-    return (['needs_input', 'working', 'waiting', 'done', 'interrupted'] as const)
+    return (['needs_input', 'working', 'setting_up', 'waiting', 'done', 'interrupted', 'not_started'] as const)
       .filter((k) => c[k])
       .map((k) => ({ k, n: c[k]! }))
   }, [cards])
@@ -595,7 +597,12 @@ const DeskCard = memo(function DeskCard({
   // A lost login names what it needs (canvas 62b, 62d "ONE STATE IN FOUR PLACES").
   const loginNeed = s.loginWait && !s.limitWait ? loginWaitLabels(s.loginWait, null).deskPill : null
   const pillLabel =
-    loginNeed ?? pill?.label ?? (key === 'working' ? 'WORKING' : key === 'idle' ? 'IDLE' : null)
+    loginNeed ??
+    pill?.label ??
+    (key === 'working' || key === 'idle' || key === 'setting_up' ? stateWord(key, 0) : null)
+  // A worktree launch not started yet: the card says which step, or that it
+  // did not start, where the latest tool call would be (canvas 66b).
+  const setup = pendingSetup(s)
   const colour = stateColor(key)
   const tools = s.recentTools ?? []
   const last = tools.length ? tools[tools.length - 1] : null
@@ -619,7 +626,11 @@ const DeskCard = memo(function DeskCard({
     ? Math.max(0, Math.floor((now - planet.compactingSince) / 1000))
     : 0
   const needs = key === 'needs_input'
-  const meta = deskCardMeta(s.git?.ref, planet.modelFamily, planet.deviceName)
+  const meta = deskCardMeta(
+    setup ? (setup.branch === null && setup.phase !== 'failed' ? 'naming branch…' : setupBranch(setup).text) : s.git?.ref,
+    planet.modelFamily,
+    planet.deviceName,
+  )
   const cardRef = useRef<HTMLElement>(null)
   useFold(cardRef, planet.deviceOff)
 
@@ -746,7 +757,12 @@ const DeskCard = memo(function DeskCard({
           )}
 
           <div className="relative h-[calc(1rem*var(--text-scale,1))] font-mono fs-11">
-            {last ? (
+            {setup ? (
+              <span className="absolute inset-0 flex gap-[7px] overflow-hidden whitespace-nowrap">
+                <span className="font-medium text-ink-100">{setupToolLine(setup).name}</span>
+                <span className="min-w-0 truncate text-ink-900/70">{setupToolLine(setup).arg}</span>
+              </span>
+            ) : last ? (
               <span
                 key={last.at}
                 className="desk-activity absolute inset-0 flex gap-[7px] overflow-hidden whitespace-nowrap"
@@ -924,9 +940,10 @@ function Pill({
   // steady one (41b: solid for working, hollow for idle) — nothing pulses.
   const dotFor = (surface: 'label' | 'dot') => {
     const d = stillDot(stateDot(sessionKey, surface, gate), offline)
-    if (d.shape !== 'none' || (sessionKey !== 'working' && sessionKey !== 'idle')) return d
+    if (d.shape !== 'none' || (sessionKey !== 'working' && sessionKey !== 'idle' && sessionKey !== 'setting_up')) return d
     return {
-      shape: sessionKey === 'working' ? ('solid' as const) : ('hollow' as const),
+      // 66b `CARD_ST.prep`: half filled.
+      shape: sessionKey === 'working' ? ('solid' as const) : sessionKey === 'setting_up' ? ('half' as const) : ('hollow' as const),
       motion: 'steady' as const,
     }
   }

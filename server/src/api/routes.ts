@@ -46,7 +46,7 @@ import {
 } from '../runner/runner.js';
 import type { ArchiveOutcome, ListedSession } from '../runner/sessionsTools.js';
 import { mergeCompactionFailures, type CompactionFailureRecord } from '../transcript/compaction.js';
-import { RETENTION_KEY } from '../retention.js';
+import { RETENTION_KEY, deleteSessions } from '../retention.js';
 import type { LiveSessions } from '../watcher/registry.js';
 import { endCli, type EndCliOutcome } from '../watcher/endCli.js';
 import type { Hub } from './hub.js';
@@ -74,8 +74,9 @@ import { registerTerminalRoutes } from './terminals.js';
 import { registerLoginRoutes } from './logins.js';
 import { registerWorktreeRoutes } from './worktree.js';
 import { LaunchReplays, type LaunchAnswer } from './launchReplays.js';
-import { WorktreeService, type BranchNamer, type LaunchPrep } from '../worktree/service.js';
-import { repoOfWorktreeDir, type EndSessionResult } from '@orbital/shared/worktree';
+import { WorktreeService, type BranchNamer, type LaunchCheck } from '../worktree/service.js';
+import { SetupFailure, SetupService, SetupStore, firstPhaseOf } from '../worktree/setup.js';
+import { repoOfWorktreeDir, type EndSessionResult, type SetupActionRefusal, type SetupHarness, type SetupLaunchSettings } from '@orbital/shared/worktree';
 import type { LoginService } from '../login/service.js';
 import type { TerminalStore } from '../terminal/store.js';
 import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
@@ -262,6 +263,12 @@ export interface RouteContext {
   worktrees?: WorktreeService;
   /** The launch's branch naming call; absent, every unnamed branch gets the temporary name. */
   nameBranch?: BranchNamer;
+  /**
+   * The setups of worktree launches (spec
+   * 2026-11-09-worktree-setup-in-background-design), loaded at boot. Absent,
+   * one is read from the db here.
+   */
+  setups?: SetupStore;
   /** `POST /api/sessions` on a group member, for `spawn_session`'s `machine` (spec 2026-10-19-member-grants-design § 3). */
   spawnOnMember?: (machine: string, body: Record<string, unknown>) => Promise<{ status: number; body: unknown }>;
 }
@@ -605,12 +612,95 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   /** A launch's harness (spec 2026-11-09-harness-from-new-session-design), set with `carry`. */
   let harnessLaunch: LaunchHarness | null = null;
   const launchReplays = new LaunchReplays();
+  // Set on the context, so every session shape built over it carries `setup`.
+  const setupStore = ctx.setups ??= new SetupStore(db);
+  setupStore.onChange = publishSession;
   const worktrees = ctx.worktrees ?? new WorktreeService({
     ctx, trees: ctx.trees, settings: ctx.settings, nameBranch: ctx.nameBranch, errors: ctx.errors,
+    inSetup: (id) => setupStore.pending(id),
   });
   // A removal End left running finishes before the server goes: `preClose`,
   // since `onClose` hooks run last-registered-first, after the db is closed.
   app.addHook('preClose', () => worktrees.settled());
+  /**
+   * The worktree launches' setups, run after the launch has answered. The
+   * session starts the way any launch does, in the worktree; the queue goes
+   * in the way the composer's messages do, once its first turn has ended.
+   */
+  const setups = new SetupService({
+    store: setupStore, worktrees, errors: ctx.errors,
+    start: async (rec, cwd) => {
+      if (rec.mcpjson) {
+        try {
+          recordDecisions(cwd, rec.mcpjson, { fingerprints: mcpjsonFingerprints });
+        } catch (err) {
+          throw new SetupFailure('The .mcp.json answers could not be saved in the worktree.', err instanceof Error ? err.message : String(err));
+        }
+      }
+      // The mode and model as the row has them now: either can be changed while the worktree is made.
+      const row = db.select({ permissionMode: sessions.permissionMode, model: sessions.model })
+        .from(sessions).where(eq(sessions.id, rec.sessionId)).get();
+      // A harness launch's first turn is its kickoff, attached at the launch.
+      const { harness: launchedHarness, progressList, progressListChoice } = rec.launch;
+      const promptUuid = launchedHarness ? randomUUID() : undefined;
+      try {
+        await launchSession({
+          cwd, prompt: launchedHarness?.text ?? rec.prompt,
+          permissionMode: (row?.permissionMode ?? rec.launch.permissionMode) as PermissionMode,
+          model: row?.model ?? rec.launch.model, sessionId: rec.sessionId, claudeDirId: rec.launch.claudeDirId,
+          ...(rec.attachments.length ? { attachments: rec.attachments } : {}),
+          ...(rec.title ? { title: rec.title } : {}),
+          ...(promptUuid ? { promptUuid } : {}),
+          ...(progressList ? { progressList } : {}),
+          ...(progressListChoice !== undefined ? { progressListChoice } : {}),
+          launched: true,
+        });
+      } catch (err) {
+        if (ctx.runner.active().includes(rec.sessionId)) await ctx.runner.stop(rec.sessionId);
+        throw new SetupFailure('The session could not be started in the worktree.', err instanceof Error ? err.message : String(err));
+      }
+      if (launchedHarness && promptUuid) {
+        await harnessLaunch?.started(rec.sessionId, launchedHarness, promptUuid, launchedHarness.text, !!rec.title, rec.attachments);
+      }
+    },
+    deliver: async (id, message) => {
+      const attachments = message.attachments?.length ? message.attachments : undefined;
+      // Past the setup guard: this is the queue the guard keeps, going in.
+      const delivery = await deliverNow(id, message.text, attachments);
+      if (delivery.uuid) publishSentTurn(id, delivery.uuid, message.text, attachments);
+      return delivery.outcome;
+    },
+    turnOf: (id) => {
+      const row = db.select({ endedAt: sessions.endedAt }).from(sessions).where(eq(sessions.id, id)).get();
+      if (!row || row.endedAt !== null) return 'gone';
+      return ctx.runner.busy(id) ? 'running' : 'over';
+    },
+    toLimitWait: (id, message) => ctx.limits?.queue(id, message.text, message.attachments) ?? false,
+    stop: (id) => ctx.runner.stop(id),
+  });
+  setups.recover();
+  // Before the db closes: what a run is in the middle of is left to the next boot.
+  app.addHook('preClose', () => setups.close());
+
+  /**
+   * Discards a session that never started (spec § Discard): its setup is
+   * stopped and rolled back on the server, and the session is gone from
+   * every client at once. False when the session is not in setup.
+   */
+  function discardSession(id: string): boolean {
+    if (!setups.discard(id)) return false;
+    // The harness a launch attached before its setup: the session never ran it.
+    if (ctx.harness.get(id)) harnessLaunch?.discard(id);
+    // What `endSession` lets go of for the user's End, for a session that never ran.
+    ctx.harness.sessionEnded(id);
+    ctx.limits?.drop(id);
+    ctx.logins?.forget(id);
+    ctx.terminals.closeSession(id);
+    // The setup's row stays while its rollback runs: `discard` deletes it after.
+    deleteSessions(db, [id], { keepSetup: true });
+    ctx.hub.publish('sessions', { event: 'remove', sessionId: id });
+    return true;
+  }
 
   app.get('/api/sessions', (req) => {
     const q = req.query as Record<string, string>;
@@ -1488,64 +1578,57 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const userPrompt = typeof body.prompt === 'string' ? body.prompt : '';
     const run = async (): Promise<LaunchAnswer> => {
-      // The worktree is made before anything else is written, so a launch it
-      // refuses leaves nothing behind. Its fallback branch is named after the
-      // session, so the id is fixed here when the browser did not mint one.
-      let prepared: LaunchPrep | null = null;
-      let launchId = clientId;
-      // A harness is attached under the id before the session starts.
-      if (worktree || harnessPlan) launchId ??= randomUUID();
+      // What the dialog can still fix is answered now; the worktree itself
+      // is made after the answer (spec 2026-11-09-worktree-setup-in-background-design).
+      let check: LaunchCheck | null = null;
       if (worktree) {
-        const result = await worktrees.prepareLaunch({
-          cwd, base: worktree.base, branch: worktree.branch,
-          // A harness's launch is named after its task, as its session is,
-          // and the user's note, without the header the agent reads it under.
-          prompt: harnessPlan ? [harnessPlan.subject, userPrompt.trim()].filter(Boolean).join('\n\n') : userPrompt,
-          sessionId: launchId!, claudeDirId,
-        });
+        const result = await worktrees.checkLaunch({ cwd, base: worktree.base, branch: worktree.branch });
         if (!result.ok) return { status: result.status, body: { error: result.error, message: result.message } };
-        prepared = result;
+        check = result;
       }
-      const sessionCwd = prepared?.cwd ?? cwd;
       if (mcpjson) {
         // A settings file that cannot be parsed is left alone rather than
         // overwritten, and the launch waits: the user's answer would be lost.
-        // In a worktree the answer holds for the worktree's own path too.
+        // In a worktree the answer holds for the worktree's own path too,
+        // written there once it exists.
         try {
           recordDecisions(cwd, mcpjson, { fingerprints: mcpjsonFingerprints });
-          if (sessionCwd !== cwd) recordDecisions(sessionCwd, mcpjson, { fingerprints: mcpjsonFingerprints });
         } catch (err) {
           console.warn('orbital: could not record .mcp.json decisions:', err);
-          await prepared?.rollback();
           return { status: 500, body: { error: 'mcpjson_not_recorded' } };
         }
       }
-      // With a harness, the first turn is its kickoff with the prompt as a
-      // note after it: one message, so the agent has the checklist before it
-      // starts on anything (§ The first message).
+      // A harness is attached under the id before the session starts; a
+      // worktree's setup is kept under it. With a harness, the first turn is
+      // its kickoff with the prompt as a note after it: one message, so the
+      // agent has the checklist before it starts on anything (§ The first message).
+      const launchId = clientId ?? (check || harnessPlan ? randomUUID() : undefined);
       let first: { prompt: string; promptUuid?: string } = { prompt: launch.prompt };
       if (harnessPlan && harnessLaunch) {
         const attached = harnessLaunch.attach(launchId!, harnessPlan, userPrompt);
-        if (!attached.ok) {
-          await prepared?.rollback();
-          return { status: attached.status, body: { error: attached.error } };
-        }
+        if (!attached.ok) return { status: attached.status, body: { error: attached.error } };
         first = { prompt: attached.text, promptUuid: randomUUID() };
       }
+      const progress = {
+        ...(progressList ? { progressList } : {}),
+        ...(progressListChoice !== undefined ? { progressListChoice } : {}),
+      };
       let sessionId: string;
       try {
-        sessionId = await launchSession({
-          ...launch, ...first, cwd: sessionCwd, sessionId: launchId, claudeDirId, ...(prepared?.title ? { title: prepared.title } : {}),
-          ...(progressList ? { progressList } : {}),
-          ...(progressListChoice !== undefined ? { progressListChoice } : {}),
-        });
+        sessionId = check
+          // The setup keeps the user's own words, which name the branch and
+          // prefill Without a worktree; the harness's first turn goes with it.
+          ? beginWorktreeLaunch(check, {
+            ...launch, cwd, sessionId: launchId!, claudeDirId, mcpjson: mcpjson ?? null, ...progress,
+            ...(harnessPlan ? { harness: { ...harnessPlan, text: first.prompt } } : {}),
+          })
+          : await launchSession({ ...launch, ...first, cwd, sessionId: launchId, claudeDirId, ...progress });
       } catch (err) {
         if (harnessPlan) harnessLaunch?.discard(launchId!);
-        await prepared?.rollback();
         throw err;
       }
-      if (harnessPlan && harnessLaunch && first.promptUuid) {
-        await harnessLaunch.started(sessionId, harnessPlan, first.promptUuid, first.prompt, !!prepared?.title, launch.attachments);
+      if (!check && harnessPlan && harnessLaunch && first.promptUuid) {
+        await harnessLaunch.started(sessionId, harnessPlan, first.promptUuid, first.prompt, false, launch.attachments);
       }
       // The dialog's choice, remembered for the next one (spec § 3) — stored
       // here rather than by the client, because the phone cannot write settings.
@@ -1729,8 +1812,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         if (listed.length >= limit) break;
         const status = statusOf(ctx, row);
         if (status === 'ended' && !input.includeArchived) continue;
+        const setup = setupStore.pending(row.id) ? setupStore.get(row.id)?.phase : undefined;
         listed.push({
           id: row.id, title: row.title, cwd: row.cwd, source: row.source, status,
+          // `idle` alone would read as a session done with its work.
+          ...(setup ? { setup: setup === 'failed' ? 'not_started' as const : 'setting_up' as const } : {}),
           alive: ctx.runner.status(row.id) !== undefined || ctx.registry.get(row.id) !== undefined,
           pinned: row.pinned_at !== null,
           lastAt: row.last_at === null ? null : new Date(row.last_at).toISOString(),
@@ -1754,6 +1840,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         // An Orbital session a terminal resumed is held there all the same.
         if (sourceOf(ctx, row) !== 'web' && status !== 'ended') { refuse('a terminal session that is still running'); continue; }
         if (!force && row.pinned_at !== null) { refuse('pinned by the user; pass force to archive it anyway'); continue; }
+        // A session that never ran is not archived but discarded, its first
+        // prompt and queue with it (ADR a-session-ends-only-when-the-user-ends-it).
+        if (setupStore.pending(id)) {
+          if (!force) { refuse('not started yet: archiving would discard it and its first prompt; pass force only when the user asked for exactly that'); continue; }
+          discardSession(id);
+          outcomes.push({ id, result: 'discarded' });
+          continue;
+        }
         if (!force && (status === 'working' || status === 'needs_input')) {
           refuse(`${status === 'working' ? 'working' : 'waiting for the user\'s input'}; pass force to archive it anyway`);
           continue;
@@ -1764,6 +1858,54 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       return outcomes;
     },
   };
+
+  /**
+   * A worktree launch's session, before its worktree exists: the row, in
+   * the dialog's directory and with no process, and its setup record, whose
+   * steps then run in the background. Its session starts through
+   * `launchSession` once the worktree is ready.
+   */
+  function beginWorktreeLaunch(check: LaunchCheck, opts: {
+    cwd: string; prompt: string; permissionMode: PermissionMode; tagId?: number; model?: string;
+    sessionId: string; attachments?: string[]; claudeDirId: number; mcpjson: McpjsonDecisions | null;
+    progressList?: boolean; progressListChoice?: boolean; harness?: SetupHarness;
+  }): string {
+    const { sessionId: id, tagId } = opts;
+    const now = Date.now();
+    const launch: SetupLaunchSettings = {
+      cwd: opts.cwd, base: check.base, ...(check.branch ? { branch: check.branch } : {}),
+      permissionMode: opts.permissionMode,
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(tagId != null ? { tagId } : {}),
+      claudeDirId: opts.claudeDirId,
+      ...(opts.progressList ? { progressList: true } : {}),
+      ...(opts.progressListChoice !== undefined ? { progressListChoice: opts.progressListChoice } : {}),
+      ...(opts.harness ? { harness: opts.harness } : {}),
+    };
+    // One transaction: a session row without its setup record would be an
+    // idle session in the main checkout, which a message would revive there.
+    db.transaction((tx) => {
+      tx.insert(sessions)
+        .values({
+          id, projectDir: '', cwd: opts.cwd, source: 'web', claudeDirId: opts.claudeDirId,
+          permissionMode: opts.permissionMode, model: opts.model ?? null, lastAt: now,
+        })
+        .run();
+      if (tagId != null) {
+        tx.insert(sessionTags).values({ sessionId: id, tagId, origin: 'manual' }).onConflictDoNothing().run();
+      }
+      setupStore.insert({
+        sessionId: id, ...firstPhaseOf(launch), path: null, repoRoot: check.repoRoot, made: 'none', title: null,
+        launch, prompt: opts.prompt, attachments: opts.attachments ?? [],
+        mcpjson: opts.mcpjson, queued: [], sessionStarted: false, message: null, errorId: null,
+        startedAt: now, readyInMs: null,
+      }, tx);
+    });
+    // The row, `setup` and all.
+    publishSession(id);
+    setups.begin(id, check);
+    return id;
+  }
 
   /**
    * Starts a web session and announces it: the run, the row born already
@@ -1784,15 +1926,37 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     progressList?: boolean;
     /** The New session dialog's switch, when the launch came from it with one offered. */
     progressListChoice?: boolean;
+    /** The row was written at the launch (a worktree setup's): it moves to `cwd` rather than being inserted. */
+    launched?: boolean;
   }): Promise<string> {
-    const { cwd, spawnedBy, tagId, purpose, title, progressListChoice, ...start } = opts;
+    const { cwd, spawnedBy, tagId, purpose, title, launched, progressListChoice, ...start } = opts;
     const claudeDirId = opts.claudeDirId ?? ctx.claudeDirs.defaultId();
     const resumed = opts.resume
       ? db.select({ progressList: sessions.progressList }).from(sessions).where(eq(sessions.id, opts.resume)).get()
       : undefined;
     const progressList = resumed ? resumed.progressList : opts.progressList === true;
-    const sessionId = await ctx.runner.start({ ...start, cwd, claudeDirId, progressList });
-    db.insert(sessions)
+    // A setup's row moves to the worktree before the start, which reads
+    // where the session works from it; back again when the start throws.
+    const before = launched && opts.sessionId
+      ? db.select({ cwd: sessions.cwd }).from(sessions).where(eq(sessions.id, opts.sessionId)).get()
+      : undefined;
+    if (before) db.update(sessions).set({ cwd }).where(eq(sessions.id, opts.sessionId!)).run();
+    let sessionId: string;
+    try {
+      sessionId = await ctx.runner.start({ ...start, cwd, claudeDirId, progressList });
+    } catch (err) {
+      if (before) db.update(sessions).set({ cwd: before.cwd }).where(eq(sessions.id, opts.sessionId!)).run();
+      throw err;
+    }
+    if (launched) {
+      db.update(sessions)
+        .set({
+          progressList, progressListChoice: progressListChoice ?? null,
+          lastAt: Date.now(), runnerStatus: ctx.runner.status(sessionId) ?? null,
+        })
+        .where(eq(sessions.id, sessionId))
+        .run();
+    } else db.insert(sessions)
       .values({
         id: sessionId, projectDir: '', cwd, source: 'web', claudeDirId,
         permissionMode: opts.permissionMode, model: opts.model ?? null,
@@ -1819,8 +1983,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         .run();
     }
     // A browser that minted the id subscribed before this row existed, when
-    // its `cwd` could not be looked up yet — so the watch starts here.
-    if (ctx.hub.subscriberCount(`session:${sessionId}`) > 0) ctx.branchStatus.watchSession(sessionId, cwd);
+    // its `cwd` could not be looked up yet — so the watch starts here. A
+    // setup's session was watched in the main checkout while it was set up:
+    // the watch moves into its worktree.
+    if (ctx.hub.subscriberCount(`session:${sessionId}`) > 0) {
+      if (launched) ctx.branchStatus.unwatchSession(sessionId);
+      ctx.branchStatus.watchSession(sessionId, cwd);
+    }
     const named = !purpose && title !== undefined && ctx.settings.get(NAME_SESSIONS_KEY) !== 'false';
     if (named) {
       // Only over a derived title, as the titler writes its own first name.
@@ -1828,7 +1997,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         .where(and(eq(sessions.id, sessionId), eq(sessions.titleSource, 'derived')))
         .run();
     }
-    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow;
+    // A setup's row can be gone: discarded while its session was starting.
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow | undefined;
+    if (!row) throw new Error(`session ${sessionId} was discarded while it started`);
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
     if (!purpose && !named) nameFromFirstMessage(sessionId, opts.prompt);
     return sessionId;
@@ -1881,11 +2052,22 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   /**
    * One delivery path for anything Orbital says INTO a session: the composer's
-   * text. Sends if the runner
-   * holds the session; otherwise revives it by resuming — unless a terminal
-   * owns it, which cannot be taken over.
+   * text, a harness's, a limit reset's, a login's continuation. Sends if the
+   * runner holds the session; otherwise revives it by resuming — unless a
+   * terminal owns it, which cannot be taken over.
+   *
+   * A session whose worktree is being set up, or could not be, has no
+   * process and no transcript, and the directory on its row is the main
+   * checkout: a revive would start it there. It takes nothing — `in_setup`;
+   * the composer's messages are queued for it before they get here.
    */
   async function deliverToSession(id: string, text: string, attachments?: string[]): Promise<Delivery> {
+    if (setupStore.pending(id)) return { outcome: 'in_setup', uuid: null };
+    return deliverNow(id, text, attachments);
+  }
+
+  /** `deliverToSession` past its setup guard: the setup's own queue goes in through here. */
+  async function deliverNow(id: string, text: string, attachments?: string[]): Promise<Delivery> {
     // Writing to an ended session reopens it, whichever path below delivers
     // the message — a session someone is typing into is evidently not over
     // (spec 2026-09-24-sessions-end-only-by-hand-design § 1). Only once it
@@ -2122,6 +2304,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (ctx.limits?.queue(id, typeof text === 'string' ? text : '', attachments)) {
       return { ok: true, queued: true };
     }
+    // Nor does a session whose worktree is being set up, or could not be:
+    // it goes in after the first prompt, once the session starts (spec
+    // 2026-11-09-worktree-setup-in-background-design § Messages).
+    if (setupStore.queue(id, { text: typeof text === 'string' ? text : '', ...(attachments?.length ? { attachments } : {}) })) {
+      // A started session's queue a restart left waits for this: it goes in now, ahead of this one.
+      setups.resume(id);
+      return { ok: true, queued: true };
+    }
     // Read before delivering: a revive turns a terminal session's `source`
     // into `web`, and only a session Orbital started is named.
     const launched = db.select({ source: sessions.source, purpose: sessions.purpose })
@@ -2167,6 +2357,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   function deliveryReply(delivery: Delivery, reply: FastifyReply, terminalError: string) {
     if (delivery.outcome === 'not_found') return reply.code(404).send({ error: 'not found' });
     if (delivery.outcome === 'terminal') return reply.code(409).send({ error: terminalError });
+    if (delivery.outcome === 'in_setup') return reply.code(409).send({ error: 'in_setup' });
     return {
       ok: true,
       ...(delivery.outcome === 'revived' ? { revived: true } : {}),
@@ -2480,6 +2671,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * ended yet still pinned in between — the planet faded back in, then out.
    */
   async function endSession(id: string, opts: { unpin?: boolean } = {}): Promise<void> {
+    // A session that never ran has nothing to keep: ending it discards it.
+    if (discardSession(id)) return;
     db.update(sessions)
       .set(opts.unpin ? { endedAt: Date.now(), pinnedAt: null } : { endedAt: Date.now() })
       .where(eq(sessions.id, id))
@@ -2541,6 +2734,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
+    // A session in setup has no worktree of its own yet, whatever its directory is: End discards it.
+    if (discardSession(id)) return { ok: true } satisfies EndSessionResult;
     const end = (sid: string) => endSession(sid, { unpin: unpin === true });
     if (!removeWorktree) {
       const tree = worktrees.linkedTreeOf(row);
@@ -2561,6 +2756,32 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       ok: true, worktreeRemoved: false, error: 'not_worktree',
       message: 'The session no longer works in a worktree.',
     } satisfies EndSessionResult;
+  });
+
+  /**
+   * Try again for a session whose worktree could not be made (spec
+   * 2026-11-09-worktree-setup-in-background-design § Ways out): the same
+   * launch from step 1, the prompt and queue kept.
+   */
+  app.post('/api/sessions/:id/setup/retry', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const res = await setups.retry(id);
+    if (res === 'ok') return { ok: true };
+    const known = res === 'not_failed' || db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get() !== undefined;
+    const refusal: SetupActionRefusal = known ? 'not_failed' : 'not_found';
+    return reply.code(known ? 409 : 404).send({ error: refusal });
+  });
+
+  /**
+   * Discard for a session in setup or not started (§ Discard): gone at
+   * once; a setup still running is rolled back on the server after.
+   */
+  app.post('/api/sessions/:id/discard', (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (discardSession(id)) return { ok: true };
+    const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
+    const refusal: SetupActionRefusal = row ? 'not_in_setup' : 'not_found';
+    return reply.code(row ? 409 : 404).send({ error: refusal });
   });
 
   /**
@@ -2635,6 +2856,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
+    // A session in setup has nothing to clear, and ending it would discard
+    // it — its first prompt and queue with it; the panel hides Clear for it.
+    if (setupStore.pending(id)) return reply.code(409).send({ error: 'in_setup' });
     await endSession(id);
     if (!startNew) return { ok: true };
     // Clear keeps what it cleared: the new session runs in the same folder,

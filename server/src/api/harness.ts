@@ -16,6 +16,7 @@ import { isScope } from '../harness/logic.js';
 import { NAME_SESSIONS_KEY } from '../titler/titler.js';
 import type { HarnessTemplate } from '../harness/types.js';
 import type { ChatMessage, PermissionMode, SessionPurpose } from '../types.js';
+import { startedTurn } from './delivery.js';
 import type { RouteContext } from './routes.js';
 
 /**
@@ -278,10 +279,11 @@ export function registerHarnessRoutes(
     const result = harness.attach(id, body.templateId, values);
     if (!result.ok) return reply.code(result.status).send({ error: result.error });
     const delivery = await harness.say(id, result.value.kickoff, 'kickoff', 0);
-    if (delivery.outcome === 'not_found' || delivery.outcome === 'terminal') {
+    if (!startedTurn(delivery.outcome)) {
       // A harness nobody can send to would only pretend to run.
       harness.discard(id);
-      return reply.code(409).send({ error: delivery.outcome === 'terminal' ? 'session_is_terminal' : 'not found' });
+      const error = delivery.outcome === 'terminal' ? 'session_is_terminal' : delivery.outcome === 'in_setup' ? 'in_setup' : 'not found';
+      return reply.code(409).send({ error });
     }
     await harness.stepStarted(id, 0, delivery.uuid);
     if (started) nameFromHarness(id, result.value.subject);

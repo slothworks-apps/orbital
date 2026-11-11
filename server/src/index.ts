@@ -60,6 +60,7 @@ import { OutputFollower } from './files/taskOutput.js';
 import { MAX_PROMPT_CHARS, NAME_RULES_KEY, SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { nameBranch } from './worktree/naming.js';
 import { worktreeContextOf } from './worktree/service.js';
+import { SetupStore } from './worktree/setup.js';
 import { HarnessService } from './harness/service.js';
 import { PROGRESS_LIST_ENABLED_KEY, ProgressService } from './progress/service.js';
 import { RewindStore } from './rewind/store.js';
@@ -471,6 +472,9 @@ export async function buildServer(overrides: {
       }),
   });
   limits.load();
+  // The worktree launches' setups (spec 2026-11-09-worktree-setup-in-background-design);
+  // one the previous server left half done is rolled back once the routes can run it.
+  const setups = new SetupStore(db);
 
   // Every session's subagents, keyed by session — running and ended alike,
   // since the subagent list keeps finished rows (subagent list spec § 5). Read back
@@ -538,7 +542,7 @@ export async function buildServer(overrides: {
     transcriptPath: (id, projectDir, claudeDirId) => transcriptPath(id, projectDir, claudeDirId),
     git,
   });
-  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits, logins, trees, progress });
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits, logins, trees, progress, setups });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
   const rowOf = (sessionId: string): SessionRow | undefined =>
     db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get();
@@ -920,6 +924,8 @@ export async function buildServer(overrides: {
         if (clearCompactionFailure(sessionId)) republish(sessionId);
       }
       hub.publish('sessions', { event: 'status', sessionId, status });
+      // A setup's queue waiting for the first turn to end looks again at every edge.
+      setups.settled(sessionId);
     },
     // The claim that survives a kill: written on every change, cleared only
     // when the process stops. A `tsx watch` restart never reaches the clear,
@@ -927,7 +933,10 @@ export async function buildServer(overrides: {
     // (spec 2026-09-21-session-autoheal-design).
     onOwnership: (sessionId, status) => {
       db.update(sessions).set({ runnerStatus: status }).where(eq(sessions.id, sessionId)).run();
-      if (status === null) released(sessionId);
+      if (status === null) {
+        released(sessionId);
+        setups.settled(sessionId);
+      }
       // The session's live feed changes hands with its owner: the Runner's
       // stream while it holds the session, a transcript tail while it does
       // not (adr: the-tail-yields-to-the-runner). `startTail`/`stopTail` are
@@ -1011,7 +1020,10 @@ export async function buildServer(overrides: {
     // `working`; and the republish is what carries `awaitingSubagents` to the
     // map, since neither edge necessarily moves the status at all.
     onTurnBoundary: (sessionId, ended) => {
-      if (ended) harness.onTurnEnd(sessionId);
+      if (ended) {
+        harness.onTurnEnd(sessionId);
+        setups.settled(sessionId);
+      }
       // A turn the CLI started by itself is a next turn too, and it moves no
       // status for `onStatus` above to see. Any next turn, the user's or
       // not, also takes the session off a login's continuation list.
@@ -1023,7 +1035,10 @@ export async function buildServer(overrides: {
     },
     // Both edges of a parked question, for the map: `pendingDecision` rides
     // the snapshot, and it is what separates NEEDS INPUT from DONE.
-    onDecision: (sessionId) => republish(sessionId),
+    onDecision: (sessionId) => {
+      republish(sessionId);
+      setups.settled(sessionId);
+    },
     // Usage limits: every event reads the limits again, a turn ended on the
     // limit may become a wait, and a waiting session settles to `idle`.
     onRateLimit: (sessionId, info) => limits.rateLimitEvent(sessionId, info),
@@ -1172,6 +1187,8 @@ export async function buildServer(overrides: {
     const now = Date.now();
     const cutoff = retentionCutoff(parseRetentionDays(settingsStore.get(RETENTION_KEY)), now);
     const swept = sweepSessions(db, cutoff, now);
+    // Their setup rows went with them; a queue still being handed over stops.
+    setups.forget(swept);
     for (const id of swept) hub.publish('sessions', { event: 'remove', sessionId: id });
     return swept;
   }
@@ -1499,6 +1516,12 @@ export async function buildServer(overrides: {
   // stood at `working` was cut off mid-turn, which is what `interrupted_at`
   // records — stamped first, while the flag still says so.
   const bootedAt = Date.now();
+  // A claim on a session whose setup had not yet written `sessionStarted`:
+  // the process did start, in its worktree, which the setup's recovery
+  // must not roll back from under it.
+  for (const { id } of db.select({ id: sessions.id }).from(sessions).where(isNotNull(sessions.runnerStatus)).all()) {
+    setups.claimedBeforeStop(id);
+  }
   db.update(sessions)
     .set({ interruptedAt: bootedAt })
     .where(eq(sessions.runnerStatus, 'working'))
@@ -1773,6 +1796,7 @@ export async function buildServer(overrides: {
     mcpFor,
     limits,
     logins,
+    setups,
     controlKey,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,

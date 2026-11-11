@@ -74,6 +74,7 @@ function LiveComposer({ id }: { id: string }) {
   const target = useOrbital(useShallow((s) => questionComposerTarget(s, id)))
   const reviewHeld = target?.kind === 'review'
   const limitWait = useOrbital((s) => s.sessions[id]?.limitWait ?? null)
+  const setup = useOrbital((s) => s.sessions[id]?.setup ?? null)
   const ready = useSessionReady(id)
   const macName = useSessionDeviceName(id)
   // A gate's Reopen, asked from the card (canvas 10b, third phone).
@@ -123,6 +124,7 @@ function LiveComposer({ id }: { id: string }) {
     ended: status === 'ended',
     reopenStep,
     limitWait,
+    setup,
   })
 
   // A send waits for its uploads: the well is taken only once every chip has landed.

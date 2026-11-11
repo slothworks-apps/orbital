@@ -67,6 +67,8 @@ import { HarnessGlyph } from '../ui/UtilityButton'
 import { HarnessStep, useLaunchHarness } from './NewSessionHarness'
 import { SwitchButton } from './harness/parts'
 import { progressListEnabled } from '../lib/experimental'
+import type { NewSessionPrefill } from '../lib/setup'
+import { replacedByLaunch, useNewSessionPrefill } from '../store/setupActions'
 
 export interface NewSessionDialogProps {
   open: boolean
@@ -222,6 +224,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // status publish, and a closed dialog has no picker to keep current.
   const members = useOrbital((s) => (open ? s.remote?.group?.members : undefined))
 
+  /**
+   * Without a worktree's launch, taken at the open (spec
+   * 2026-11-09-worktree-setup-in-background-design § Ways out): this open
+   * starts from that session's settings instead, with Worktree off.
+   */
+  const pendingPrefill = useNewSessionPrefill((s) => s.prefill)
+  const [prefill, setPrefill] = useState<NewSessionPrefill | null>(null)
   const [cwd, setCwd] = useState('')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('acceptEdits')
   const [prompt, setPrompt] = useState('')
@@ -390,9 +399,20 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       })
   }, [])
 
+  /**
+   * The chips a Without a worktree prefill carried, and the device whose
+   * store holds their refs: another device has no such images.
+   */
+  const carried = useRef<{ device: string; chips: string[] } | null>(null)
+  const removeChip = useRef<(id: string) => void>(() => {})
+
   /** Switching device swaps the recent directories and resets the field to that device's last one (50g). */
   const switchDevice = useCallback(
     (id: string) => {
+      if (carried.current && carried.current.device !== id) {
+        for (const chip of carried.current.chips) removeChip.current(chip)
+        carried.current = null
+      }
       setDevice(id)
       setChooserOpen(false)
       setProjects([])
@@ -422,6 +442,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // 418 px well is too small a thing to aim at while holding a file"), so the
   // ref goes to `Dialog`.
   const attachments = useAttachments(null)
+  removeChip.current = attachments.remove
   const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files, folders) =>
     attachments.accept(files, 'file', folders),
   )
@@ -438,6 +459,36 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** What a launch from step 2 adds to the body; step 1 never starts a checklist. */
   const harnessLaunch = step2 ? harness.launch : null
   const resetHarness = harness.reset
+  /**
+   * Seats a Without a worktree prefill over what the open reset to: the
+   * session's directory, device, mode, model, tag and Claude directory, its
+   * prompt with the queued messages, and their attachments as done chips.
+   * The choices count as made by hand, so no rule or remembered pick moves
+   * them.
+   */
+  function applyPrefill(p: NewSessionPrefill) {
+    const on = deviceRow || p.device === LOCAL_DEVICE ? p.device : LOCAL_DEVICE
+    setDevice(on)
+    setProjects([])
+    loadProjects(on, false)
+    setCwd(p.cwd)
+    setPermissionMode(p.permissionMode)
+    setPrompt(p.prompt)
+    if (p.tagId !== null) {
+      setRememberedTag({ cwd: p.cwd, tagId: p.tagId, pickedByHand: true })
+      setTagId(p.tagId)
+      setManualOverride(true)
+    }
+    if (p.model !== null) {
+      setModel(p.model)
+      setModelOverridden(true)
+    }
+    if (p.claudeDirId !== null) {
+      setClaudeDirId(p.claudeDirId)
+      setClaudeDirPrefilled({ id: p.claudeDirId, from: 'planet', planet: p.title })
+    }
+    carried.current = { device: on, chips: attachments.adoptRefs(p.attachments) }
+  }
 
   // Reset + prefill from settings on the false -> true transition only (not
   // on every re-render while already open, which would clobber typing).
@@ -452,6 +503,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       const opening = openingLaunch(settings, planet, tags)
       const startCwd = planet || startDevice === LOCAL_DEVICE ? opening.cwd : ''
       setDevice(startDevice)
+      carried.current = null
       setChooserOpen(false)
       setCwd(startCwd)
       setPermissionMode(opening.permissionMode)
@@ -489,6 +541,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setProjects([])
       // Another device without a planet to start from opens on its most recent directory.
       loadProjects(startDevice, startDevice !== LOCAL_DEVICE && !startCwd ? { fallback: '' } : false)
+      setPrefill(pendingPrefill)
+      if (pendingPrefill) applyPrefill(pendingPrefill)
+    }
+    // The prefill is for one open: cancelling leaves both sessions as they were.
+    if (!open && wasOpenRef.current) {
+      setPrefill(null)
+      useNewSessionPrefill.setState({ prefill: null })
     }
     // Closing drops the chips and aborts whatever was still uploading — a
     // dialog that was dismissed is not a turn that will be sent. The chips a
@@ -609,7 +668,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const dirLine = directoryLine(dirState, remote ? deviceName : 'this Mac')
   // The WORKTREE group's repository and choice (canvas 63a). Asked while the
   // path is a directory or not yet known to be anything else.
-  const worktree = useWorktreeChoice(cwd, open && (dirState === null || dirState === 'directory'), machine)
+  const worktree = useWorktreeChoice(
+    cwd,
+    open && (dirState === null || dirState === 'directory'),
+    machine,
+    // Without a worktree, in the directory it was asked for.
+    prefill !== null && cwd.trim() === prefill.cwd,
+  )
   const setWorktreeLaunchError = worktree.setLaunchError
   /** RECENT, with a worktree's directory shown as its repository, once. */
   const recent = useMemo(() => recentDirectories(projects), [projects])
@@ -685,6 +750,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       // The server stores the directory choice itself (the phone cannot write
       // settings); the store only learns it for the next open.
       if (choosesDir && claudeDirId !== null) useOrbital.setState({ lastClaudeDir: claudeDirId })
+      // The session that could not get its worktree goes now this one runs.
+      if (prefill) replacedByLaunch(prefill)
       onClose()
       await select(sessionId)
     } catch (err) {
@@ -702,7 +769,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, progressOffered, progressList, setWorktreeLaunchError, launchAttempt, harnessLaunch])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, progressOffered, progressList, setWorktreeLaunchError, launchAttempt, harnessLaunch, prefill])
 
   /**
    * Launch: asks about the project's undecided `.mcp.json` servers first,

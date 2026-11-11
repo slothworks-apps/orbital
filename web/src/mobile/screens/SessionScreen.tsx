@@ -27,6 +27,10 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
+import { SetupBlock, SetupPending, SetupQueue } from '../../panels/SetupBlock'
+import { setupTranscript } from '../../lib/setup'
+import { startWithoutWorktreeOnPhone } from '../menu/withoutWorktree'
+import { GLINT_ACCENT_HUE } from '../../ui/TopGlint'
 import { getSocket } from '../../lib/socket'
 import { ReplyMediaSession } from '../../panels/ReplyMedia'
 import { PhoneToolRowContext } from '../../panels/ToolRow'
@@ -163,6 +167,12 @@ function SessionView({ id }: { id: string }) {
     [jump],
   )
 
+  // A worktree launch (spec 2026-11-09-worktree-setup-in-background-design;
+  // canvas 66d): before it starts, its prompt, the block and its queue from
+  // `setup`; after, the block under the first turn, and messages still
+  // waiting for the first turn to end as queued turns at the bottom.
+  const { setup, pending, setupQueued, footerKey: setupKey } = setupTranscript(session)
+
   const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
   const phoneRows = usePhoneToolRow(id, tagHue, offline)
   const header = (
@@ -220,7 +230,8 @@ function SessionView({ id }: { id: string }) {
       {/* Reply thumbnails read named files through this session (canvas 24f A, 24g). */}
       <ReplyMediaSession.Provider value={id}>
       <TranscriptView
-        messages={shown}
+        messages={pending ? EMPTY : shown}
+        afterFirstTurn={setup && !pending ? <SetupBlock sessionId={id} setup={setup} surface="phone" /> : undefined}
         jumpTo={jumpTo}
         isWorking={!offline && session?.status === 'working'}
         models={models}
@@ -242,12 +253,22 @@ function SessionView({ id }: { id: string }) {
         footer={
           session ? (
             <>
+              {pending && setup && (
+                <SetupPending
+                  sessionId={id}
+                  setup={setup}
+                  hue={tag?.hue ?? GLINT_ACCENT_HUE}
+                  surface="phone"
+                  onWithoutWorktree={() => startWithoutWorktreeOnPhone(id)}
+                />
+              )}
               <TranscriptTail session={session} offline={offline} />
+              {setupQueued && <SetupQueue setup={setupQueued} hue={tag?.hue ?? GLINT_ACCENT_HUE} surface="phone" />}
               {cleanup.shown && <WorktreeCleanupRow cleanup={cleanup} className="my-3" />}
             </>
           ) : undefined
         }
-        footerKey={tailKey}
+        footerKey={setupKey ? `${setupKey}|${tailKey}` : tailKey}
         liveRow={liveRow}
         isWaiting={isWaiting}
         waitCaption={waitCaption}

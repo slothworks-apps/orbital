@@ -6,6 +6,7 @@ import { openSettingsSection } from '../lib/sessionUrl'
 import type { LimitWait } from '../lib/types'
 import { LIMITS_PATH } from '../limits/route'
 import { useOrbital } from '../store/store'
+import { QueuedBubble } from '../ui/QueuedBubble'
 
 /** The one action of a transcript notice: the wait's Cancel and Undo, and the Stop hook's Cancel. */
 export function NoticeAction({ onClick, disabled, children }: { onClick: () => void; disabled?: boolean; children: ReactNode }) {
@@ -87,15 +88,7 @@ export function LimitWaitNotice({ sessionId, wait, hue }: { sessionId: string; w
       {wait.queued.map((text, i) => (
         // A message written during the wait, held by the server until the
         // reset: the user's bubble, dashed, because it has not gone out yet.
-        <div key={i} data-limit-queued className="flex flex-col items-end gap-1">
-          <div
-            className="max-w-[86%] whitespace-pre-wrap rounded-[12px_12px_4px_12px] border border-dashed px-3.5 py-2.5 fs-13 leading-[1.5] text-ink-100/80 [text-wrap:pretty]"
-            style={{ background: `oklch(var(--tb-l) var(--tb-c) ${hue} / .06)`, borderColor: `oklch(var(--tb-l) var(--tb-c) ${hue} / .3)` }}
-          >
-            {text}
-          </div>
-          <span className="font-mono fs-10 text-ink-900/55">queued · sent at the reset</span>
-        </div>
+        <QueuedBubble key={i} kind="limit" surface="panel" text={text} caption="queued · sent at the reset" hue={hue} />
       ))}
     </div>
   )

@@ -823,6 +823,55 @@ export const limitWaits = sqliteTable('limit_waits', {
 });
 
 /**
+ * A session launched into a worktree whose worktree is made in the
+ * background (spec 2026-11-09-worktree-setup-in-background-design § Data).
+ * One per session, from the launch until it is discarded; kept as `ready`
+ * once the session started, so its setup block can still say how long it
+ * took.
+ */
+export const sessionSetups = sqliteTable('session_setups', {
+  sessionId: text('session_id').primaryKey(),
+  /**
+   * `SetupPhase`, or `discarded`: the session is gone and the row stays
+   * until what its setup made is rolled back.
+   */
+  phase: text('phase').$type<'naming' | 'checkout' | 'copy' | 'failed' | 'ready' | 'discarded'>().notNull(),
+  /** The step running, or for `failed` the one that failed. */
+  step: integer('step').notNull(),
+  branch: text('branch'),
+  /** The worktree's directory, once reserved. */
+  path: text('path'),
+  /** The main checkout the worktree is made from. */
+  repoRoot: text('repo_root').notNull(),
+  /**
+   * What the setup has made on disk so far, for a rollback after a restart:
+   * `worktree` a reserved directory and a `git worktree add` that may have
+   * run. `none` once rolled back.
+   */
+  made: text('made').$type<'none' | 'worktree'>().notNull().default('none'),
+  /** The naming call's name for the session, applied when it starts. */
+  title: text('title'),
+  /** `SetupLaunchSettings`. */
+  launch: text('launch', { mode: 'json' }).$type<{
+    cwd: string; base: string; branch?: string; permissionMode: string; model?: string; tagId?: number; claudeDirId?: number;
+  }>().notNull(),
+  prompt: text('prompt').notNull().default(''),
+  attachments: text('attachments', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /** The `.mcp.json` answers New Session sent, written into the worktree too. */
+  mcpjson: text('mcpjson', { mode: 'json' }).$type<{ allow: string[]; deny: string[] }>(),
+  /** What the user wrote before the session started, in order — `{ text, attachments? }[]`. */
+  queued: text('queued', { mode: 'json' }).$type<{ text: string; attachments?: string[] }[]>().notNull().default([]),
+  /** 1 once the session process started: the queue is being handed over and nothing is rolled back. */
+  sessionStarted: integer('session_started').notNull().default(0),
+  /** For `failed`: the plain sentence. */
+  message: text('message'),
+  errorId: integer('error_id'),
+  /** Epoch ms. */
+  startedAt: integer('started_at').notNull(),
+  readyInMs: integer('ready_in_ms'),
+});
+
+/**
  * Past readings of each plan window, what the run-out estimate paces from
  * (spec 2026-10-20-limit-suns-design § 2). Kept per account, pruned to the
  * window as it stands now: a reset, or a percent that fell, drops what came

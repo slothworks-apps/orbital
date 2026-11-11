@@ -18,7 +18,8 @@ import {
   trashDropFor,
   PANEL_GUTTER_PX,
 } from '../store/store'
-import { isReadOnly, sessionStateKey, shownStatus, type SessionStateKey } from '../lib/types'
+import { isReadOnly } from '../lib/types'
+import { readoutSegments } from './readout'
 import { stateColor, stateDot } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
 import { reportError } from '../lib/errors'
@@ -1243,41 +1244,10 @@ export function SpaceMap() {
    * count is the ones still fading out.
    *
    * Each `N WORD` segment wears its state colour, count and word as one token
-   * (canvas 24b); NEEDS INPUT carries its breathing dot here too. WAITING
-   * sessions stay counted in WORKING — they are still working, through their
-   * moons, so the line does not grow a sixth word.
+   * (canvas 24b); NEEDS INPUT carries its breathing dot here too. The words
+   * and their order are `readoutSegments`'.
    */
-  const aggregateSegments = useMemo(() => {
-    const { working, needs_input: needsInput, idle, ended } = model.counts
-    // The `needs_input` column splits the same way the pills do
-    // (`sessionStateKey`): only the planets with a question parked on them
-    // are NEEDS INPUT, an interrupted one says INTERRUPTED, the rest merely
-    // finished. Counted off the drawn planets rather than `model.counts`,
-    // which knows the status and not the reason — a line reading "3 NEEDS
-    // INPUT" over three planets all saying DONE is the very mismatch the
-    // pills were fixed to stop telling.
-    // Muted planets are left out, as `statusCounts` leaves them out: the
-    // readout counts what matches the sidebar filters, not what holds its
-    // place. So are those of a device whose chip is off.
-    let asking = 0
-    let interrupted = 0
-    for (const p of model.planets) {
-      if (p.muted || p.deviceOff || shownStatus(p.session) !== 'needs_input') continue
-      const key = sessionStateKey(p.session)
-      if (key === 'needs_input') asking++
-      else if (key === 'interrupted') interrupted++
-    }
-    const done = needsInput - asking - interrupted
-    const segments: Array<{ key: SessionStateKey; text: string }> = [
-      { key: 'working', text: `${working} WORKING` },
-      ...(asking > 0 ? [{ key: 'needs_input' as const, text: `${asking} NEEDS INPUT` }] : []),
-      ...(interrupted > 0 ? [{ key: 'interrupted' as const, text: `${interrupted} INTERRUPTED` }] : []),
-      ...(done > 0 ? [{ key: 'done' as const, text: `${done} DONE` }] : []),
-      { key: 'idle', text: `${idle} IDLE` },
-      { key: 'ended', text: `${ended} ENDED` },
-    ]
-    return segments
-  }, [model.counts, model.planets])
+  const aggregateSegments = useMemo(() => readoutSegments(model.counts, model.planets), [model.counts, model.planets])
 
   return (
     <div

@@ -26,7 +26,8 @@ import { withViewTransition } from '../lib/viewTransition'
 import { moveTagTo } from '../lib/tagFilter'
 import { nextTagHue } from '../lib/tagHues'
 import { focusSession } from '../lib/desktop'
-import { MAX_SUBAGENT_MESSAGES, shownStatus } from '../lib/types'
+import { MAX_SUBAGENT_MESSAGES, pendingSetup, shownStatus } from '../lib/types'
+import type { SessionSetup } from '@orbital/shared/worktree'
 import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
 import { historyEndedOutOfList, withDetailHistory, withHeldHistory } from '../lib/listedHistory'
 import { TRANSCRIPT_CHECK_PAGE, transcriptCheckStep } from '../lib/transcriptCheck'
@@ -2118,8 +2119,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         errorsUnseen: msg.unseen,
         // Every arriving record raises the one toast. It overwrites whatever
         // was showing, which is exactly why dismissing a toast must never
-        // count as having read the row — only the log does that.
-        toast: { kind: 'error', message: msg.error.message, source: 'log' },
+        // count as having read the row — only the log does that. A worktree
+        // that could not be made is said once, in its session's setup block
+        // (spec 2026-11-09-worktree-setup-in-background-design § Ways out).
+        ...(isSetupFailure(msg.error, state.sessions) ? {} : { toast: { kind: 'error', message: msg.error.message, source: 'log' } }),
       })
       return
     }
@@ -2460,7 +2463,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // the message for the reset and republishes the wait, whose `queued` the
     // transcript lists (spec 2026-10-03-usage-limits-design § 1). An
     // optimistic turn would show it as sent.
-    const queues = Boolean(session?.limitWait)
+    // A worktree launch that has not started queues the same way (spec
+    // 2026-11-09-worktree-setup-in-background-design § Messages): its
+    // `setup.queued` lists it. So does one started whose queue still waits
+    // for its first turn to end: the message joins the end of it.
+    const queues =
+      Boolean(session?.limitWait) || (session != null && (pendingSetup(session) !== null || (session.setup?.queued.length ?? 0) > 0))
 
     set((state) => ({
       ...(queues
@@ -3444,11 +3452,22 @@ function sessionsEventPatch(
       after.push(() => void useOrbital.getState().loadSessionHistory(id))
     }
     const sessions = { ...state.sessions, [msg.session.id]: withHeldHistory(held, msg.session) }
+    // A worktree launch that just started: the transcript held had nothing
+    // of it (the setup block showed its prompt and queue), and the file has
+    // nothing yet either, so its first prompt goes in as a sent turn the echo
+    // replaces. The queue stays where it was drawn, at the bottom, until the
+    // server sends each once the first turn has ended; its echo lands then.
+    const started = held && !pendingSetup(msg.session) ? pendingSetup(held) : null
+    const seeded =
+      started && (msg.session.id in state.transcripts || state.ui.selectedId === msg.session.id)
+        ? { transcripts: { ...state.transcripts, [msg.session.id]: withSetupTurns(state.transcripts[msg.session.id] ?? [], started) } }
+        : {}
     // A sent rewind is settled once the row stops carrying it — the CLI took
     // the truncating resume (or a refusal took it back).
     const rewindSettled = !msg.session.rewindPending && state.rewindSending[msg.session.id]
     if (rewindSettled) delete rewindSentText[msg.session.id]
     return {
+      ...seeded,
       ...(rewindSettled ? { rewindSending: withoutKey(state.rewindSending, msg.session.id) } : {}),
       ...liveNoticeSettled(state, msg.session.id, msg.session.status),
       sessions,
@@ -3660,7 +3679,8 @@ export function recordedFailureFor(
   sessionId: string,
 ): ErrorRecord | undefined {
   const latest = state.errors.find(
-    (error) => error.sessionId === sessionId && error.kind !== 'compaction_failed',
+    (error) =>
+      error.sessionId === sessionId && error.kind !== 'compaction_failed' && !isSetupFailure(error, state.sessions),
   )
   if (!latest) return undefined
   const turnAt = state.lastTurnResultAt[sessionId]
@@ -3668,6 +3688,34 @@ export function recordedFailureFor(
   const lastAt = state.sessions[sessionId]?.lastAt
   if (lastAt != null && lastAt > latest.at) return undefined
   return latest
+}
+
+/**
+ * A `worktree_failed` record of a session whose worktree launch has a setup:
+ * its block says it, so neither the toast nor the transcript's alert does.
+ * The record says so itself, since a setup that fails at once can be
+ * recorded before this client holds the session's row.
+ */
+function isSetupFailure(error: ErrorRecord, sessions: Record<string, ApiSession>): boolean {
+  if (error.kind !== 'worktree_failed') return false
+  return error.context?.setup === true || (error.sessionId != null && sessions[error.sessionId]?.setup != null)
+}
+
+/**
+ * `held` with the first prompt of a setup that just started put in as a
+ * sent turn — unless it is already there, as this tab's own launch turn is —
+ * ahead of anything the session has said since. The queue is not: it goes
+ * in later, each message once the server has sent it.
+ */
+export function withSetupTurns(held: readonly ChatMessage[], setup: Pick<SessionSetup, 'prompt' | 'attachments'>): ChatMessage[] {
+  if (setup.prompt.trim() === '' && setup.attachments.length === 0) return held.slice()
+  // No provenance: this tab may not be the one they were attached in, and
+  // a caption it made up would only be replaced by the file's.
+  const plain = optimisticTurn(setup.prompt)
+  const turn = setup.attachments.length > 0
+    ? { ...plain, images: setup.attachments.map((ref) => ({ ref, w: null, h: null, bytes: 0 })) }
+    : plain
+  return held.some((m) => echoes(m, turn)) ? held.slice() : [turn, ...held]
 }
 
 /**
@@ -4251,7 +4299,10 @@ export function statusCounts(
   // to hold its place, not to be counted, and the sidebar's lists already
   // leave it out.
   for (const session of mapSessions(state, nowMs, hidden)) {
-    if (matchesSidebarFilters(session, state.ui)) counts[shownStatus(session)] += 1
+    // A worktree launch not started yet reads `idle` on the wire, but is
+    // neither idle nor anything else here: the readout counts it by its own
+    // words (`readoutSegments`).
+    if (matchesSidebarFilters(session, state.ui) && !pendingSetup(session)) counts[shownStatus(session)] += 1
   }
   return counts
 }
