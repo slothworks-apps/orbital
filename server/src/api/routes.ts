@@ -67,7 +67,7 @@ import type { FileStore } from '../files/store.js';
 import { NAME_SESSIONS_KEY, type SessionTitler } from '../titler/titler.js';
 import type { HarnessService } from '../harness/service.js';
 import { PROGRESS_LIST_ENABLED_KEY, type ProgressService } from '../progress/service.js';
-import { registerHarnessRoutes, type CarryHarness, type LaunchHarness, type LaunchHarnessPlan } from './harness.js';
+import { registerHarnessRoutes, type CarryHarness, type LaunchHarness } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
 import { registerTerminalRoutes } from './terminals.js';
@@ -76,7 +76,7 @@ import { registerWorktreeRoutes } from './worktree.js';
 import { LaunchReplays, type LaunchAnswer } from './launchReplays.js';
 import { WorktreeService, type BranchNamer, type LaunchCheck } from '../worktree/service.js';
 import { SetupFailure, SetupService, SetupStore, firstPhaseOf } from '../worktree/setup.js';
-import { repoOfWorktreeDir, type EndSessionResult, type SetupActionRefusal, type SetupHarness, type SetupLaunchSettings } from '@orbital/shared/worktree';
+import { repoOfWorktreeDir, type EndSessionResult, type LaunchHarnessPlan, type SetupActionRefusal, type SetupHarness, type SetupLaunchSettings } from '@orbital/shared/worktree';
 import type { LoginService } from '../login/service.js';
 import type { TerminalStore } from '../terminal/store.js';
 import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
@@ -640,27 +640,25 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       // The mode and model as the row has them now: either can be changed while the worktree is made.
       const row = db.select({ permissionMode: sessions.permissionMode, model: sessions.model })
         .from(sessions).where(eq(sessions.id, rec.sessionId)).get();
-      // A harness launch's first turn is its kickoff, attached at the launch.
+      // A harness launch's first turn is its kickoff, attached at the launch;
+      // one the user removed during the setup is not run, and the session
+      // starts on their own words instead.
       const { harness: launchedHarness, progressList, progressListChoice } = rec.launch;
-      const promptUuid = launchedHarness ? randomUUID() : undefined;
+      const harness = launchedHarness && ctx.harness.get(rec.sessionId) ? launchedHarness : undefined;
       try {
         await launchSession({
-          cwd, prompt: launchedHarness?.text ?? rec.prompt,
+          cwd, prompt: rec.prompt,
           permissionMode: (row?.permissionMode ?? rec.launch.permissionMode) as PermissionMode,
           model: row?.model ?? rec.launch.model, sessionId: rec.sessionId, claudeDirId: rec.launch.claudeDirId,
           ...(rec.attachments.length ? { attachments: rec.attachments } : {}),
           ...(rec.title ? { title: rec.title } : {}),
-          ...(promptUuid ? { promptUuid } : {}),
-          ...(progressList ? { progressList } : {}),
-          ...(progressListChoice !== undefined ? { progressListChoice } : {}),
+          ...(harness ? { harness: { plan: harness, text: harness.text } } : {}),
+          progressList, progressListChoice,
           launched: true,
         });
       } catch (err) {
         if (ctx.runner.active().includes(rec.sessionId)) await ctx.runner.stop(rec.sessionId);
         throw new SetupFailure('The session could not be started in the worktree.', err instanceof Error ? err.message : String(err));
-      }
-      if (launchedHarness && promptUuid) {
-        await harnessLaunch?.started(rec.sessionId, launchedHarness, promptUuid, launchedHarness.text, !!rec.title, rec.attachments);
       }
     },
     deliver: async (id, message) => {
@@ -673,6 +671,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     turnOf: (id) => {
       const row = db.select({ endedAt: sessions.endedAt }).from(sessions).where(eq(sessions.id, id)).get();
       if (!row || row.endedAt !== null) return 'gone';
+      // A harness decides at each turn's end whether to send the next step,
+      // and a message landing between the end and that decision would take
+      // the step's place: a harness session takes the queue into its running
+      // turn instead, as a message typed during it would go.
+      if (ctx.harness.get(id)) return 'over';
       return ctx.runner.busy(id) ? 'running' : 'over';
     },
     toLimitWait: (id, message) => ctx.limits?.queue(id, message.text, message.attachments) ?? false,
@@ -1521,6 +1524,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // one; that choice is what the dialog remembers per directory.
     const progressListChoice = typeof rawProgressList === 'boolean' && !body.resume ? rawProgressList : undefined;
     if (progressList && body.resume) return reply.code(400).send({ error: 'invalid_progress_list' });
+    // A session follows a harness or a progress list, never both (spec
+    // 2026-11-09-progress-list-design § Turning it on).
+    if (progressList && rawHarness !== undefined && rawHarness !== null) {
+      return reply.code(400).send({ error: 'invalid_progress_list' });
+    }
     if (progressList && ctx.settings.get(PROGRESS_LIST_ENABLED_KEY) !== 'true') {
       return reply.code(403).send({ error: 'progress_list_disabled' });
     }
@@ -1603,32 +1611,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       // its kickoff with the prompt as a note after it: one message, so the
       // agent has the checklist before it starts on anything (§ The first message).
       const launchId = clientId ?? (check || harnessPlan ? randomUUID() : undefined);
-      let first: { prompt: string; promptUuid?: string } = { prompt: launch.prompt };
-      if (harnessPlan && harnessLaunch) {
-        const attached = harnessLaunch.attach(launchId!, harnessPlan, userPrompt);
+      let harness: { plan: LaunchHarnessPlan; text: string } | undefined;
+      if (harnessPlan) {
+        const attached = harnessLaunch!.attach(launchId!, harnessPlan, userPrompt);
         if (!attached.ok) return { status: attached.status, body: { error: attached.error } };
-        first = { prompt: attached.text, promptUuid: randomUUID() };
+        harness = { plan: harnessPlan, text: attached.text };
       }
-      const progress = {
-        ...(progressList ? { progressList } : {}),
-        ...(progressListChoice !== undefined ? { progressListChoice } : {}),
-      };
       let sessionId: string;
       try {
         sessionId = check
           // The setup keeps the user's own words, which name the branch and
           // prefill Without a worktree; the harness's first turn goes with it.
           ? beginWorktreeLaunch(check, {
-            ...launch, cwd, sessionId: launchId!, claudeDirId, mcpjson: mcpjson ?? null, ...progress,
-            ...(harnessPlan ? { harness: { ...harnessPlan, text: first.prompt } } : {}),
+            ...launch, cwd, sessionId: launchId!, claudeDirId, mcpjson: mcpjson ?? null, progressList, progressListChoice,
+            ...(harness ? { harness: { ...harness.plan, text: harness.text } } : {}),
           })
-          : await launchSession({ ...launch, ...first, cwd, sessionId: launchId, claudeDirId, ...progress });
+          : await launchSession({ ...launch, cwd, sessionId: launchId, claudeDirId, progressList, progressListChoice, harness });
       } catch (err) {
-        if (harnessPlan) harnessLaunch?.discard(launchId!);
+        // Not once the setup is written: it runs on in the background, and
+        // starts the session on the harness when the worktree is ready.
+        if (harness && !setupStore.get(launchId!)) harnessLaunch!.discard(launchId!);
         throw err;
-      }
-      if (!check && harnessPlan && harnessLaunch && first.promptUuid) {
-        await harnessLaunch.started(sessionId, harnessPlan, first.promptUuid, first.prompt, false, launch.attachments);
       }
       // The dialog's choice, remembered for the next one (spec § 3) — stored
       // here rather than by the client, because the phone cannot write settings.
@@ -1878,9 +1881,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       ...(opts.model ? { model: opts.model } : {}),
       ...(tagId != null ? { tagId } : {}),
       claudeDirId: opts.claudeDirId,
-      ...(opts.progressList ? { progressList: true } : {}),
-      ...(opts.progressListChoice !== undefined ? { progressListChoice: opts.progressListChoice } : {}),
-      ...(opts.harness ? { harness: opts.harness } : {}),
+      progressList: opts.progressList, progressListChoice: opts.progressListChoice, harness: opts.harness,
     };
     // One transaction: a session row without its setup record would be an
     // idle session in the main checkout, which a message would revive there.
@@ -1916,8 +1917,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     cwd: string; prompt: string; permissionMode: PermissionMode;
     tagId?: number; model?: string; resume?: string;
     sessionId?: string; attachments?: string[]; spawnedBy?: string; purpose?: SessionPurpose;
-    /** The uuid the first prompt's entry is written under: a harness records its kickoff by it. */
-    promptUuid?: string;
+    /**
+     * Start on a harness already attached under `sessionId`: `text`, its
+     * kickoff with the user's note, goes in place of `prompt`, and is
+     * recorded as the harness's once the session exists.
+     */
+    harness?: { plan: LaunchHarnessPlan; text: string };
     /** Absent: `default_claude_dir`. */
     claudeDirId?: number;
     /** A name already made for the session — the worktree's naming call's —, which takes the place of naming it from its first message. */
@@ -1929,8 +1934,16 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     /** The row was written at the launch (a worktree setup's): it moves to `cwd` rather than being inserted. */
     launched?: boolean;
   }): Promise<string> {
-    const { cwd, spawnedBy, tagId, purpose, title, launched, progressListChoice, ...start } = opts;
+    const { cwd, spawnedBy, tagId, purpose, title, launched, progressListChoice, harness, ...start } = opts;
     const claudeDirId = opts.claudeDirId ?? ctx.claudeDirs.defaultId();
+    // The uuid the kickoff's entry is written under, which the harness records it by.
+    const promptUuid = harness ? randomUUID() : undefined;
+    if (harness) {
+      Object.assign(start, { prompt: harness.text, promptUuid });
+      // Just before every spawn of it, a restart's or a Try again's included,
+      // so the session's echo of the kickoff never reads as the user's.
+      ctx.harness.noteSent(opts.sessionId!, harness.text);
+    }
     const resumed = opts.resume
       ? db.select({ progressList: sessions.progressList }).from(sessions).where(eq(sessions.id, opts.resume)).get()
       : undefined;
@@ -2001,6 +2014,20 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get() as SessionRow | undefined;
     if (!row) throw new Error(`session ${sessionId} was discarded while it started`);
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
+    if (harness && promptUuid && harnessLaunch) {
+      // The session runs whatever this says: a failure is recorded, not
+      // thrown, so neither the launch nor a setup undoes a session that started.
+      try {
+        await harnessLaunch.started(sessionId, harness.plan, promptUuid, harness.text, title !== undefined, opts.attachments);
+      } catch (err) {
+        ctx.errors.record({
+          source: 'server', kind: 'api_request', sessionId,
+          message: `The harness could not record the start of its first step: ${err instanceof Error ? err.message : String(err)}`,
+          detail: err instanceof Error ? (err.stack ?? null) : null,
+          context: { while: 'starting a harness launch' },
+        });
+      }
+    }
     if (!purpose && !named) nameFromFirstMessage(sessionId, opts.prompt);
     return sessionId;
   }

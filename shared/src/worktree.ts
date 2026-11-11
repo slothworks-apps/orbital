@@ -207,17 +207,18 @@ export interface SetupLaunchSettings {
   harness?: SetupHarness;
 }
 
-/** A worktree launch's harness: the template it starts on and its first turn, the kickoff. */
-export interface SetupHarness {
+/** A launch's harness, checked before anything spawns (spec 2026-11-09-harness-from-new-session-design § The server). */
+export interface LaunchHarnessPlan {
   templateId: number;
   inputs: Record<string, string>;
   /** Present only where it differs from the template's default. */
   lucky?: boolean;
   /** What the session is named from, and its worktree's branch. */
   subject: string;
-  /** The first turn: the kickoff, the user's note after it. */
-  text: string;
 }
+
+/** A worktree launch's harness: its plan and its first turn, the kickoff with the user's note after it. */
+export type SetupHarness = LaunchHarnessPlan & { text: string };
 
 /**
  * The session's `setup` on the wire: present only for a session launched

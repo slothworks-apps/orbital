@@ -18,6 +18,7 @@ import type { HarnessTemplate } from '../harness/types.js';
 import type { ChatMessage, PermissionMode, SessionPurpose } from '../types.js';
 import { startedTurn } from './delivery.js';
 import type { RouteContext } from './routes.js';
+import type { LaunchHarnessPlan } from '@orbital/shared/worktree';
 
 /**
  * Starts a session the way the new-session dialog does, a browser-minted
@@ -32,23 +33,14 @@ export type CarryHarness = (fromId: string, toId: string) => Promise<{ ok: true 
 
 type Refusal = { ok: false; status: number; error: string };
 
-/** A launch's harness, checked before anything spawns (spec 2026-11-09-harness-from-new-session-design § The server). */
-export interface LaunchHarnessPlan {
-  templateId: number;
-  inputs: Record<string, string>;
-  /** Present only where it differs from the template's default. */
-  lucky?: boolean;
-  /** What the session is named from, and its worktree's branch. */
-  subject: string;
-}
-
 /**
  * `POST /api/sessions` with `harness`: the session starts on the checklist,
  * its kickoff the first turn. The launch route calls these in order —
- * `check` before anything is written, `attach` just before the spawn (so the
+ * `check` before anything is written, `attach` before the spawn (so the
  * session never runs a moment without its harness, and is never named from
  * the kickoff's text), `started` once the session exists; `discard` undoes
- * an `attach` whose spawn failed.
+ * an `attach` whose spawn failed. A worktree launch attaches at the launch
+ * and starts once its setup is ready, which can be after a restart.
  */
 export interface LaunchHarness {
   check(raw: unknown, cwd: string): { ok: true; plan: LaunchHarnessPlan } | Refusal;
@@ -413,10 +405,8 @@ export function registerHarnessRoutes(
           return tuned;
         }
       }
-      const text = launchPrompt(result.value.kickoff, prompt);
-      // Before the spawn, so the session's echo of it never reads as the user's.
-      harness.noteSent(sessionId, text);
-      return { ok: true, text };
+      // `launchSession` notes it just before the spawn, so its echo never reads as the user's.
+      return { ok: true, text: launchPrompt(result.value.kickoff, prompt) };
     },
     async started(sessionId, plan, uuid, text, named, attachments) {
       // The kickoff's live row shows the images the launch sent with it, as a composer's turn does.
