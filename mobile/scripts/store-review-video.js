@@ -1,4 +1,4 @@
-/* global page, process, fetch, document, window, location, getComputedStyle, requestAnimationFrame, setTimeout */
+/* global page, process, fetch, document, window, location, addEventListener, getComputedStyle, requestAnimationFrame, setTimeout */
 // The App Review video (runbook release-to-the-app-store → Review video): a
 // walkthrough of the phone app on staged demo data, posted as one request to
 // `store-driver.mjs <dir> --video` so the recording has no gaps. Expects the
@@ -139,8 +139,15 @@ await page.keyboard.type(
 await wait(1800)
 await tap(page.getByRole('button', { name: 'Start session' }), 500)
 // The session works while its subagents run: hold on it until they show, then on the list.
-await page.waitForFunction(() => /\bsubagents?\b|Agent/.test(document.body.innerText), null, { timeout: 60000 })
-await wait(10000)
+const moons = page.getByRole('button', { name: /^Subagents and background tasks/ })
+await moons.waitFor({ timeout: 60000 })
+await wait(4000)
+// The moons chip opens SUBAGENTS & BACKGROUND TASKS: both running. A tap above the sheet closes it.
+await tap(moons, 8000)
+await mark(220, 150)
+await wait(500)
+await page.mouse.click(220, 150)
+await wait(3000)
 await tap(page.getByRole('button', { name: 'Back to sessions' }), 8000)
 
 // 5. Settings → About: the privacy policy.
@@ -148,6 +155,14 @@ await tap(page.getByRole('button', { name: 'Settings' }), 2000)
 const privacy = page.getByText('Privacy policy')
 await privacy.scrollIntoViewIfNeeded()
 await wait(1500)
+// The website has no safe areas of its own; on a phone the browser's bar keeps it below the clock.
+// Set before its first paint, so the logo never shows under the status bar.
+await page.context().addInitScript(() => {
+  if (location.hostname.endsWith('slothworks.io'))
+    addEventListener('DOMContentLoaded', () => {
+      document.body.style.paddingTop = '62px'
+    })
+})
 // The link opens the browser, which a recording of this page cannot show: open the policy here instead.
 await page.evaluate(() => {
   window.open = (url) => {
