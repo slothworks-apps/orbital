@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Changed
+- When the Mac could not remove a worktree after you ended its session, the session's cleanup row comes back so you can try again.
 
 ## [0.24.3] — 2026-11-07
 ### Changed

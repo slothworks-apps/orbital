@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- End session with “Also remove worktree” closes as soon as the session has ended; the worktree is removed in the background, and if that fails you see it in the error log.
 
 ## [0.48.0] — 2026-11-07
 ### Added

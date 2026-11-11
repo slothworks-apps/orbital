@@ -161,10 +161,11 @@ export interface EndWithWorktreeRequest {
 
 /**
  * `POST /api/sessions/:id/end`'s answer. The session has ended whenever the
- * answer is 200; `worktreeRemoved` is there only when `removeWorktree` was
- * asked for, and says what became of the worktree. `worktree_failed` is a
- * removal git refused, recorded in the error log; `not_worktree` is a
- * session that no longer works in a worktree.
+ * answer is 200. A removal that may go ahead is answered `{ ok: true }`
+ * before git runs: it goes on after the answer, and one git refuses reaches
+ * the error log. `not_worktree` is a session that no longer works in a
+ * worktree. `worktreeRemoved: true` and `worktree_failed` are an older Mac's,
+ * which answered after git.
  */
 export type EndSessionResult =
   | { ok: true; worktreeRemoved?: true }

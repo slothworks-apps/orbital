@@ -110,7 +110,7 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
             Cancel
           </Button>
           <Button variant="primary" size="lg" onClick={() => void handleEnd()} disabled={pending}>
-            {/* 63h ENDING…: removing a worktree takes a moment after the session stops. */}
+            {/* 63h ENDING…: while the session ends; the worktree goes after the answer. */}
             {row.endLabel}
           </Button>
         </>
