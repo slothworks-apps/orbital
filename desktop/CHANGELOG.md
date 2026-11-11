@@ -3,6 +3,9 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- New session → With harness…: start a session straight on a harness template, its inputs filled in the dialog, without a first prompt; anything you write there goes to the first step as a note. Shown while Harness is on.
+
 ### Changed
 - End session with “Also remove worktree” closes as soon as the session has ended; the worktree is removed in the background, and if that fails you see it in the error log.
 

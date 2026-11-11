@@ -33,15 +33,18 @@ const fieldClass = (
   invalid: boolean,
   className?: string,
   seam?: InputSeam,
+  lit?: boolean,
 ) =>
   [
     'w-full text-ink-100 focus:outline-none',
-    variant === 'combobox' ? 'placeholder:text-ink-900/45' : 'placeholder:text-ink-900/70',
-    variant === 'bare' || variant === 'chip' || variant === 'combobox'
+    variant === 'combobox' || variant === 'ringed' ? 'placeholder:text-ink-900/45' : 'placeholder:text-ink-900/70',
+    variant === 'bare' || variant === 'chip' || variant === 'combobox' || variant === 'ringed'
       ? ''
       : `focus:ring-1 ${invalid ? 'focus:ring-red-400/70' : 'focus:ring-ink-300'}`,
     variant === 'combobox'
       ? comboboxClass(seam)
+      : variant === 'ringed'
+      ? ringedClass(lit ?? false)
       : variant === 'bare'
       ? // Bare variant: no box at all — the caller's frame draws the edge
         // (canvas 50a's device name over a dashed underline), 14px semibold.
@@ -83,7 +86,22 @@ const comboboxClass = (seam?: InputSeam) =>
       : 'rounded-[9px]',
   ].join(' ')
 
-type InputVariant = 'field' | 'inline' | 'bare' | 'chip' | 'combobox'
+/**
+ * Ringed variant: New session's harness inputs (canvas `Feature - New session
+ * harness` 65a) — the combobox's 38px field and accent focus ring without a
+ * list. `lit` wears the ring at rest: the first required input still empty,
+ * which is what Launch with harness waits for. Never red.
+ */
+const ringedClass = (lit: boolean) =>
+  [
+    'block h-[38px] rounded-[9px] border bg-space/60 px-3 fs-12.5 transition-[border-color,box-shadow] duration-[120ms] ease-out',
+    'focus:border-accent/50 focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)]',
+    lit
+      ? 'border-accent/50 shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)]'
+      : 'border-line/18',
+  ].join(' ')
+
+type InputVariant = 'field' | 'inline' | 'bare' | 'chip' | 'combobox' | 'ringed'
 
 /** The edge of a combobox field an open list hangs from. */
 export type InputSeam = 'top' | 'bottom'
@@ -99,6 +117,8 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   ref?: Ref<HTMLInputElement>
   /** The combobox variant's edge its open list hangs from; unset while the list is closed. */
   seam?: InputSeam
+  /** The ringed variant wears its focus ring at rest. */
+  lit?: boolean
   /** Field geometry: 'md' (default, app-wide), 'sm' (settings rows, canvas 1h), 'lg' (dialog fields, canvas 1d). */
   size?: FieldSize
   /** Marks the value as failing validation: red border + `aria-invalid`. Pair with `title` to say what's wrong. */
@@ -114,6 +134,7 @@ export function Input({
   invalid = false,
   className,
   seam,
+  lit,
   ...rest
 }: InputProps) {
   return (
@@ -122,7 +143,7 @@ export function Input({
       data-variant={variant}
       data-size={size}
       aria-invalid={invalid || undefined}
-      className={fieldClass(font, variant, size, sizeClasses, invalid, className, seam)}
+      className={fieldClass(font, variant, size, sizeClasses, invalid, className, seam, lit)}
       {...rest}
     />
   )

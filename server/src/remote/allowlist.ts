@@ -126,6 +126,9 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/directory', 'spawn'],
   ['POST', '/api/directory', 'spawn'],
   ['GET', '/api/dirs', 'spawn'],
+  // The harness templates New session can start a session on, bodies
+  // included: only for who may launch (spec 2026-11-09-harness-from-new-session-design).
+  ['GET', '/api/sessions/harness-templates', 'spawn'],
   ['GET', '/api/models', 'spawn'],
   ['GET', '/api/commands', 'spawn'],
   // The New Session question about a project's `.mcp.json` servers; its

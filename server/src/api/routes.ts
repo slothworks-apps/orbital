@@ -65,7 +65,7 @@ import type { ImageStore } from '../images/store.js';
 import type { FileStore } from '../files/store.js';
 import { NAME_SESSIONS_KEY, type SessionTitler } from '../titler/titler.js';
 import type { HarnessService } from '../harness/service.js';
-import { registerHarnessRoutes, type CarryHarness } from './harness.js';
+import { registerHarnessRoutes, type CarryHarness, type LaunchHarness, type LaunchHarnessPlan } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
 import { registerTerminalRoutes } from './terminals.js';
@@ -595,6 +595,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const launchDirOf = (id: number): number => (ctx.claudeDirs.has(id) ? id : ctx.claudeDirs.defaultId());
   /** Clear's harness carry-over, set once the harness routes are registered (at the end). */
   let carry: CarryHarness | null = null;
+  /** A launch's harness (spec 2026-11-09-harness-from-new-session-design), set with `carry`. */
+  let harnessLaunch: LaunchHarness | null = null;
   const launchReplays = new LaunchReplays();
   const worktrees = ctx.worktrees ?? new WorktreeService({
     ctx, trees: ctx.trees, settings: ctx.settings, nameBranch: ctx.nameBranch, errors: ctx.errors,
@@ -1376,11 +1378,17 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
        * Orbital names (spec 2026-11-02-work-in-a-worktree-design § Launch).
        */
       worktree?: unknown;
+      /**
+       * `{ templateId, inputs, lucky }`: the session starts on that harness,
+       * its kickoff the first turn and `prompt` a note appended to it (spec
+       * 2026-11-09-harness-from-new-session-design § The server).
+       */
+      harness?: unknown;
     };
     if (invalidAttachments(body.attachments)) {
       return reply.code(400).send({ error: 'invalid_attachment' });
     }
-    const { mcpjson: rawMcpjson, worktree: rawWorktree, ...launch } = body;
+    const { mcpjson: rawMcpjson, worktree: rawWorktree, harness: rawHarness, ...launch } = body;
     const mcpjson = parseMcpjsonDecisions(rawMcpjson);
     if (mcpjson === null) return reply.code(400).send({ error: 'invalid_mcpjson' });
     const worktree = parseWorktreeRequest(rawWorktree);
@@ -1422,17 +1430,33 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const refused = clientIdRefusal(clientId);
     if (refused) return reply.code(refused.status).send({ error: refused.error });
+    // Checked before anything is written: a launch the harness refuses leaves
+    // no empty session behind, which is why the dialog does not launch and
+    // then attach.
+    let harnessPlan: LaunchHarnessPlan | null = null;
+    if (rawHarness !== undefined && rawHarness !== null) {
+      // A resumed session has a conversation already; its panel attaches one.
+      if (body.resume) return reply.code(400).send({ error: 'a resumed session cannot start on a harness' });
+      const checked = harnessLaunch?.check(rawHarness, cwd) ?? { ok: false as const, status: 501, error: 'not available' };
+      if (!checked.ok) return reply.code(checked.status).send({ error: checked.error });
+      harnessPlan = checked.plan;
+    }
+    const userPrompt = typeof body.prompt === 'string' ? body.prompt : '';
     const run = async (): Promise<LaunchAnswer> => {
       // The worktree is made before anything else is written, so a launch it
       // refuses leaves nothing behind. Its fallback branch is named after the
       // session, so the id is fixed here when the browser did not mint one.
       let prepared: LaunchPrep | null = null;
       let launchId = clientId;
+      // A harness is attached under the id before the session starts.
+      if (worktree || harnessPlan) launchId ??= randomUUID();
       if (worktree) {
-        launchId ??= randomUUID();
         const result = await worktrees.prepareLaunch({
           cwd, base: worktree.base, branch: worktree.branch,
-          prompt: typeof body.prompt === 'string' ? body.prompt : '', sessionId: launchId, claudeDirId,
+          // A harness's launch is named after its task, as its session is,
+          // and the user's note, without the header the agent reads it under.
+          prompt: harnessPlan ? [harnessPlan.subject, userPrompt.trim()].filter(Boolean).join('\n\n') : userPrompt,
+          sessionId: launchId!, claudeDirId,
         });
         if (!result.ok) return { status: result.status, body: { error: result.error, message: result.message } };
         prepared = result;
@@ -1451,14 +1475,30 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
           return { status: 500, body: { error: 'mcpjson_not_recorded' } };
         }
       }
+      // With a harness, the first turn is its kickoff with the prompt as a
+      // note after it: one message, so the agent has the checklist before it
+      // starts on anything (§ The first message).
+      let first: { prompt: string; promptUuid?: string } = { prompt: launch.prompt };
+      if (harnessPlan && harnessLaunch) {
+        const attached = harnessLaunch.attach(launchId!, harnessPlan, userPrompt);
+        if (!attached.ok) {
+          await prepared?.rollback();
+          return { status: attached.status, body: { error: attached.error } };
+        }
+        first = { prompt: attached.text, promptUuid: randomUUID() };
+      }
       let sessionId: string;
       try {
         sessionId = await launchSession({
-          ...launch, cwd: sessionCwd, sessionId: launchId, claudeDirId, ...(prepared?.title ? { title: prepared.title } : {}),
+          ...launch, ...first, cwd: sessionCwd, sessionId: launchId, claudeDirId, ...(prepared?.title ? { title: prepared.title } : {}),
         });
       } catch (err) {
+        if (harnessPlan) harnessLaunch?.discard(launchId!);
         await prepared?.rollback();
         throw err;
+      }
+      if (harnessPlan && harnessLaunch && first.promptUuid) {
+        await harnessLaunch.started(sessionId, harnessPlan, first.promptUuid, first.prompt, !!prepared?.title, launch.attachments);
       }
       // The dialog's choice, remembered for the next one (spec § 3) — stored
       // here rather than by the client, because the phone cannot write settings.
@@ -1687,6 +1727,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     cwd: string; prompt: string; permissionMode: PermissionMode;
     tagId?: number; model?: string; resume?: string;
     sessionId?: string; attachments?: string[]; spawnedBy?: string; purpose?: SessionPurpose;
+    /** The uuid the first prompt's entry is written under: a harness records its kickoff by it. */
+    promptUuid?: string;
     /** Absent: `default_claude_dir`. */
     claudeDirId?: number;
     /** A name already made for the session — the worktree's naming call's —, which takes the place of naming it from its first message. */
@@ -3185,9 +3227,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       await stoppedForRemoval(id);
     },
   });
-  carry = registerHarnessRoutes(app, ctx, deliverToSession, readTranscriptMessages, async (opts) => {
+  ({ carryHarness: carry, launchHarness: harnessLaunch } = registerHarnessRoutes(app, ctx, deliverToSession, readTranscriptMessages, async (opts) => {
     const refused = clientIdRefusal(opts.sessionId);
     if (refused) return { ok: false, ...refused };
     return { ok: true, sessionId: await launchSession({ ...opts, cwd: expandHome(opts.cwd) }) };
-  }).carryHarness;
+  }));
 }

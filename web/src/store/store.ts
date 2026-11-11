@@ -54,6 +54,7 @@ import type {
   SessionStatus,
   SessionHarness,
   HarnessEvent,
+  HarnessLaunch,
   HarnessMessageKind,
   Subagent,
   Tag,
@@ -148,7 +149,15 @@ export type SessionEvent =
    */
   | {
       event: 'harness_message'
-      message: { uuid: string; kind: HarnessMessageKind; step: number; text: string; at: number }
+      message: {
+        uuid: string
+        kind: HarnessMessageKind
+        step: number
+        text: string
+        at: number
+        /** The kickoff's images (a launch's attachments), only when there is one. */
+        images?: ImageRefEntry[]
+      }
     }
 
 /**
@@ -700,6 +709,8 @@ export interface OrbitalActions {
     machine?: string
     /** Start in a new linked worktree (`api.createSession`). */
     worktree?: WorktreeLaunch
+    /** Start on a harness (`api.createSession`). */
+    harness?: HarnessLaunch
     /**
      * The id this launch goes out under; omitted, a fresh one. A launch sent
      * again after its answer was lost passes the first attempt's
@@ -1856,13 +1867,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (msg.event === 'harness_message') {
       // Held or shown only, as `message` is: the file marks the row on the next read.
       if (state.ui.selectedId !== sessionId && !(sessionId in state.transcripts)) return
-      const { uuid, kind, step, text, at } = msg.message
+      const { uuid, kind, step, text, at, images } = msg.message
       const mark = { kind, step }
       const existing = state.transcripts[sessionId] ?? []
       const heldIdx = existing.findIndex((m) => m.uuid === uuid)
       const updated = existing.slice()
+      // A held row is the file's echo, which has its own images.
       if (heldIdx >= 0) updated[heldIdx] = { ...existing[heldIdx], harnessMessage: mark }
-      else updated.push({ id: `harness:${uuid}`, role: 'user', uuid, text, timestamp: new Date(at).toISOString(), harnessMessage: mark })
+      else
+        updated.push({
+          id: `harness:${uuid}`,
+          role: 'user',
+          uuid,
+          text,
+          timestamp: new Date(at).toISOString(),
+          ...(images ? { images } : {}),
+          harnessMessage: mark,
+        })
       set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
       return
     }
@@ -2177,7 +2198,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // reload. Appended before the request, not after: the session's first
     // reply can land while the request is still in flight, and the prompt
     // has to sit above it.
-    if (body.prompt || images?.length) {
+    // A harness launch's first turn is the kickoff with the prompt appended,
+    // a text only the server has: its `harness_message` brings the row, and
+    // an empty transcript is held so that event is not dropped.
+    if (body.harness) {
+      set((state) => ({ transcripts: { ...state.transcripts, [sessionId]: state.transcripts[sessionId] ?? [] } }))
+    } else if (body.prompt || images?.length) {
       const turn = optimisticTurn(body.prompt, images)
       set((state) => ({
         transcripts: { ...state.transcripts, [sessionId]: [turn, ...(state.transcripts[sessionId] ?? [])] },

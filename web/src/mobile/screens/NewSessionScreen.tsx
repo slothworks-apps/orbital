@@ -18,7 +18,7 @@ import type { DirectoryRow } from '../../lib/directorySearch'
 import { useDirectorySuggestions } from '../../lib/useDirectorySuggestions'
 import { Marked } from '../../ui/Marked'
 import {
-  launchRequest, noSuchDirectory, prefillClaudeDir, preselectMode, preselectModel, startFailureLine,
+  launchRequest, noSuchDirectory, offersHarness, prefillClaudeDir, preselectMode, preselectModel, startFailureLine,
 } from '../newSession'
 import { deviceAsleep, openingSettles, phoneDeviceOptions, phoneOpeningDevice, rememberDevice, rememberedDevice } from '../deviceList'
 import { isMacAsleep, useMobile } from '../state'
@@ -34,6 +34,9 @@ import { useLaunchAttempt } from '../../lib/useLaunchAttempt'
 import { recentDirectories, worktreeLaunchError } from '../../lib/worktree'
 import { NewSessionWorktree } from './NewSessionWorktree'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
+import { HarnessGlyph } from '../../ui/UtilityButton'
+import { refreshQuestionSetting, useMacHarnessSetting } from '../questionSetting'
+import { NewSessionHarness, useHarnessChoice } from './NewSessionHarness'
 
 /** The device sheet's ages are in minutes at the finest. */
 const MINUTE_MS = 60_000
@@ -151,6 +154,21 @@ export function NewSessionScreen() {
     servesWorktree && !asleep && (dirState === null || dirState === 'directory'),
     machine ?? undefined,
   )
+  /**
+   * *With harness…* (canvas 65d; spec 2026-11-09-harness-from-new-session-design
+   * § Phone): while the chosen device accepts a harness on launch and the
+   * Harness switch is not known to be off on it (`offersHarness`). Open, the
+   * harness screen is pushed over this form, which stays as it was underneath.
+   */
+  const harnessVersion = machine !== null ? (devices.find((d) => d.id === machine)?.version ?? null) : macVersion
+  const harnessOn = useMacHarnessSetting((s) => s.on)
+  // In a group the settings read may come from another member (`GroupFederation.settingsSource`).
+  const offersHarnessHere = offersHarness({ harnessOn, readFromChosen: !several, version: harnessVersion })
+  const [harnessOpen, setHarnessOpen] = useState(false)
+  const harnessShown = harnessOpen && offersHarnessHere
+  const harness = useHarnessChoice(cwd, machine, harnessShown)
+  // The Harness switch may have moved on the Mac since the app started.
+  useEffect(() => refreshQuestionSetting(), [])
 
   // The chosen device's defaults and recent directories (canvas 50j: they
   // follow the device); its Claude directory ids are its own, so a choice
@@ -216,8 +234,10 @@ export function NewSessionScreen() {
   }
 
   // An upload still in flight holds Start back: the launch sends only what has landed.
-  const canStart =
-    Boolean(cwd.trim() && prompt.trim()) && !pending && !asleep && !attachments.uploading && !blocksLaunch(dirState) && !worktree.blocked
+  const launchable =
+    Boolean(cwd.trim()) && !pending && !asleep && !attachments.uploading && !blocksLaunch(dirState) && !worktree.blocked
+  // On a harness the prompt is an optional note; the template and its inputs decide instead.
+  const canStart = harnessShown ? launchable && harness.launch !== null : launchable && Boolean(prompt.trim())
 
   /**
    * Start: asks about the project's undecided `.mcp.json` servers first, when
@@ -275,7 +295,10 @@ export function NewSessionScreen() {
     }
     try {
       const refs = images.map((image) => image.entry.ref)
-      const body = launchRequest({ cwd, prompt, files, mode, model, claudeDirId, refs, mcpjson, machine, worktree: worktree.launch })
+      const body = launchRequest({
+        cwd, prompt, files, mode, model, claudeDirId, refs, mcpjson, machine, worktree: worktree.launch,
+        harness: harnessShown ? (harness.launch ?? undefined) : undefined,
+      })
       // One id per attempt: Start pressed again after the tunnel gave up on a
       // slow worktree launch repeats it, and the Mac answers with the first
       // launch rather than making a second session and worktree.
@@ -290,6 +313,8 @@ export function NewSessionScreen() {
       setQuestion(null)
       // A worktree the Mac could not make is said in the group, where it was chosen (63c A4).
       const refused = worktree.launch ? worktreeLaunchError(err) : null
+      // Those two are said on the form under the field, so the harness screen steps back to it.
+      if (refused || noSuchDirectory(err)) setHarnessOpen(false)
       // Said here, never through `reportError`: its `/api/errors` POST is not the phone's to make.
       if (refused) worktree.setLaunchError(refused.message || 'Orbital could not make the worktree.')
       else if (noSuchDirectory(err)) setNotFound(true)
@@ -326,17 +351,38 @@ export function NewSessionScreen() {
   )
 
   const startLabel = chosenAsleep ? `Start · needs ${mac} awake` : several ? `Start on ${mac}` : 'Start session'
+  // Canvas 65d START: the reason it cannot go is the button's label.
+  const harnessStartLabel = harness.off
+    ? `Harness is off on ${mac}`
+    : (harness.block ?? (chosenAsleep ? `Start · needs ${mac} awake` : 'Start with harness'))
+
+  const failureLine = failure && (
+    <p role="alert" className="mt-2 text-center fs-13 text-[var(--state-input)]">
+      {failure}
+    </p>
+  )
 
   const footer = (
-    <div className="border-t border-line/8 px-4 pb-1.5 pt-2.5">
+    <div className="flex flex-col gap-2 border-t border-line/8 px-4 pb-1.5 pt-2.5">
       <PrimaryButton onClick={() => void start()} disabled={!canStart}>
         {startLabel}
       </PrimaryButton>
-      {failure && (
-        <p role="alert" className="mt-2 text-center fs-13 text-[var(--state-input)]">
-          {failure}
-        </p>
+      {/* Canvas 65d: outlined, under Start session, which stays the filled one. */}
+      {offersHarnessHere && (
+        <SecondaryButton
+          onClick={() => {
+            setFailure(null)
+            setHarnessOpen(true)
+          }}
+          disabled={!cwd.trim() || asleep || blocksLaunch(dirState)}
+        >
+          <span className="flex items-center gap-[9px]">
+            <HarnessGlyph />
+            With harness…
+          </span>
+        </SecondaryButton>
       )}
+      {failureLine}
     </div>
   )
 
@@ -361,6 +407,26 @@ export function NewSessionScreen() {
           : 'border-line/18'
 
   return (
+    <>
+    {harnessShown && (
+      <NewSessionHarness
+        choice={harness}
+        cwd={cwd}
+        mac={mac}
+        prompt={prompt}
+        setPrompt={setPrompt}
+        startLabel={harnessStartLabel}
+        canStart={canStart}
+        onStart={() => void start()}
+        onBack={() => {
+          setFailure(null)
+          setHarnessOpen(false)
+        }}
+        failure={failureLine}
+      />
+    )}
+    {/* The form stays mounted under the harness screen, so ‹ finds it as it was. */}
+    <div className={harnessShown ? 'hidden' : 'contents'}>
     <MobileScreen header={header} footer={footer}>
       <div className="flex flex-col gap-[18px] px-4 py-3.5">
         {several && (
@@ -557,6 +623,9 @@ export function NewSessionScreen() {
         )}
         </div>
       </div>
+    </MobileScreen>
+    </div>
+    {/* Over either screen: Start asks these from the harness screen too. */}
       <SheetPresence>
         {deviceSheet && (
           <DeviceSheet
@@ -596,7 +665,7 @@ export function NewSessionScreen() {
           />
         )}
       </SheetPresence>
-    </MobileScreen>
+    </>
   )
 }
 

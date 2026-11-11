@@ -43,6 +43,12 @@ export interface DialogProps {
    */
   headerAction?: ReactNode
   /**
+   * A control before the title block (canvas `Feature - New session harness`
+   * 65a: step 2's ‹ back to step 1). The header's left inset narrows to 18px
+   * so the control sits where the title would have started.
+   */
+  headerLead?: ReactNode
+  /**
    * Which hue owns the frame — the accent everywhere except the stop confirm,
    * which the export frames in amber down to its corner brackets (1b).
    */
@@ -229,6 +235,7 @@ export function Dialog({
   eyebrowPulse = false,
   headerMeta,
   headerAction,
+  headerLead,
   footer,
   footerCaption,
   footerLead,
@@ -410,9 +417,10 @@ export function Dialog({
           className={[
             'flex shrink-0 items-center gap-3 pt-[22px]',
             ruledHeader ? 'border-b border-line/10 pb-[18px]' : 'pb-0',
-            gutter[size],
+            headerLead != null ? 'pl-[18px] pr-7' : gutter[size],
           ].join(' ')}
         >
+          {headerLead}
           <div className="min-w-0 flex-1">
             {eyebrow && (
               <div

@@ -45,6 +45,8 @@ import type {
   KnownHarnessProject,
   DraftModel,
   SessionHarness,
+  HarnessLaunch,
+  LaunchHarnessTemplates,
   HarnessEvent,
   HarnessOptions,
   JoinAnswer,
@@ -491,6 +493,12 @@ export const api = {
      * `worktree_invalid_branch` or 500 `worktree_failed` (`worktreeLaunchError`).
      */
     worktree?: WorktreeLaunch
+    /**
+     * Start on a harness (spec 2026-11-09-harness-from-new-session-design):
+     * its kickoff is the first turn, `prompt` appended to it as a note. A
+     * missing template or input refuses the launch before anything spawns.
+     */
+    harness?: HarnessLaunch
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
@@ -1428,6 +1436,11 @@ export const api = {
     return request('GET', `/api/harness/templates?sessionId=${encodeURIComponent(sessionId)}`)
   },
 
+  /** What New session offers for a directory on this device or on `machine`: its project's templates, then global ones. */
+  async listHarnessTemplatesForLaunch(cwd: string, machine?: string): Promise<LaunchHarnessTemplates> {
+    return request('GET', `/api/sessions/harness-templates?${new URLSearchParams(machine === undefined ? { cwd } : { cwd, machine })}`)
+  },
+
   /** Projects sessions ran in and templates belong to, newest first. */
   async listHarnessProjects(): Promise<{ projects: KnownHarnessProject[] }> {
     return request('GET', '/api/harness/projects')
@@ -1921,6 +1934,8 @@ export type {
   HarnessStep,
   HarnessInput,
   SessionHarness,
+  HarnessLaunch,
+  LaunchHarnessTemplates,
   HarnessEvent,
   StepStatus,
   StepState,

@@ -1916,6 +1916,21 @@ export type HarnessTemplateBody = Omit<HarnessTemplate, 'id' | 'createdAt' | 'up
   draft?: boolean
 }
 
+/** A harness picked in New session, started as the session's first turn (spec 2026-11-09-harness-from-new-session-design). */
+export interface HarnessLaunch {
+  templateId: number
+  inputs: Record<string, string>
+  lucky: boolean
+}
+
+/** `GET /api/sessions/harness-templates`: what New session offers for a directory. */
+export interface LaunchHarnessTemplates {
+  project: HarnessProject | null
+  templates: HarnessTemplate[]
+  /** The template of the latest harness run in this project, when it is still offered; New session preselects it. */
+  lastUsedId: number | null
+}
+
 export interface SessionHarness {
   sessionId: string
   templateId: number | null
