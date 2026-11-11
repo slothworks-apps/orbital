@@ -2,6 +2,8 @@ import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore } 
 import { createPortal } from 'react-dom'
 import { EscapeBoundary, useEscapeLayer } from './escapeLayer'
 import { usePresence } from './usePresence'
+import { WINDOW_STRIP_INSET_PX } from './Panel'
+import { useWindowBand } from '../lib/windowChrome'
 import {
   MODAL_CLOSED,
   MODAL_ENTER_DURATION,
@@ -321,6 +323,8 @@ export function Dialog({
   const anchored = anchorTop && anchor !== null
 
   const fills = useFillsWindow(size === '2xl')
+  // Filling the desktop app's main window, the header starts where its traffic lights end.
+  const clearsTrafficLights = useWindowBand() && fills
 
   if (!mounted) return null
 
@@ -419,7 +423,6 @@ export function Dialog({
           ...(maxHeight !== undefined && { maxHeight: `min(100%, ${maxHeight}px)` }),
           ...(anchored && { marginTop: anchor }),
         }}
-        data-fills-window={fills || undefined}
         className={[
           'flex flex-col border font-sans text-ink-100 backdrop-blur-[28px]',
           // Filling the window, it covers the map whole: opaque, square, edge to edge.
@@ -439,6 +442,7 @@ export function Dialog({
           />
         ))}
         <header
+          style={clearsTrafficLights ? { paddingLeft: WINDOW_STRIP_INSET_PX } : undefined}
           className={[
             'flex shrink-0 items-center gap-3 pt-[22px]',
             ruledHeader ? 'border-b border-line/10 pb-[18px]' : 'pb-0',

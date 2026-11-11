@@ -66,7 +66,9 @@ so it knows.
 
 ## Two-column dialog
 
-New Session widens to the canvas's 920 px and gets two columns. On the left is
+New Session widens to the canvas's 920 px and gets two columns (since
+desktop 0.49.1 it is sized to the window instead: spec
+2026-11-09-harness-from-new-session-design § The dialog). On the left is
 *where* the session runs: DEVICE, PROJECT DIRECTORY, WORKTREE. On the right
 is *how* it runs: PROFILE, MODEL, PERMISSION MODE, TAG. PROFILE heads the
 column because it decides which models are offered. FIRST PROMPT spans both
