@@ -11,6 +11,7 @@ import { DiagnosticsSetting } from '../update/DiagnosticsSetting'
 import { useAppliedChannel } from '../update/channel'
 import { usePhoneUpdate } from '../update/state'
 import { clientRef } from '../transport/clientRef'
+import { PRIVACY_POLICY_URL } from '../constants'
 import { CARD, MobileScreen, SectionLabel, SheetPresence, Toggle } from '../ui'
 import { AppearanceSection } from './AppearanceSection'
 import { DevicesSection } from './DevicesSection'
@@ -226,7 +227,10 @@ function SecuritySection() {
   )
 }
 
-/** `Feature - Feedback` 61i: ABOUT, whose one row opens Send feedback. */
+/**
+ * `Feature - Feedback` 61i: ABOUT, whose row opens Send feedback; under it
+ * the privacy policy, which the App Store asks to be reachable in the app.
+ */
 function AboutSection() {
   const [open, setOpen] = useState(false)
   return (
@@ -236,6 +240,14 @@ function AboutSection() {
         <button type="button" onClick={() => setOpen(true)} className="flex min-h-13 w-full items-center gap-2.5 px-3.5 text-left">
           <span className="flex-1 fs-14 font-semibold">Send feedback</span>
           <span className="font-mono fs-11 text-ink-900/60">opens GitHub ↗</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => window.open(PRIVACY_POLICY_URL, '_blank', 'noopener')}
+          className="flex min-h-13 w-full items-center gap-2.5 border-t border-line/8 px-3.5 text-left"
+        >
+          <span className="flex-1 fs-14 font-semibold">Privacy policy</span>
+          <span className="font-mono fs-11 text-ink-900/60">opens the website ↗</span>
         </button>
       </div>
       <SheetPresence>{open && <FeedbackSheet onClose={() => setOpen(false)} />}</SheetPresence>
