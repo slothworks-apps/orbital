@@ -94,3 +94,7 @@ export const PHONE_SUBAGENT_PAGE = TRANSCRIPT_PAGE_SIZE
  * quick switch to another app and back does not ask.
  */
 export const APP_LOCK_GRACE_MS = 60_000
+/** Orbital's website, where an unpaired phone is pointed to get Orbital for a Mac. */
+export const ORBITAL_SITE_URL = 'https://orbital.slothworks.io'
+/** The privacy policy Settings → About links to (App Store guideline 5.1.1(i)). */
+export const PRIVACY_POLICY_URL = `${ORBITAL_SITE_URL}/privacy`

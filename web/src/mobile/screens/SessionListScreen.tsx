@@ -152,8 +152,17 @@ export function SessionListScreen() {
             />
           ))}
           {/* Canvas `Feature - Tag chips` 80b: no All; Clear ends the row while a tag is on, pinned to the
-              right edge over a fade so it never scrolls out of sight. The pin stays as the row's end padding. */}
-          <div className="sticky right-0 flex flex-none bg-[linear-gradient(90deg,color-mix(in_oklab,_var(--color-space)_0%,_transparent),#05070d_14px)] pl-[18px] pr-4">
+              right edge over a fade so it never scrolls out of sight. The pin stays as the row's end padding;
+              the fade is drawn only under Clear, or its solid end shows as a dark block on the header. */}
+          <div
+            className={[
+              'sticky right-0 flex flex-none pl-[18px] pr-4',
+              tagIds.length > 0 &&
+                'bg-[linear-gradient(90deg,color-mix(in_oklab,_var(--color-space)_0%,_transparent),#05070d_14px)]',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
             {tagIds.length > 0 && <Chip active={false} muted onClick={() => withViewTransition(() => setTagIds([]))} label="Clear" />}
           </div>
         </div>

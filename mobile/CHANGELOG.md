@@ -4,6 +4,13 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.26.0] — 2026-11-11
+### Added
+- Settings → About and the pairing screen link to the privacy policy, and the pairing screen says where to get Orbital for your Mac.
+
+### Fixed
+- The row of tags at the top of the session list no longer ends in a dark block when no tag is selected.
+
 ## [0.25.0] — 2026-11-11
 ### Added
 - New session → With harness…: start a session straight on a harness template from the phone, with the template’s inputs and an optional note for the first step. Needs Orbital 0.49.0 or later on the Mac and Harness turned on there.

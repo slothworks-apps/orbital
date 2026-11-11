@@ -6,6 +6,7 @@ import { useOrbital } from '../../store/store'
 import { kindOs } from '../../lib/devices'
 import { FingerprintBoxes } from '../../ui/FingerprintBoxes'
 import { KindGlyph } from '../../ui/KindGlyph'
+import { ORBITAL_SITE_URL, PRIVACY_POLICY_URL } from '../constants'
 import { parseQrText } from '../pairingFlow'
 import { cancelPairing, runPairing, type ErrorCard, type PairingStep } from '../pairingRun'
 import { identityIsDevOnly } from '../platform/identity'
@@ -152,6 +153,18 @@ export function PairingScreen() {
       <p className="max-w-[270px] text-center font-mono fs-10.5 leading-[1.6] text-ink-900/55">
         an older Orbital shows it under Settings → Mobile · no account · the code carries the relay address and the
         device&apos;s public key
+      </p>
+      {/* The first screen a new phone shows: where the Mac half comes from, for whoever has none yet. */}
+      <p className="max-w-[270px] text-center font-mono fs-10.5 leading-[1.6] text-ink-900/55">
+        needs Orbital on a Mac ·{' '}
+        <button type="button" onClick={() => window.open(ORBITAL_SITE_URL, '_blank', 'noopener')} className="text-ink-100">
+          orbital.slothworks.io ↗
+        </button>
+        {/* Settings → About holds the same link, but only a paired phone reaches Settings. */}
+        {' · '}
+        <button type="button" onClick={() => window.open(PRIVACY_POLICY_URL, '_blank', 'noopener')} className="text-ink-100">
+          privacy ↗
+        </button>
       </p>
       {showPaste && (
         <form
