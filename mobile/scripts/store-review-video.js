@@ -1,4 +1,4 @@
-/* global page, process, fetch, document, requestAnimationFrame, setTimeout */
+/* global page, process, fetch, document, window, location, getComputedStyle, requestAnimationFrame, setTimeout */
 // The App Review video (runbook release-to-the-app-store → Review video): a
 // walkthrough of the phone app on staged demo data, posted as one request to
 // `store-driver.mjs <dir> --video` so the recording has no gaps. Expects the
@@ -59,10 +59,27 @@ const sessionId = async (title) => {
 }
 const status = async (id) => (await api('/api/sessions/' + id)).session?.status
 
-/** Waits until the session has started and finished answering, then holds on the answer. */
+/** Scrolls the transcript to its newest line, as the app does for someone at the bottom. */
+const follow = () =>
+  page.evaluate(() => {
+    for (const el of document.querySelectorAll('main *')) {
+      const { overflowY } = getComputedStyle(el)
+      if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 20)
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    }
+  })
+
+/**
+ * Waits until the session has started and finished answering, following its
+ * transcript so the work shows as it arrives, then holds on the answer.
+ */
 const answered = async (id, hold = 5000) => {
   for (let i = 0; i < 20 && (await status(id)) !== 'working'; i++) await wait(500)
-  for (let i = 0; i < 120 && (await status(id)) === 'working'; i++) await wait(500)
+  for (let i = 0; i < 120 && (await status(id)) === 'working'; i++) {
+    await follow()
+    await wait(700)
+  }
+  await follow()
   await wait(hold)
 }
 
@@ -74,7 +91,8 @@ await page.goto('http://localhost:4841')
 await page.waitForSelector('#pairing-code')
 await wait(4000)
 const { qr } = await api('/api/remote/pair', null)
-await page.fill('#pairing-code', qr)
+await tap(page.locator('#pairing-code'), 600)
+await page.locator('#pairing-code').pressSequentially(qr, { delay: 12 })
 await page.waitForFunction(() => document.body.innerText.includes('STEP 2'))
 await wait(3500)
 const m = (await page.innerText('body')).match(/Type ([A-Z0-9]{3})-([A-Z0-9]{3})/)
@@ -91,22 +109,24 @@ await wait(3500)
 await tap(page.getByRole('button', { name: /Failed webhook/ }), 4000)
 await tap(page.getByRole('button', { name: /Exponential backoff/ }), 1800)
 await tap(page.getByRole('button', { name: 'Send answer' }), 500)
-await answered(question, 9000)
+await answered(question, 5000)
 await tap(page.getByRole('button', { name: 'Back to sessions' }), 3000)
 
 // 3. Approve a command.
 await tap(page.getByRole('button', { name: /new post is ready|Publish/ }), 4000)
 await tap(page.getByRole('button', { name: 'Approve' }), 500)
-await answered(permission, 9000)
+await answered(permission, 5000)
 await tap(page.getByRole('button', { name: 'Back to sessions' }), 3000)
 
 // 4. Start a new session with background subagents.
 await tap(page.getByRole('button', { name: /New session/ }), 2500)
+// Typed as a person would, until the list narrows to the one folder, which is then picked.
 const dirField = page.locator('input[aria-label=Directory]')
-await tap(dirField, 300)
-await dirField.fill('/Users/Shared/Projects/skycast')
-await page.keyboard.press('Escape')
+await tap(dirField, 400)
+await dirField.fill('')
+await dirField.pressSequentially('/Users/Shared/Projects/sky', { delay: 70 })
 await wait(1200)
+await tap(page.getByRole('option', { name: /skycast/ }), 1200)
 const worktree = page.getByRole('switch', { name: 'Work in a worktree' })
 if ((await worktree.getAttribute('aria-checked')) === 'true') await tap(worktree, 800)
 await tap(page.getByRole('radio', { name: 'acceptEdits' }), 800)
@@ -128,7 +148,16 @@ await tap(page.getByRole('button', { name: 'Settings' }), 2000)
 const privacy = page.getByText('Privacy policy')
 await privacy.scrollIntoViewIfNeeded()
 await wait(1500)
-const box = await privacy.boundingBox()
-await mark(box.x + box.width / 2, box.y + box.height / 2)
-await wait(5000)
+// The link opens the browser, which a recording of this page cannot show: open the policy here instead.
+await page.evaluate(() => {
+  window.open = (url) => {
+    location.href = url
+    return null
+  }
+})
+await tap(privacy, 1500)
+await page.waitForLoadState('load')
+await wait(3000)
+await page.evaluate(() => window.scrollBy({ top: 900, behavior: 'smooth' }))
+await wait(4000)
 return 'done'
