@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import type { ApiSession, GroupMember, HarnessTemplate, OrbitalModel, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
@@ -1159,6 +1159,9 @@ describe('NewSessionDialog — with a harness (canvas 65a)', () => {
     ],
   })
   const DOCS = template({ id: 9, name: 'Docs pass' })
+
+  // A Without a worktree prefill lasts until the dialog closes; a test that unmounts it open leaves it behind.
+  afterEach(() => useNewSessionPrefill.setState({ prefill: null }))
 
   beforeEach(() => {
     vi.mocked(api.listHarnessTemplatesForLaunch).mockResolvedValue({
