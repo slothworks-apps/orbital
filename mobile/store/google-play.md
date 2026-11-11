@@ -123,7 +123,7 @@ Visual design lives in Claude Design, so the graphic is made there. The prompt:
 |---|---|
 | App or game | App |
 | Category | Productivity (Play has no Developer Tools category) |
-| Tags | up to five of Play's list; pick the developer and productivity ones it offers |
+| Tags | Productivity, Business. Play's list has no developer tag; Remote control and Personal assistant mean TV remotes and phone assistants there |
 | Email address | `orbital@slothworks.io` |
 | Phone number | empty |
 | Website | `https://orbital.slothworks.io/` |
