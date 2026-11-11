@@ -21,7 +21,7 @@ const template = (over: Partial<HarnessTemplate> & Pick<HarnessTemplate, 'id' | 
   ...over,
 })
 
-/** Short hints, as 65a draws them. */
+/** Short hints. */
 const SHORT = template({
   id: 1,
   name: 'Bug fix',
@@ -84,5 +84,5 @@ type Story = StoryObj<typeof meta>
 
 export const ShortHints: Story = {}
 
-/** A hint that does not fit beside its label wraps under itself; the label stays on one line. */
+/** 65e: the label on one line, the hint whole under it, however long. */
 export const LongHints: Story = { args: { selected: LONG } }

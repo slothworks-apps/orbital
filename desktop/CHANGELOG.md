@@ -5,9 +5,12 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [Unreleased]
 
 ## [0.49.1] — 2026-11-11
+### Changed
+- New session is as large as your window allows, up to 1120 × 812, and the same size with or without a harness; in a small window it fills the window.
+
 ### Fixed
 - New session → With harness…: the worktree's branch and base fields no longer show through the harness step and overlap its inputs.
-- New session → With harness…: a long input hint wraps beside its label instead of being cut off, and the label stays on one line.
+- New session → With harness…: an input's hint shows whole under its label instead of being cut off, and the label stays on one line.
 
 ## [0.49.0] — 2026-11-11
 ### Added

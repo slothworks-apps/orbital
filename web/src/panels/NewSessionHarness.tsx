@@ -385,7 +385,9 @@ export function HarnessStep({
   return (
     <div className="flex h-full min-h-0 flex-col gap-2.5">
       {dirNote && <div className="shrink-0 fs-12 leading-[1.45] text-ink-900/75">{dirNote}</div>}
-      <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)] gap-7">
+      {/* 65e: TEMPLATES is 300px while the dialog is 960px or wider (80 % of a
+          1200px window), 240px below; the detail column takes the rest. */}
+      <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)] gap-7 min-[1200px]:grid-cols-[300px_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col gap-2">
           <Kicker>
             TEMPLATES
@@ -439,22 +441,27 @@ export function HarnessStep({
                     const optional = isOptional(input.hint)
                     const waiting = input.key === firstMissing?.key
                     return (
-                      <label key={input.key} className="flex min-w-0 flex-col gap-[5px]">
-                        {/* 65a's row, for hints longer than the canvas has: the label
-                            stays on one line and a hint that does not fit beside it
-                            wraps in its own column, not cut, with required on the first line. */}
-                        <span className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-x-2">
-                          <span className="whitespace-nowrap fs-12.5 font-semibold text-ink-200/92">{input.label}</span>
-                          <span className="text-pretty font-mono fs-10 leading-[1.5] text-ink-900/55">{input.hint}</span>
+                      // 65e: the label on one line with required or optional at its
+                      // right edge, the hint whole under it as the field's description.
+                      <label key={input.key} className="flex min-w-0 flex-col gap-1">
+                        <span className="flex items-baseline gap-3">
+                          <span title={input.label} className="min-w-0 flex-1 truncate fs-12.5 font-semibold text-ink-200/92">
+                            {input.label}
+                          </span>
                           <span
                             className={[
-                              'shrink-0 font-mono fs-10',
+                              'flex-none font-mono fs-10',
                               !optional && !inputs[input.key]?.trim() ? 'text-ink-100' : 'text-ink-900/50',
                             ].join(' ')}
                           >
                             {optional ? 'optional' : 'required'}
                           </span>
                         </span>
+                        {input.hint && (
+                          <span id={`harness-input-hint-${input.key}`} className="text-pretty fs-11.5 leading-[1.45] text-ink-900/74">
+                            {input.hint}
+                          </span>
+                        )}
                         <Input
                           ref={waiting ? firstMissingRef : undefined}
                           variant="ringed"
@@ -462,6 +469,8 @@ export function HarnessStep({
                           lit={waiting}
                           spellCheck={false}
                           aria-label={input.label}
+                          aria-describedby={input.hint ? `harness-input-hint-${input.key}` : undefined}
+                          className="mt-[3px]"
                           value={inputs[input.key] ?? ''}
                           onChange={(e) => setInput(input.key, e.target.value)}
                         />
