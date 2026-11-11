@@ -77,7 +77,7 @@ All under Apps → Orbital by SlothWorks. The app record exists already
 - **Category**: Primary Developer Tools, Secondary Productivity.
 - **Content Rights**: "No, it does not contain, show, or access third-party
   content". The app shows only what the user's own sessions produce.
-- **Age Rating** → Edit: answer the questionnaire as the listing's table says.
+- **Age Rating** → Edit: answer the questionnaire as the listing's table says, then override the result to 18+ (the listing says why).
   Apple adds questions over time (Shared Location from 16 November 2026);
   answer new ones from the same reasoning and add them to the table.
 - **License Agreement**: Apple's standard EULA.

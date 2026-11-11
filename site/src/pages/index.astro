@@ -59,9 +59,17 @@ const phoneRows = [
   { label: 'PAIRING', text: 'Scan a QR code on your Mac.' },
   {
     label: 'RELAY',
-    text: 'The phone reaches your Mac through a relay you run yourself from a Docker image. Testers can ask to use ours instead.',
+    text: testers
+      ? 'The phone reaches your Mac through a relay you run yourself from a Docker image. Testers can ask to use ours instead.'
+      : 'The phone reaches your Mac through a relay you run yourself from a Docker image.',
   },
-  { label: 'NOTIFICATIONS', text: 'Off until you turn them on.' },
+  // A relay of your own cannot push to the store apps (docs/ideas/a-paid-slothworks-relay-with-push.md).
+  {
+    label: 'NOTIFICATIONS',
+    text: testers
+      ? 'Off until you turn them on.'
+      : 'Off until you turn them on. With a relay of your own, they arrive while the app is open.',
+  },
 ]
 
 const moreRows = [
@@ -107,7 +115,9 @@ const calm = [
   },
 ]
 
-const phoneNeeds = 'Orbital on your Mac, and a relay: your own, or ours by arrangement.'
+const phoneNeeds = testers
+  ? 'Orbital on your Mac, and a relay: your own, or ours by arrangement.'
+  : 'Orbital on your Mac, and a relay you run yourself.'
 const phones = [
   {
     name: 'iPhone',

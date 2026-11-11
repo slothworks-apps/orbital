@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated: 20 October 2026
+Last updated: 11 November 2026
 
 Orbital is built to keep your work on your own machines. This page says
 exactly what the Mac app, the phone app, the relay and this website do with
@@ -97,7 +97,10 @@ The phone app and a group of several Macs are optional. Nothing connects to
 a relay until you turn it on in the Mac app's Settings → Devices and enter a
 relay address. **There is no
 default relay.** The relay is part of the open source code and ships as a
-Docker image; whoever runs the relay you use holds the data described below.
+Docker image; whoever runs the relay you use holds the data described below. SlothWorks
+runs no relay for the public: you run your own. A few testers use one that
+SlothWorks runs, by arrangement; it holds what is described below and
+nothing more.
 
 **Pairing.** A device shows a code: a QR code the phone scans with Google's
 ML Kit barcode scanner, or the same code as one word another Mac pastes. The
@@ -146,7 +149,10 @@ memory, never on disk. Its log lines contain only shortened IDs, states
 and counts - never names, message contents, or full IDs or tokens.
 
 **Push notifications** go through Google's Firebase Cloud Messaging (and,
-on an iPhone, Apple's push service). They carry only the title "Orbital"
+on an iPhone, Apple's push service), and only from a relay that holds the
+Firebase credentials of the Orbital phone app. A relay you run yourself
+does not, so with it the phone shows notifications only while the app is
+open, and sends no push through Google or Apple. They carry only the title "Orbital"
 and the same fixed line every time, "A session has an update" - no Mac
 name, no session title, nothing you wrote.
 
@@ -187,8 +193,12 @@ signed by Orbital's build system, and the app refuses one that is not.
 the foreground, it asks the server whether there is a new version. This is
 needed for updates and always happens. The request carries:
 
-- a random install id that the app makes up for itself and that identifies
-  nothing but this installation;
+- a random install id that the app makes up for itself. It is not tied to
+  you, your Apple or Google account or any other app. On Android it is
+  deleted when you uninstall the app. On an iPhone it is kept in the
+  phone's keychain, which iOS does not clear when an app is deleted, so a
+  reinstall on the same iPhone reuses it; it is never copied to iCloud or
+  to another device;
 - the platform (Android or iOS) and the system's version;
 - the app's version, and the version and build number of the app installed
   from the store;
@@ -238,18 +248,27 @@ created on your Mac and go nowhere else.
 - **While the app is connected**, the phone builds notifications itself from
   the encrypted session data it receives, so they include the session's name.
   Nothing extra leaves your devices for these.
-- **While the app is closed**, the relay sends a push notification through
-  Google's Firebase Cloud Messaging; on iPhone, Google passes it on through
-  Apple's push service. The push says "Orbital" and "A session has an
+- **While the app is closed**, a relay that holds the phone app's Firebase
+  credentials sends a push notification through Google's Firebase Cloud
+  Messaging; on iPhone, Google passes it on through Apple's push service. A
+  relay you run yourself cannot, so with it there are no notifications while
+  the app is closed. The push says "Orbital" and "A session has an
   update", the same for every session and every event. It carries nothing
   else: no Mac name, no session names, no content. Which events trigger it follows the
   notification settings you choose for that phone. Google, and on iPhone
   Apple, handle the push under their own privacy terms.
 
-The phone asks for permission to show notifications once it is paired. If you
-decline, the app works without them and no push token is sent to the relay.
+The phone asks for permission to show notifications only when you turn a
+notification on. If you decline, the app works without them and no push
+token is sent to the relay.
+
 The phone app includes Firebase only for push messages: no Firebase
-Analytics, no Crashlytics.
+Analytics, no Crashlytics. Firebase starts with the app, whether or not
+notifications are on: each time the app opens, it registers this
+installation with Google's Firebase Cloud Messaging, which gives it a push
+token and records an installation id, the phone's model, language, time
+zone, system version and the app's version. Google handles this under its
+own privacy terms. Nothing from your sessions is part of it.
 
 ## Accounts and analytics
 
