@@ -3,13 +3,15 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.25.0] — 2026-11-11
 ### Added
 - New session → With harness…: start a session straight on a harness template from the phone, with the template’s inputs and an optional note for the first step. Needs Orbital 0.49.0 or later on the Mac and Harness turned on there.
+- A session started on the Mac with a progress list shows how far it has got in its header and in the session list; tapping the figure opens the whole list.
 
 ### Changed
 - A session started in a worktree shows SETTING UP while the Mac makes its worktree and starts on its own; messages you send meanwhile are queued. If the worktree cannot be made, it shows NOT STARTED with Try again, Start without a worktree, Copy first prompt and Discard.
 - When the Mac could not remove a worktree after you ended its session, the session's cleanup row comes back so you can try again.
-- A session started on the Mac with a progress list shows how far it has got in its header and in the session list; tapping the figure opens the whole list.
 
 ## [0.24.3] — 2026-11-07
 ### Changed
