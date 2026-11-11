@@ -37,6 +37,17 @@ checklist.
 - **With harness…** replaces the body with step 2 in the same window, at
   the same size and place. ‹ Back and esc go back to step 1 with
   everything kept, and nothing typed in either step is lost.
+- The dialog's size (canvas 65e, from desktop 0.49.1) is one rule for
+  every launch, harness or not, so the two steps can never differ: 80 % of
+  the window wide and the window less 80 px high, at most 1120 × 812, the
+  body scrolling between the header and the footer. Where that would fall
+  under 760 × 600 it fills the window, square and opaque, its header clear
+  of the desktop app's traffic lights. Step 2's TEMPLATES column is 300 px
+  from a 960 px dialog, 240 px below.
+- An input row keeps its label on one line with required or optional at
+  its right, and the hint whole under it as the field's description: a
+  template's hints can run long, and a cut hint loses what it says. Only a
+  label wider than the column is cut, with the whole of it on hover.
 - Step 2 lists the templates the Harness panel's start view would offer
   for the chosen directory: that project's templates first, then the
   global ones, never another project's. The list follows the directory
@@ -113,8 +124,9 @@ checklist.
   the task.
 - **Where it lives:** in the existing Harness feature, behind its switch
   (off by default). No new switch.
-- **What someone updating notices:** with Harness off, nothing. With it
-  on, one more button in the New session footer, With harness….
+- **What someone updating notices:** with Harness off, New session's size
+  only (from 0.49.1: larger on a large window, filling a small one). With
+  it on, also one more button in the New session footer, With harness….
 - **What can be set:** nothing new; templates and their defaults are set
   where they are today.
 

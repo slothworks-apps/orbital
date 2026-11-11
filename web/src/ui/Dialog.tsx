@@ -1,7 +1,9 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { EscapeBoundary, useEscapeLayer } from './escapeLayer'
 import { usePresence } from './usePresence'
+import { WINDOW_STRIP_INSET_PX } from './Panel'
+import { useWindowBand } from '../lib/windowChrome'
 import {
   MODAL_CLOSED,
   MODAL_ENTER_DURATION,
@@ -30,7 +32,9 @@ export interface DialogProps {
    * `sm` = 440px stop confirm (1b), `md` = 560px clear confirm (1g),
    * `lg` = 660px form dialog with a ruled header (1d),
    * `xl` = 760px error log (canvas 5b) — lg's chrome, one step wider,
-   * `2xl` = 920px two-column New session (canvas 63a) — lg's chrome at a 28px gutter.
+   * `2xl` = New session (canvas 63a, sized by 65e) — lg's chrome at a 28px
+   * gutter, 80 % of the window wide and the window less 80px high, at most
+   * 1120 × 812; where that would fall under 760 × 600 it fills the window.
    */
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
   /** Mono muted line on the ruled header's right, before the esc keycap
@@ -175,6 +179,25 @@ const cornerRadius: Record<
 const corners = ['tl', 'tr', 'bl', 'br'] as const
 
 /**
+ * 65e: where `2xl`'s 80 % × (window − 80px) would fall under 760 × 600, the
+ * dialog stops floating and fills the window — no corners, no rounded edge,
+ * the map hidden behind it.
+ */
+const FILLS_WINDOW = '(max-width: 949px), (max-height: 679px)'
+
+function useFillsWindow(active: boolean): boolean {
+  return useSyncExternalStore(
+    (changed) => {
+      if (!active || typeof window.matchMedia !== 'function') return () => {}
+      const query = window.matchMedia(FILLS_WINDOW)
+      query.addEventListener('change', changed)
+      return () => query.removeEventListener('change', changed)
+    },
+    () => active && typeof window.matchMedia === 'function' && window.matchMedia(FILLS_WINDOW).matches,
+  )
+}
+
+/**
  * Frame radius per artboard. Its own map because the armed drop overlay is
  * drawn as a second box over the frame and has to match it exactly — one
  * definition, so the two cannot drift.
@@ -193,7 +216,8 @@ const sizeClasses: Record<NonNullable<DialogProps['size']>, string> = {
   md: 'w-[560px] bg-gradient-to-b from-raised/94 to-space-deep/97',
   lg: 'w-[660px] bg-gradient-to-b from-raised/90 to-space-deep/94',
   xl: 'w-[760px] bg-gradient-to-b from-raised/90 to-space-deep/94',
-  '2xl': 'w-[920px] bg-gradient-to-b from-raised/90 to-space-deep/94',
+  // 65e: one size for step 1 and step 2, so ‹ Back never moves the window.
+  '2xl': 'h-[min(calc(100vh-80px),812px)] w-[min(80vw,1120px)] bg-gradient-to-b from-raised/90 to-space-deep/94',
 }
 
 /** Inner gutter: confirms sit at 24px, the form dialogs at 26px. */
@@ -298,6 +322,10 @@ export function Dialog({
   }, [anchorTop, mounted])
   const anchored = anchorTop && anchor !== null
 
+  const fills = useFillsWindow(size === '2xl')
+  // Filling the desktop app's main window, the header starts where its traffic lights end.
+  const clearsTrafficLights = useWindowBand() && fills
+
   if (!mounted) return null
 
   const entered = state === 'entered'
@@ -396,16 +424,16 @@ export function Dialog({
           ...(anchored && { marginTop: anchor }),
         }}
         className={[
-          'relative flex max-h-full max-w-full flex-col border font-sans text-ink-100 backdrop-blur-[28px]',
-          sizeClasses[size],
-          frameRadius[size],
+          'flex flex-col border font-sans text-ink-100 backdrop-blur-[28px]',
+          // Filling the window, it covers the map whole: opaque, square, edge to edge.
+          fills ? 'fixed inset-0 bg-gradient-to-b from-raised to-space-deep' : `relative max-h-full max-w-full ${sizeClasses[size]} ${frameRadius[size]}`,
           frame.border,
           MODAL_TRANSITION,
           duration,
           entered ? MODAL_OPEN : MODAL_CLOSED,
         ].join(' ')}
       >
-        {corners.map((corner) => (
+        {!fills && corners.map((corner) => (
           <span
             key={corner}
             aria-hidden
@@ -414,6 +442,7 @@ export function Dialog({
           />
         ))}
         <header
+          style={clearsTrafficLights ? { paddingLeft: WINDOW_STRIP_INSET_PX } : undefined}
           className={[
             'flex shrink-0 items-center gap-3 pt-[22px]',
             ruledHeader ? 'border-b border-line/10 pb-[18px]' : 'pb-0',
@@ -510,7 +539,7 @@ export function Dialog({
           aria-hidden
           className={[
             'pointer-events-none absolute inset-0 border transition-[border-color,box-shadow] duration-[120ms] ease-in',
-            frameRadius[size],
+            fills ? '' : frameRadius[size],
             dropArmed
               ? 'border-accent/45 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-accent)_12%,transparent)]'
               : 'border-transparent',
