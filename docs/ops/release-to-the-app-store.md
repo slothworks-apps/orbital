@@ -22,7 +22,7 @@ that is in TestFlight to the public App Store: the one-time setup of the
 listing, the submission, and what later releases need.
 
 The texts for every field (name, subtitle, description, keywords, URLs, age
-rating, App Privacy answers, review notes, the review video's shot list) are
+rating, App Privacy answers, review notes, what the review video shows) are
 in `mobile/store/app-store.md`. Paste from there; change them there first.
 
 SlothWorks runs no relay for App Store users: each user runs their own from
@@ -53,7 +53,7 @@ block the submission:
   0.10.0 (build 15). Submit that build or a later one; an over-the-air
   bundle does not count, since review sees the binary's own bundle.
 - **A support URL with a contact address** (guideline 1.5).
-- **The review video**, recorded on a real iPhone ([Review video](#review-video)).
+- **The review video**, recorded from demo data ([Review video](#review-video)).
 - **Screenshots** ([Screenshots](#screenshots)).
 - **The website and the privacy policy** say what holds for App Store users:
   no SlothWorks relay, no push through a self-hosted relay
@@ -265,11 +265,37 @@ changes noticeably.
 
 ### Review video
 
-The video the review notes link to, with the shot list, is in
-`mobile/store/app-store.md` → Review video. It uses the same staged data as
-the screenshots, and a relay the owner runs from the Docker image, as a user
-would. It shows no push to a locked phone, which such a relay cannot send. Record it again when a screen it shows changes noticeably
-before a submission, and update the link in the notes.
+Attached to App Review Information; what it shows is in
+`mobile/store/app-store.md` → Review video. Not filmed on a phone: it is
+recorded from the same stack and demo data as the screenshots, so no real
+project appears.
+
+1. Start the stack ([Screenshots](#screenshots), step 1) with the driver in
+   recording mode and a fresh profile, so the video starts at pairing:
+   `node mobile/scripts/store-driver.mjs /tmp/orbital-store-video --video`.
+2. Start the two sessions it answers (step 3: the ledger-api question and
+   the fieldnotes `npm run deploy` request) and wait until both show NEEDS
+   INPUT; end any other live session.
+3. Post the walkthrough, then close the context to write the WebM:
+
+   ```bash
+   H="x-driver-token: $(cat /tmp/orbital-store-video/driver-token)"
+   curl -X POST -H "$H" localhost:4880 --data-binary @mobile/scripts/store-review-video.js
+   curl -X POST -H "$H" localhost:4880 --data 'await page.context().close(); return 1'
+   ```
+4. Cut and convert. WebKit records the page at 440 × 956 in the top-left
+   corner of the frame, and the first seconds (and the moment the pairing
+   code arrives) are blank while the page loads: crop, scale up, and trim
+   the blank stretches, which a per-second brightness check finds
+   (`ffmpeg … -vf "fps=1,scale=8:8:flags=area" -f rawvideo -pix_fmt gray -`):
+
+   ```bash
+   ffmpeg -i in.webm -filter_complex "[0:v]crop=440:956:0:0,scale=880:1912:flags=lanczos,trim=<from>,setpts=PTS-STARTPTS[out]" \
+     -map "[out]" -c:v libx264 -pix_fmt yuv420p -crf 20 -r 30 -movflags +faststart orbital-app-review.mp4
+   ```
+
+Record it again when a screen it shows changes noticeably before a
+submission.
 
 ## Troubleshooting
 

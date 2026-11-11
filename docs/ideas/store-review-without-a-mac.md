@@ -40,7 +40,8 @@ video and review notes.
   themselves), and link the video. Apple takes them in App Store Connect's App Review Information,
   Google Play in App access.
 
-The notes, the shot list as the app stands today and the answers to the
+The notes, what the video shows (recorded from demo data, not filmed on a
+phone) and the answers to the
 guidelines review is likely to raise are in `mobile/store/app-store.md`;
 the App Store steps are in [[release-to-the-app-store]]. "Sign-in
 required" is answered no: the app has no account, and pairing is not a

@@ -380,13 +380,13 @@ The app has no account and no sign-in, so there is no demo account to give. It w
 3. A relay server that connects the phone to the Mac, which the user runs on a server of their own from Orbital's open-source Docker image. We do not run one for users.
 We cannot pair the app with a Mac of ours for review: a paired phone can start coding sessions that run commands on that Mac under our Claude account.
 
-DEMO VIDEO
-A recording on a real iPhone paired with a Mac, showing every feature from installation on: <VIDEO LINK>
-The sessions in it are demo data.
+DEMO VIDEO AND INTERACTIVE DEMO
+The attached video is a screen recording of the app paired with a Mac running Orbital on demo data (no real projects): pairing, the session list, answering a question, approving a command, starting a new session that runs two background subagents, and the privacy policy in Settings. It was recorded from a development build, which takes the pairing code's text instead of scanning it; the App Store build scans the QR code.
+The same phone app can be tried in a browser, on demo data, on https://orbital.slothworks.io (the phone demo on the page is clickable).
 
 WHAT YOU CAN CHECK WITHOUT A MAC
-- The first screen explains pairing and says where to get Orbital for Mac: Orbital → Settings → Devices on the Mac shows the code.
-- The privacy policy is linked in Settings → About. Settings opens only after pairing, so the video shows it.
+- The first screen explains pairing, says the app needs Orbital on a Mac and links the website and the privacy policy. Orbital → Settings → Devices on the Mac shows the code.
+- The privacy policy is also linked in Settings → About, which opens after pairing; the video shows it.
 - Tapping the scan frame asks for the camera (purpose: scanning the pairing code and taking photos to send to a session) and opens the scanner.
 - A code that is not an Orbital pairing code is refused with a message.
 
@@ -404,42 +404,29 @@ Orbital is published by SlothWorks s.r.o. and is not affiliated with Anthropic.
 Contact: orbital@slothworks.io
 ```
 
-Replace `<VIDEO LINK>` before submitting. Apple takes a link (an unlisted
-video, or a file share that needs no sign-in) or the video as an attachment
-in the same section.
+Attach the video in the same section (App Review Information →
+Attachment); no link is needed.
 
-### Review video: shot list
+### Review video
 
-Recorded once per submission whose screens changed, on a real iPhone, with
-the Mac in the same frame where it matters (a second camera, or the iPhone's
-screen recording beside a Mac screen recording, cut together). The Mac runs
-Orbital on staged demo data, so no real project, path or conversation shows:
-separate `ORBITAL_CLAUDE_DIR` and `ORBITAL_DATA_DIR`
-(`docs/ideas/store-review-without-a-mac.md`). The relay is one the owner
-runs from the Docker image, as a user would. Keep it under five minutes, one take per
-segment, no music, captions for each segment.
+Not filmed on a phone: no real project may appear, and the owner's own are
+private. It is recorded in WebKit at the iPhone's size from the same staged
+demo data as the screenshots (`docs/ops/release-to-the-app-store.md` →
+Review video), by `mobile/scripts/store-review-video.js` run in
+`store-driver.mjs --video`:
 
-| # | on screen | shows the reviewer |
-|---|---|---|
-| 1 | The app installed from TestFlight, first launch: launch screen, then STEP 1 OF 2 "Scan the code on a desktop" | What a reviewer sees, and that nothing works without a Mac |
-| 2 | On the Mac: Orbital → Settings → Devices shows the QR code | Where the code comes from |
-| 3 | Tap the scan frame: the camera permission prompt with its purpose string; allow; scan | The camera purpose string in use |
-| 4 | Confirm step: the short code matches on phone and Mac; accept on the Mac; "Open sessions" | Pairing; no account |
-| 5 | Face ID prompt on first open, if the app lock is on | The Face ID purpose string in use |
-| 6 | Session list: sessions grouped by state, tag filter, device chip | The main screen |
-| 7 | Open a session that NEEDS INPUT: the question card, answer it, Send; the Mac shows the session carry on | Answering from the phone |
-| 8 | A permission request: approve it | Permission requests |
-| 9 | Write a message with a photo: tap the camera or library button, the photo permission prompt, pick a photo, send | The photo purpose strings in use |
-| 10 | A harness step waiting for approval: open the steps, approve | Harness gates |
-| 11 | New session: pick the device, folder, model, permission mode; start; it appears on the Mac's map | Starting a session |
-| 12 | Open an image and a file a session names | Files and media |
-| 13 | Turn on a notification from the one-time tip: the iOS permission prompt | Notifications are opt-in |
-| 14 | With the app open on another session, a session on the Mac asks for input: the in-app banner and notification appear; tap it, the session opens | Notifications while the app is open. No push to a locked phone: users with their own relay do not get one ([Push notifications with your own relay](#push-notifications-with-your-own-relay)) |
-| 15 | Settings: notification rules, Security (app lock), Send diagnostics switch, About with the privacy policy link | Settings, diagnostics opt-out, the policy in the app |
-| 16 | Settings → Devices → leave the group: the phone returns to pairing | How a user removes the phone and its data |
+1. pairing (STEP 1 with the paste field, then Paired with MacBook Pro),
+2. the session list with two sessions that NEED INPUT,
+3. a question card: pick the recommended option, Send answer,
+4. a permission card: Approve,
+5. New session: folder, permission mode, model, a prompt asking for two
+   background subagents; Start; the session works and its moons show in
+   the list,
+6. Settings → About with the privacy policy link.
 
-The old list in the idea doc is the source; this one follows the app as it is
-at 0.25.0.
+About 75 seconds, no sound. If App Review insists on a recording from a
+device, answer in the Resolution Center with the interactive demo on the
+website first.
 
 ## What App Review will likely raise, and the answer
 
@@ -509,7 +496,7 @@ at 0.25.0.
     `NSPrivacyAccessedAPICategoryUserDefaults` (reason `CA92.1`). Check the
     e-mail App Store Connect sent after the last upload for `ITMS-91053`; if
     it is there, add the manifest (a native change).
-13. **The review video.** Record it (shot list above) and fill in the link.
+13. **The review video.** Recorded from demo data ([Review video](#review-video)); attach it in App Review Information.
 
 ## Proposed privacy policy changes
 
