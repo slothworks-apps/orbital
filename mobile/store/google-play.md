@@ -101,21 +101,25 @@ upload.
 
 ### Feature graphic
 
-Visual design lives in Claude Design, so the graphic is made there. The prompt:
+Visual design lives in Claude Design, so the graphic is made there, with
+`01-list.jpg` and the icon attached. The prompt:
 
-> A Google Play feature graphic for Orbital, 1024 × 500 px, exported as a
-> JPEG or a PNG without transparency. Orbital is a calm companion app that
-> shows the Claude Code sessions running on your Mac as planets: one map, what
-> is working, what waits for you, what is done. Use Orbital's own look from
-> the canvas: the dark space background, the planet and moon motifs, the cyan
-> accent, Manrope for the wordmark. Put the wordmark "Orbital" and one short
-> line, "Your coding agents, anywhere", on the left half; on the right, a
-> planet with two small moons, or the phone's session list (screenshot 01)
-> tilted slightly. Keep everything that matters inside the central 924 × 400
-> px: Play crops the edges on some surfaces and may lay a play button over the
-> centre when a video is linked (none is). No device frames, no "Get it on
-> Google Play" badge, no prices or rankings, no Anthropic or Claude logo, no
-> small text: it is shown as small as 350 px wide.
+```text
+A Google Play feature graphic for Orbital, 1024 × 500 px, exported as a JPEG or a PNG without transparency.
+
+Orbital is a calm companion app that shows the Claude Code sessions running on your Mac as planets: one map of what is working, what waits for you and what is done. The phone app follows and answers those sessions from anywhere.
+
+Use Orbital's own look from the canvas: the dark space background, the planet and moon motifs, the cyan accent, Manrope for the wordmark.
+
+Layout: the wordmark "Orbital" and one short line, "Your coding agents, anywhere", on the left half. On the right, the top half of the phone's session list (the attached 01-list.jpg, a 9:16 screen): show only its upper part, from the status bar down to the NEEDS INPUT group, rising from the bottom edge of the graphic and cut off by it, upright or tilted a few degrees, with a planet and two small moons behind it. If the screen does not read well at this size, drop it and use the planet with its moons alone.
+
+Keep the wordmark, the line and the readable part of the screen inside the central 924 × 400 px: Play crops the edges on some surfaces. The graphic is shown as small as 350 px wide, so no small text besides what the screen itself shows.
+
+Do not include: device frames, a "Get it on Google Play" badge, prices, rankings or awards, the Anthropic or Claude logo, calls to action like "Download now".
+```
+
+A whole 9:16 screen does not fit a 1024 × 500 band at a readable size; only
+its top part does.
 
 ## Store settings
 
