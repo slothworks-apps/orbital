@@ -79,18 +79,35 @@ export function SwitchTrack({ on, size = 'sm' }: { on: boolean; size?: 'sm' | 'm
 export function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
   return (
     <label className="flex cursor-pointer items-center gap-2 fs-12 text-ink-200/88">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={label}
-        onClick={() => onChange(!on)}
-        className="block shrink-0"
-      >
-        <SwitchTrack on={on} />
-      </button>
+      <SwitchButton on={on} label={label} onChange={onChange} />
       {label}
     </label>
+  )
+}
+
+/** The switch itself, for a row that lays out its own words (New session's progress list, canvas 67f). */
+export function SwitchButton({
+  on,
+  label,
+  onChange,
+  className = '',
+}: {
+  on: boolean
+  label: string
+  onChange: (on: boolean) => void
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+      className={`block shrink-0 ${className}`}
+    >
+      <SwitchTrack on={on} />
+    </button>
   )
 }
 

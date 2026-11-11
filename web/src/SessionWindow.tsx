@@ -20,6 +20,7 @@ import { SessionDialogs } from './panels/SessionDialogs'
 import { SubagentPanel } from './panels/SubagentPanel'
 import { TaskOutputPanel } from './panels/TaskOutputPanel'
 import { HarnessPanel } from './panels/HarnessPanel'
+import { ProgressPanel } from './panels/ProgressPanel'
 import { ErrorLog } from './panels/ErrorLog'
 import { CompactDialog } from './panels/CompactDialog'
 import { McpDialog } from './panels/McpDialog'
@@ -142,7 +143,7 @@ export function SessionWindow({ id }: { id: string }) {
   // browser, or one already reached). A close forgets it, in the same
   // render, and an answer that lands after a close is discarded.
   const subagentPanelOpen = useOrbital(
-    (s) => s.subagentPanel !== null || s.taskOutput !== null || s.harnessPanel !== null,
+    (s) => s.subagentPanel !== null || s.taskOutput !== null || s.harnessPanel !== null || s.progressPanel !== null,
   )
   const [answer, setAnswer] = useState<{ widthPx: number | undefined } | null>(null)
   if (!subagentPanelOpen && answer !== null) setAnswer(null)
@@ -219,6 +220,9 @@ export function SessionWindow({ id }: { id: string }) {
               </ErrorBoundary>
               <ErrorBoundary label="Harness">
                 <HarnessPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
+              </ErrorBoundary>
+              <ErrorBoundary label="Progress list">
+                <ProgressPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
               </ErrorBoundary>
             </div>
           )}

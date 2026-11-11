@@ -730,6 +730,8 @@ export function planetOutline(
     gauged: boolean
     /** The login pill under the name (`ScenePlanet.loginPill`), measured where the limit's would be. */
     loginPill?: string | null
+    /** The progress list's figure after the name (`ScenePlanet.progressFigure`). */
+    progressFigure?: string | null
   },
   planetScale: number,
   labelFont: { title: number; family: number },
@@ -741,6 +743,7 @@ export function planetOutline(
     planet.secondLine,
     labelFont,
     wait ? limitPillText(wait) : (planet.loginPill ?? null),
+    planet.progressFigure ?? null,
   )
   const state = statePill(planet.session)
   const pill = state

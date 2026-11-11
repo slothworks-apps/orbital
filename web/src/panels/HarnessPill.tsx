@@ -1,6 +1,6 @@
 import { swatch } from '../lib/palette'
 import { useEffect, useRef, useState } from 'react'
-import type { MouseEvent, RefObject } from 'react'
+import type { MouseEvent, ReactNode, RefObject } from 'react'
 import { useOrbital } from '../store/store'
 import { harnessEnabled } from '../lib/experimental'
 import { pillReading, type PillGlyph } from '../lib/harnessSession'
@@ -68,6 +68,7 @@ function Glyph({ glyph, ink }: { glyph: PillGlyph; ink: string }) {
   )
 }
 
+
 /**
  * The drawer handle (canvas `Feature - Harness` 30a-d, chosen): a 20 px pill
  * half over the session panel's right edge, on the side the harness panel
@@ -93,11 +94,76 @@ export function HarnessPill({
   const harness = useSessionHarness(session)
   const panelOpen = useOrbital((s) => s.harnessPanel?.sessionId === session.id)
   const openHarness = useOrbital((s) => s.openHarness)
+  if (!harness) return null
+  const reading = pillReading(harness)
+  return (
+    <EdgePill
+      stateRowRef={stateRowRef}
+      edge={edge}
+      panelOpen={panelOpen}
+      label={`Harness: step ${reading.count.replace('/', ' of ')}, ${reading.status}`}
+      marker="data-harness-pill"
+      // ⌥-click goes straight to the full window (30a-d / 30h); a mouse modifier, so QWERTZ is no concern.
+      onActivate={(e) => openHarness(session.id, { full: e.altKey })}
+      glyph={<Glyph glyph={reading.glyph} ink={reading.ink} />}
+      segments={reading.segments.map((colour, i) => (
+        <span key={i} className="block h-2 w-1 rounded-[1px]" style={{ background: colour }} />
+      ))}
+      flyout={
+        <>
+          <span className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.16em] text-ink-900/60">
+            HARNESS
+            <span className="min-w-0 flex-1 truncate tracking-[0.02em]">{harness.name}</span>
+            <span className="tracking-[0.04em] text-ink-100">{reading.count}</span>
+          </span>
+          <span className="line-clamp-2 fs-12.5 leading-[1.4] font-semibold text-ink-100">{reading.title}</span>
+          <span className="flex items-center gap-2 font-mono fs-10" style={{ color: reading.statusInk }}>
+            {reading.status}
+            {reading.detail && <span className="text-ink-900/60">· {reading.detail}</span>}
+          </span>
+          <span className="border-t border-solid border-line/8 pt-[7px] font-mono fs-9.5 text-ink-900/55">
+            click · open the harness panel · {shortcutLabel('session.harness')}
+          </span>
+        </>
+      }
+    />
+  )
+}
+
+/**
+ * The pill on the session panel's edge, for whatever leads the session's
+ * work — the harness (30a-d) or the progress list (canvas `Feature - Progress
+ * list` 67b, "same shell, place, open/close and keyboard"): a glyph on top,
+ * one segment per step or item, a flyout after `FLYOUT_DELAY_MS`, and it
+ * fades out while its panel is open. The caller decides whether to show one.
+ */
+export function EdgePill({
+  stateRowRef,
+  edge,
+  panelOpen,
+  label,
+  marker,
+  onActivate,
+  glyph,
+  segments,
+  flyout,
+}: {
+  stateRowRef: RefObject<HTMLElement | null>
+  edge: 'over' | 'inside'
+  panelOpen: boolean
+  label: string
+  /** The data attribute the pill carries. */
+  marker: 'data-harness-pill' | 'data-progress-pill'
+  onActivate: (e: MouseEvent<HTMLButtonElement>) => void
+  glyph: ReactNode
+  segments: ReactNode
+  /** The flyout's rows; the shell is the pill's. */
+  flyout: ReactNode
+}) {
   const layerRef = useRef<HTMLDivElement | null>(null)
   const [top, setTop] = useState<number | null>(null)
   const [hovered, setHovered] = useState(false)
-  const [flyout, setFlyout] = useState(false)
-  const shown = Boolean(harness)
+  const [open, setOpen] = useState(false)
 
   // Top-aligned with the state row (30a-d), whatever the title above it wraps to.
   // A passive effect, not a layout one: the row is in a later sibling, whose
@@ -107,7 +173,7 @@ export function HarnessPill({
   useEffect(() => {
     const layer = layerRef.current
     const row = stateRowRef.current
-    if (!shown || !layer || !row) return
+    if (!layer || !row) return
     const measure = () => setTop(row.getBoundingClientRect().top - layer.getBoundingClientRect().top)
     measure()
     if (typeof ResizeObserver === 'undefined') return
@@ -115,117 +181,67 @@ export function HarnessPill({
     observer.observe(layer)
     if (row.parentElement) observer.observe(row.parentElement)
     return () => observer.disconnect()
-  }, [shown, stateRowRef])
+  }, [stateRowRef])
 
   useEffect(() => {
     if (!hovered || panelOpen) {
-      setFlyout(false)
+      setOpen(false)
       return
     }
-    const timer = setTimeout(() => setFlyout(true), FLYOUT_DELAY_MS)
+    const timer = setTimeout(() => setOpen(true), FLYOUT_DELAY_MS)
     return () => clearTimeout(timer)
   }, [hovered, panelOpen])
 
-  if (!harness) return null
+  const lit = hovered || panelOpen
   return (
     // Pointer-transparent, so only the pill itself takes a press. Measured
     // first: the pill appears once it knows where the state row is.
     <div ref={layerRef} className="pointer-events-none absolute inset-0 z-30">
       {top !== null && (
-        <Pill
-          harness={harness}
-          top={top}
-          edge={edge}
-          panelOpen={panelOpen}
-          hovered={hovered}
-          flyout={flyout}
-          onHover={setHovered}
+        <button
+          type="button"
+          {...{ [marker]: true }}
+          aria-label={label}
+          aria-expanded={panelOpen}
+          tabIndex={panelOpen ? -1 : undefined}
           onClick={(e) => {
             setHovered(false)
-            // ⌥-click goes straight to the full window (30a-d / 30h); a mouse modifier, so QWERTZ is no concern.
-            openHarness(session.id, { full: e.altKey })
+            onActivate(e)
           }}
-        />
+          onPointerEnter={() => setHovered(true)}
+          onPointerLeave={() => setHovered(false)}
+          onFocus={() => setHovered(true)}
+          onBlur={() => setHovered(false)}
+          // `orbital-no-drag`: the main window's drag band would take a press near its top.
+          className="orbital-no-drag absolute z-30 box-border flex w-5 cursor-pointer flex-col items-center gap-[9px] rounded-[10px] border border-solid py-3 shadow-[0_6px_18px_color-mix(in_oklab,_var(--color-shadow)_45%,_transparent)] backdrop-blur-[12px] transition-opacity duration-[180ms] ease-[ease] focus-visible:outline-none"
+          style={{
+            top,
+            right: edge === 'over' ? -11 : 6,
+            background: lit ? swatch('line', 0.14) : swatch('panel', 0.9),
+            borderColor: lit ? swatch('line', 0.3) : swatch('line', 0.18),
+            opacity: panelOpen ? 0 : 1,
+            pointerEvents: panelOpen ? 'none' : 'auto',
+          }}
+        >
+          {glyph}
+          <span aria-hidden className="flex flex-col gap-[2px]">
+            {segments}
+          </span>
+          {/* The flyout (30a-d): on the panel's side of the pill, its top on the pill's. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute top-[-1px] right-[calc(100%+8px)] box-border flex w-[290px] cursor-default flex-col gap-1.5 rounded-[10px] border border-solid border-line/18 bg-panel/96 px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]"
+            style={{
+              opacity: open ? 1 : 0,
+              visibility: open ? 'visible' : 'hidden',
+              // Visibility flips at the fade's far end, so the fade out is seen.
+              transition: 'opacity 120ms ease, visibility 0s linear ' + (open ? '0s' : '120ms'),
+            }}
+          >
+            {flyout}
+          </span>
+        </button>
       )}
     </div>
-  )
-}
-
-function Pill({
-  harness,
-  top,
-  edge,
-  panelOpen,
-  hovered,
-  flyout,
-  onHover,
-  onClick,
-}: {
-  harness: SessionHarness
-  top: number
-  edge: 'over' | 'inside'
-  panelOpen: boolean
-  hovered: boolean
-  flyout: boolean
-  onHover: (hovered: boolean) => void
-  onClick: (e: MouseEvent<HTMLButtonElement>) => void
-}) {
-  const reading = pillReading(harness)
-  const lit = hovered || panelOpen
-  return (
-    <button
-      type="button"
-      data-harness-pill
-      aria-label={`Harness: step ${reading.count.replace('/', ' of ')}, ${reading.status}`}
-      aria-expanded={panelOpen}
-      tabIndex={panelOpen ? -1 : undefined}
-      onClick={onClick}
-      onPointerEnter={() => onHover(true)}
-      onPointerLeave={() => onHover(false)}
-      onFocus={() => onHover(true)}
-      onBlur={() => onHover(false)}
-      // `orbital-no-drag`: the main window's drag band would take a press near its top.
-      className="orbital-no-drag absolute z-30 box-border flex w-5 cursor-pointer flex-col items-center gap-[9px] rounded-[10px] border border-solid py-3 shadow-[0_6px_18px_color-mix(in_oklab,_var(--color-shadow)_45%,_transparent)] backdrop-blur-[12px] transition-opacity duration-[180ms] ease-[ease] focus-visible:outline-none"
-      style={{
-        top,
-        right: edge === 'over' ? -11 : 6,
-        background: lit ? swatch('line', 0.14) : swatch('panel', 0.9),
-        borderColor: lit ? swatch('line', 0.3) : swatch('line', 0.18),
-        opacity: panelOpen ? 0 : 1,
-        pointerEvents: panelOpen ? 'none' : 'auto',
-      }}
-    >
-      <Glyph glyph={reading.glyph} ink={reading.ink} />
-      <span aria-hidden className="flex flex-col gap-[2px]">
-        {reading.segments.map((colour, i) => (
-          <span key={i} className="block h-2 w-1 rounded-[1px]" style={{ background: colour }} />
-        ))}
-      </span>
-      {/* The flyout (30a-d): on the panel's side of the pill, its top on the pill's. */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute top-[-1px] right-[calc(100%+8px)] box-border flex w-[290px] cursor-default flex-col gap-1.5 rounded-[10px] border border-solid border-line/18 bg-panel/96 px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]"
-        style={{
-          opacity: flyout ? 1 : 0,
-          visibility: flyout ? 'visible' : 'hidden',
-          // Visibility flips at the fade's far end, so the fade out is seen.
-          transition: 'opacity 120ms ease, visibility 0s linear ' + (flyout ? '0s' : '120ms'),
-        }}
-      >
-        <span className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.16em] text-ink-900/60">
-          HARNESS
-          <span className="min-w-0 flex-1 truncate tracking-[0.02em]">{harness.name}</span>
-          <span className="tracking-[0.04em] text-ink-100">{reading.count}</span>
-        </span>
-        <span className="line-clamp-2 fs-12.5 leading-[1.4] font-semibold text-ink-100">{reading.title}</span>
-        <span className="flex items-center gap-2 font-mono fs-10" style={{ color: reading.statusInk }}>
-          {reading.status}
-          {reading.detail && <span className="text-ink-900/60">· {reading.detail}</span>}
-        </span>
-        <span className="border-t border-solid border-line/8 pt-[7px] font-mono fs-9.5 text-ink-900/55">
-          click · open the harness panel · {shortcutLabel('session.harness')}
-        </span>
-      </span>
-    </button>
   )
 }

@@ -13,7 +13,7 @@
  */
 
 import type { MenuCommand } from './desktop'
-import { harnessEnabled, terminalEnabled } from './experimental'
+import { harnessEnabled, progressListEnabled, terminalEnabled } from './experimental'
 
 export type Scope = 'global' | 'map' | 'session' | 'composer' | 'dialogs' | 'files' | 'terminal'
 
@@ -54,7 +54,7 @@ export interface Command {
    * Shortcuts pane marked as off, so the feature can be found. Experimental
    * features get no command at all: they show nowhere outside their switch.
    */
-  feature?: 'harness' | 'terminal'
+  feature?: 'harness' | 'terminal' | 'progress'
 }
 
 type Settings = Record<string, string | undefined>
@@ -65,7 +65,14 @@ type Settings = Record<string, string | undefined>
  */
 function available(cmd: Command, settings?: Settings): boolean {
   if (!settings || !cmd.feature) return true
-  return cmd.feature === 'harness' ? harnessEnabled(settings) : terminalEnabled(settings)
+  switch (cmd.feature) {
+    case 'harness':
+      return harnessEnabled(settings)
+    case 'terminal':
+      return terminalEnabled(settings)
+    case 'progress':
+      return progressListEnabled(settings)
+  }
 }
 
 export const SCOPES: readonly { scope: Scope; title: string; when: string }[] = [
@@ -257,6 +264,18 @@ export const COMMANDS: readonly Command[] = [
     menu: { menu: 'Session', order: 8 },
     note: 'opens or closes it',
     feature: 'harness',
+  },
+  {
+    // ⌘⇧P, not 67a's ⌥P, for ⌘⇧H's reason: ⌥ with a letter types a
+    // character on the Czech layout (spec 2026-11-09-progress-list-design).
+    id: 'session.progress',
+    label: 'Progress list',
+    scope: 'session',
+    chords: ['meta+shift+p'],
+    whileTyping: true,
+    menu: { menu: 'Session', order: 9 },
+    note: 'opens or closes it · only with a list',
+    feature: 'progress',
   },
   {
     // Canvas `Feature - Media` 24b draws ⇧⌘M, but that has been Switch model

@@ -8,6 +8,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ### Changed
 - When the Mac could not remove a worktree after you ended its session, the session's cleanup row comes back so you can try again.
+- A session started on the Mac with a progress list shows how far it has got in its header and in the session list; tapping the figure opens the whole list.
 
 ## [0.24.3] — 2026-11-07
 ### Changed

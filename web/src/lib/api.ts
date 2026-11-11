@@ -377,6 +377,16 @@ export const api = {
     return data.items
   },
 
+  /**
+   * The progress tool's calls and their results across the session's whole
+   * transcript, oldest first, in the messages route's shape and ids (spec
+   * 2026-11-09-progress-list-design § Where the state comes from).
+   */
+  async getProgressCalls(id: string): Promise<ChatMessage[]> {
+    const data = await request<{ messages: ChatMessage[] }>('GET', apiPath`/api/sessions/${id}/progress-calls`)
+    return data.messages
+  },
+
   async getWalkthrough(id: string): Promise<{ session: ApiSession; walkthrough: Walkthrough }> {
     return request('GET', apiPath`/api/sessions/${id}/walkthrough`)
   },
@@ -499,6 +509,11 @@ export const api = {
      * missing template or input refuses the launch before anything spawns.
      */
     harness?: HarnessLaunch
+    /**
+     * Start with a progress list (spec 2026-11-09-progress-list-design). Only
+     * while the Labs setting is on: otherwise 403 `progress_list_disabled`.
+     */
+    progressList?: boolean
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId

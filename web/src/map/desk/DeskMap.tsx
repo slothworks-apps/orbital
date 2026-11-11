@@ -59,6 +59,13 @@ const MAT_GLASS = `linear-gradient(180deg,${swatch('raised', 0.6)},${swatch('pan
 const MAT_LIFTED = `linear-gradient(180deg,${swatch('raised')},${swatch('panel')})`
 const CARD_GLASS = `linear-gradient(180deg,${swatch('raised', 0.72)},${swatch('panel', 0.78)})`
 const CARD_LIFTED = MAT_LIFTED
+/**
+ * The card as it looks behind its meta row, opaque: the glass's top over the
+ * Desk's space (67e draws it as the literal it comes to), or a lifted card's
+ * top. What the progress figure fades the meta text out into.
+ */
+const CARD_FADE = `color-mix(in oklab, ${swatch('raised')} 72%, ${swatch('space')})`
+const CARD_LIFTED_FADE = swatch('raised')
 const LIFTED_BORDER = swatch('line', 0.32)
 const INSET_LIGHT = `inset 0 1px 0 ${swatch('highlight', 0.04)}`
 const LIFTED_SHADOW = (blur: string, alpha: number) =>
@@ -713,9 +720,28 @@ const DeskCard = memo(function DeskCard({
             </div>
           </div>
 
-          {(meta || planet.dated) && (
-            <div className="-mt-1 truncate pl-4 font-mono fs-10.5 text-ink-900/60">
-              {planet.dated ? <WithAge text={meta} machine={s.machine} /> : meta}
+          {(meta || planet.dated || planet.progressFigure) && (
+            <div className={['-mt-1 flex pl-4 font-mono fs-10.5', planet.progressFigure ? '' : 'gap-3'].join(' ')}>
+              <span
+                className={[
+                  'min-w-0 flex-1 text-ink-900/60',
+                  planet.progressFigure ? 'overflow-hidden whitespace-nowrap' : 'truncate',
+                ].join(' ')}
+              >
+                {planet.dated ? <WithAge text={meta} machine={s.machine} /> : meta}
+              </span>
+              {/* 67e: the progress list's figure ends the row, never cut: it
+                  sits over the row's end, and the meta text fades out under
+                  it into the card's own colour. */}
+              {planet.progressFigure && (
+                <span
+                  data-progress-figure
+                  className="relative -ml-6 flex-none pl-6 text-ink-500/78"
+                  style={{ background: `linear-gradient(90deg,transparent,${lift ? CARD_LIFTED_FADE : CARD_FADE} 10px)` }}
+                >
+                  {planet.progressFigure}
+                </span>
+              )}
             </div>
           )}
 

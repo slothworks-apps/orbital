@@ -577,6 +577,12 @@ export interface OrbitalState {
   /** `full`: opened straight into the full window (⌥-click on the pill, canvas 30h). */
   harnessPanel: { sessionId: string; full?: boolean } | null
   /**
+   * The session's progress list in the side slot, which it shares with the
+   * harness panel, the subagent panel and the task output view (spec
+   * 2026-11-09-progress-list-design, canvas 67c).
+   */
+  progressPanel: { sessionId: string } | null
+  /**
    * Where Settings → Harness templates should start, set by the harness
    * panel's links (canvas 30c "both open Settings → Harness templates · scope
    * pre-set to <project>", 30f "Open template in Settings"). Settings reads
@@ -711,6 +717,8 @@ export interface OrbitalActions {
     worktree?: WorktreeLaunch
     /** Start on a harness (`api.createSession`). */
     harness?: HarnessLaunch
+    /** Start with a progress list (`api.createSession`). */
+    progressList?: boolean
     /**
      * The id this launch goes out under; omitted, a fresh one. A launch sent
      * again after its answer was lost passes the first attempt's
@@ -865,6 +873,9 @@ export interface OrbitalActions {
   /** Opens the Harness panel on this session, or closes it when it is already open on it. */
   openHarness(sessionId: string, opts?: { full?: boolean }): void
   closeHarness(): void
+  /** Opens the progress list in the side slot, or closes it when it is already open on this session. */
+  openProgress(sessionId: string): void
+  closeProgress(): void
   /** Opens Settings on Harness with `focus` for it to read. */
   openHarnessTemplates(focus: HarnessTemplatesFocus): void
   /** Applies one event off the open view's `task-output:` topic. */
@@ -1474,6 +1485,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   harnessEventsMore: {},
   harnessRemoved: {},
   harnessPanel: null,
+  progressPanel: null,
   harnessTemplatesFocus: null,
 
   async loadInitial() {
@@ -2981,6 +2993,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // One slot: an open task output view gives way.
     get().closeTaskOutput()
     get().closeHarness()
+    get().closeProgress()
     // Release first, not last: the old subscription must be gone before the
     // new one is even requested, or the two topics could both be live for a
     // beat and the outgoing agent's messages would land in the incoming
@@ -3183,6 +3196,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // One slot: the subagent panel and this view take turns in it.
     get().closeSubagent()
     get().closeHarness()
+    get().closeProgress()
     releaseTaskOutputSubscription()
     if (get().ui.selectedId !== sessionId) void get().select(sessionId)
 
@@ -3268,6 +3282,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
     get().closeSubagent()
     get().closeTaskOutput()
+    get().closeProgress()
     if (get().ui.selectedId !== sessionId) void get().select(sessionId)
     set({ harnessPanel: opts?.full ? { sessionId, full: true } : { sessionId } })
     void get().loadHarness(sessionId)
@@ -3275,6 +3290,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   closeHarness() {
     if (get().harnessPanel) set({ harnessPanel: null })
+  },
+
+  openProgress(sessionId) {
+    // The pill, a transcript row and ⌘⇧P toggle it, as the harness panel is toggled.
+    if (get().progressPanel?.sessionId === sessionId) {
+      get().closeProgress()
+      return
+    }
+    get().closeSubagent()
+    get().closeTaskOutput()
+    get().closeHarness()
+    if (get().ui.selectedId !== sessionId) void get().select(sessionId)
+    set({ progressPanel: { sessionId } })
+  },
+
+  closeProgress() {
+    if (get().progressPanel) set({ progressPanel: null })
   },
 
   openHarnessTemplates(focus) {
@@ -3385,6 +3417,8 @@ useOrbital.subscribe((state, prevState) => {
   if (output && output.sessionId !== state.ui.selectedId) useOrbital.getState().closeTaskOutput()
   const harness = state.harnessPanel
   if (harness && harness.sessionId !== state.ui.selectedId) useOrbital.getState().closeHarness()
+  const progress = state.progressPanel
+  if (progress && progress.sessionId !== state.ui.selectedId) useOrbital.getState().closeProgress()
   const left = prevState.ui.selectedId
   if (left) dropTranscript(left)
 })
@@ -3481,6 +3515,7 @@ function sessionsEventPatch(
       if (store.subagentPanel?.sessionId === msg.sessionId) store.closeSubagent()
       if (store.taskOutput?.sessionId === msg.sessionId) store.closeTaskOutput()
       if (store.harnessPanel?.sessionId === msg.sessionId) store.closeHarness()
+      if (store.progressPanel?.sessionId === msg.sessionId) store.closeProgress()
     })
     return {
       sessions,

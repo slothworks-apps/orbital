@@ -65,6 +65,8 @@ import { WorktreeGroup } from './WorktreeGroup'
 import { harnessEnabled } from '../lib/experimental'
 import { HarnessGlyph } from '../ui/UtilityButton'
 import { HarnessStep, useLaunchHarness } from './NewSessionHarness'
+import { SwitchButton } from './harness/parts'
+import { progressListEnabled } from '../lib/experimental'
 
 export interface NewSessionDialogProps {
   open: boolean
@@ -234,6 +236,12 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** Once the user picks a model, a later cwd change must not move it. */
   const [modelOverridden, setModelOverridden] = useState(false)
   /**
+   * The progress list switch as the user set it this time; null follows the
+   * directory's last launch (canvas 67f "remembers the last choice per
+   * directory, as the model does").
+   */
+  const [progressPick, setProgressPick] = useState<boolean | null>(null)
+  /**
    * The Other card is selected. `model` then stays null until the field
    * validates an id, and Launch waits for it.
    */
@@ -340,6 +348,25 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     setFocusCustomModel(true)
   }
 
+  /** Whether the chosen member offers the progress list: its own Labs setting, from its session defaults. */
+  const [memberProgress, setMemberProgress] = useState<{ device: string; offered: boolean } | null>(null)
+  useEffect(() => {
+    if (!open || !remote) return
+    let live = true
+    api
+      .sessionDefaults(device)
+      .then((defaults) => {
+        if (live) setMemberProgress({ device, offered: defaults.progressListEnabled === true })
+      })
+      .catch(() => {
+        // Unread, the member offers nothing: the session starts as it always did.
+        if (live) setMemberProgress({ device, offered: false })
+      })
+    return () => {
+      live = false
+    }
+  }, [open, remote, device])
+
   const canBrowse = canChooseDirectory()
   /** Only the last request's projects land: switching device twice quickly must not show the first's. */
   const projectsTicket = useRef(0)
@@ -438,6 +465,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setMadeTagId(null)
       setModel(null)
       setModelOverridden(false)
+      setProgressPick(null)
       setOtherActive(false)
       setCustomInitial(null)
       setPending(false)
@@ -504,6 +532,16 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // /api/projects` returns it honestly, never the SDK `value`), so this has
   // to accept either kind of id — see `modelByAnyId`.
   const lastModelRow = modelByAnyId(lastModelHere, models)
+  // The progress list (spec 2026-11-09-progress-list-design; canvas 67f):
+  // offered only while the device the session runs on has it on in Labs —
+  // this Mac's setting here, a member's own defaults there, where a build
+  // without the field offers none — and on when this directory's last
+  // session launched from here had it, unless switched now.
+  const progressOffered = remote
+    ? memberProgress?.device === device && memberProgress.offered
+    : progressListEnabled(settings)
+  const lastProgressListHere = projects.find((p) => p.cwd === cwd.trim())?.lastProgressList === true
+  const progressList = progressOffered && (progressPick ?? lastProgressListHere)
   //
   // An id no catalog row names — a model picked through Other that has run
   // here, or a custom Settings default — preselects Other with that id
@@ -617,6 +655,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         ...(worktreeLaunch ? { worktree: worktreeLaunch } : {}),
         // Its kickoff is the first turn, the prompt appended to it as a note.
         ...(harnessLaunch ? { harness: harnessLaunch } : {}),
+        // Sent on or off whenever the switch was offered: the server
+        // remembers only a choice made here, per directory.
+        ...(progressOffered ? { progressList } : {}),
       }
       // One id per attempt: Launch pressed again on the same form after a
       // lost answer repeats it, and the server answers instead of launching twice.
@@ -661,7 +702,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, setWorktreeLaunchError, launchAttempt, harnessLaunch])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device, worktreeLaunch, progressOffered, progressList, setWorktreeLaunchError, launchAttempt, harnessLaunch])
 
   /**
    * Launch: asks about the project's undecided `.mcp.json` servers first,
@@ -787,6 +828,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             into the model name. */}
         {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
         {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
+        {/* 67f: the summary says the session starts with a list. */}
+        {progressList ? ' · progress list' : null}
         {/* Spec § The footer summary: where the worktree comes from. */}
         {worktreeLaunch ? ` · ${worktreeSummary(worktree.branch, worktreeLaunch.base)}` : null}
         {/* 50g `gFoot`: the device, once there is a choice of one. */}
@@ -1132,6 +1175,32 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               <Collapse open={worktree.repo !== null} pull={-WORKTREE_GAP_PX} unclip>
                 {worktree.repo && <WorktreeGroup choice={worktree} tags={tags} />}
               </Collapse>
+
+              {/* Canvas 67f: under the worktree group, among how the session
+                  starts; only while Settings → Labs has the progress list on. */}
+              {progressOffered && (
+                <div className="flex flex-col gap-2">
+                  <FieldLabel>
+                    PROGRESS LIST
+                    <span aria-hidden className="flex-1" />
+                    <span className="tracking-[0.06em] text-ink-900/50">Labs</span>
+                  </FieldLabel>
+                  <div className="flex gap-3 rounded-[9px] border border-line/18 bg-space/60 px-3 pt-[11px] pb-3">
+                    <SwitchButton
+                      on={progressList}
+                      label="The agent keeps a progress list"
+                      onChange={setProgressPick}
+                      className="mt-0.5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="fs-13 font-semibold text-ink-100">The agent keeps a progress list</div>
+                      <div className="mt-[3px] fs-12 leading-[1.45] text-pretty text-ink-900/78">
+                        What it is going to do and how far it has got. You only read it.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               </div>
 

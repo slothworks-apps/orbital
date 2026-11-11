@@ -216,7 +216,7 @@ describe('MCP routes — restart', () => {
     expect(res.json()).toEqual({ servers: ROWS });
     expect(runner.stopAndWait).toHaveBeenCalledWith('run', undefined);
     expect(runner.start).toHaveBeenCalledWith({
-      cwd: '/w/proj', prompt: '', permissionMode: 'plan', resume: 'run', model: 'opus', claudeDirId: 1,
+      cwd: '/w/proj', prompt: '', permissionMode: 'plan', resume: 'run', model: 'opus', claudeDirId: 1, progressList: false,
     });
   });
 

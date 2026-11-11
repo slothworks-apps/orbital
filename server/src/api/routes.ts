@@ -1,6 +1,7 @@
 import { TAGS_TOPIC, type TagsChangedFrame } from '@orbital/shared/tags';
 import { isSharedSetting } from '@orbital/shared/sharedSettings';
 import { UPDATE_CHANNEL_KEY } from '@orbital/shared/updateChannel';
+import { PROGRESS_TOOL } from '@orbital/shared/progress';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
@@ -65,6 +66,7 @@ import type { ImageStore } from '../images/store.js';
 import type { FileStore } from '../files/store.js';
 import { NAME_SESSIONS_KEY, type SessionTitler } from '../titler/titler.js';
 import type { HarnessService } from '../harness/service.js';
+import { PROGRESS_LIST_ENABLED_KEY, type ProgressService } from '../progress/service.js';
 import { registerHarnessRoutes, type CarryHarness, type LaunchHarness, type LaunchHarnessPlan } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
@@ -238,6 +240,11 @@ export interface RouteContext {
    * never accepted.
    */
   trees?: WorkingTrees;
+  /**
+   * The progress lists (spec 2026-11-09-progress-list-design). Absent, no
+   * session carries a figure.
+   */
+  progress?: ProgressService;
   /**
    * The settings the group shares (spec 2026-10-24-group-shared-settings-design):
    * a local change of one is stamped and pushed, and members read and push
@@ -801,6 +808,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       messages: page,
       queued: withHarnessMessages(id, ctx.runner.sentTurns(id, holds)),
       liveNotice: ctx.runner.liveNotice(id),
+    };
+  });
+
+  /**
+   * The progress tool's calls and their results, oldest first: what the
+   * client folds its list from, without paging the whole transcript back
+   * (spec 2026-11-09-progress-list-design § Where the state comes from).
+   * Filtered from the transcript the messages route presents, so a message
+   * here is the same message, under the same id, that a page carries, and
+   * the read is the one that route caches per file stamp.
+   */
+  app.get('/api/sessions/:id/progress-calls', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const messages = presentTranscript(id);
+    if (!messages) return reply.code(404).send({ error: 'not found' });
+    const calls = new Set(
+      messages.filter((m) => m.role === 'tool_use' && m.toolName === PROGRESS_TOOL).map((m) => m.toolUseId),
+    );
+    return {
+      messages: messages.filter((m) =>
+        (m.role === 'tool_use' || m.role === 'tool_result') && m.toolUseId !== undefined && calls.has(m.toolUseId)),
     };
   });
 
@@ -1384,11 +1412,28 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
        * 2026-11-09-harness-from-new-session-design § The server).
        */
       harness?: unknown;
+      /**
+       * Start with a progress list (spec 2026-11-09-progress-list-design):
+       * only while `progress_list_enabled` is on, and never on a resume — a
+       * resume keeps what its session was started with.
+       */
+      progressList?: unknown;
     };
     if (invalidAttachments(body.attachments)) {
       return reply.code(400).send({ error: 'invalid_attachment' });
     }
-    const { mcpjson: rawMcpjson, worktree: rawWorktree, harness: rawHarness, ...launch } = body;
+    const { mcpjson: rawMcpjson, worktree: rawWorktree, harness: rawHarness, progressList: rawProgressList, ...launch } = body;
+    if (rawProgressList !== undefined && rawProgressList !== null && typeof rawProgressList !== 'boolean') {
+      return reply.code(400).send({ error: 'invalid_progress_list' });
+    }
+    const progressList = rawProgressList === true;
+    // The New session dialog sends its switch, on or off, whenever it offers
+    // one; that choice is what the dialog remembers per directory.
+    const progressListChoice = typeof rawProgressList === 'boolean' && !body.resume ? rawProgressList : undefined;
+    if (progressList && body.resume) return reply.code(400).send({ error: 'invalid_progress_list' });
+    if (progressList && ctx.settings.get(PROGRESS_LIST_ENABLED_KEY) !== 'true') {
+      return reply.code(403).send({ error: 'progress_list_disabled' });
+    }
     const mcpjson = parseMcpjsonDecisions(rawMcpjson);
     if (mcpjson === null) return reply.code(400).send({ error: 'invalid_mcpjson' });
     const worktree = parseWorktreeRequest(rawWorktree);
@@ -1491,6 +1536,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       try {
         sessionId = await launchSession({
           ...launch, ...first, cwd: sessionCwd, sessionId: launchId, claudeDirId, ...(prepared?.title ? { title: prepared.title } : {}),
+          ...(progressList ? { progressList } : {}),
+          ...(progressListChoice !== undefined ? { progressListChoice } : {}),
         });
       } catch (err) {
         if (harnessPlan) harnessLaunch?.discard(launchId!);
@@ -1733,16 +1780,26 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     claudeDirId?: number;
     /** A name already made for the session — the worktree's naming call's —, which takes the place of naming it from its first message. */
     title?: string;
+    /** Start with a progress list. A resume keeps its row's, whatever this says. */
+    progressList?: boolean;
+    /** The New session dialog's switch, when the launch came from it with one offered. */
+    progressListChoice?: boolean;
   }): Promise<string> {
-    const { cwd, spawnedBy, tagId, purpose, title, ...start } = opts;
+    const { cwd, spawnedBy, tagId, purpose, title, progressListChoice, ...start } = opts;
     const claudeDirId = opts.claudeDirId ?? ctx.claudeDirs.defaultId();
-    const sessionId = await ctx.runner.start({ ...start, cwd, claudeDirId });
+    const resumed = opts.resume
+      ? db.select({ progressList: sessions.progressList }).from(sessions).where(eq(sessions.id, opts.resume)).get()
+      : undefined;
+    const progressList = resumed ? resumed.progressList : opts.progressList === true;
+    const sessionId = await ctx.runner.start({ ...start, cwd, claudeDirId, progressList });
     db.insert(sessions)
       .values({
         id: sessionId, projectDir: '', cwd, source: 'web', claudeDirId,
         permissionMode: opts.permissionMode, model: opts.model ?? null,
         spawnedBy: spawnedBy ?? null,
         purpose: purpose ?? null,
+        progressList,
+        progressListChoice: progressListChoice ?? null,
         lastAt: Date.now(),
         // The row is born already claimed. `start()` above announced the
         // claim to a row that did not exist yet, so without this a session
@@ -1912,6 +1969,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         // Without this, reviving silently moved the session onto the CLI's
         // default model.
         model: row.model ?? undefined,
+        // And without its progress list's tool, its appendix sentence and the CLI's task tools taken away.
+        progressList: row.progress_list,
         // The revive is the same turn the send would have been, images included.
         attachments,
         ...extra,
@@ -2006,6 +2065,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   function rewindStarted(id: string): void {
     if (!rewindStore.promote(id)) return;
+    ctx.progress?.rewindSent(id);
     db.update(sessions).set({ contextUsedTokens: null }).where(eq(sessions.id, id)).run();
     publishReset(id);
     publishRow(id);
@@ -2019,6 +2079,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   function rewindRefused(id: string, message: string): void {
     const pending = rewindStore.takePending(id);
+    ctx.progress?.forget(id);
     const restored = pending
       ? `${pending.hiddenCount} hidden message${pending.hiddenCount === 1 ? '' : 's'} restored`
       : 'nothing to restore';
@@ -2172,6 +2233,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       priorDraft: typeof body.draft === 'string' ? body.draft : '',
       createdAt: Date.now(),
     });
+    // The progress list follows the cut branch, as the transcript does.
+    ctx.progress?.forget(id);
     publishRewindEdge(id);
     return { text: target.text };
   });
@@ -2184,6 +2247,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const pending = rewindStore.takePending(id);
     if (!pending) return reply.code(404).send({ error: 'no_rewind_pending' });
+    ctx.progress?.forget(id);
     publishRewindEdge(id);
     return { draft: pending.priorDraft };
   });
@@ -2583,14 +2647,19 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const model = row.model ?? undefined;
     // The fresh session stays under the cleared one's directory.
     const claudeDirId = launchDirOf(row.claude_dir_id);
+    // A progress list too, while Labs offers one — unless the harness goes
+    // on in the new session: a session follows one or the other (spec
+    // 2026-11-09-progress-list-design § Turning it on).
+    const progressList = row.progress_list && ctx.settings.get(PROGRESS_LIST_ENABLED_KEY) === 'true'
+      && !(carryHarness === true && ctx.harness.get(id));
     const newId = await ctx.runner.start({
       cwd: row.cwd, prompt: '',
-      permissionMode, model, claudeDirId,
+      permissionMode, model, claudeDirId, progressList,
     });
     db.insert(sessions)
       .values({
         id: newId, projectDir: '', cwd: row.cwd, source: 'web', claudeDirId,
-        permissionMode, model: model ?? null, lastAt: Date.now(),
+        permissionMode, model: model ?? null, progressList, lastAt: Date.now(),
       })
       .onConflictDoNothing()
       .run();
@@ -2861,13 +2930,24 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         model: sessions.model,
         resolvedModel: sessions.resolvedModel,
         lastAt: sessions.lastAt,
+        progressListChoice: sessions.progressListChoice,
       })
       .from(sessions)
       .where(ne(sessions.cwd, ''))
       .orderBy(desc(sessions.lastAt))
       .limit(PROJECTS_SCAN_ROWS)
       .all();
-    const projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }> = [];
+    const projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null; lastProgressList: boolean }> = [];
+    // The New session dialog's progress list switch, remembered per
+    // directory as the model is (spec 2026-11-09-progress-list-design §
+    // Scope): what the switch said for the newest session the dialog started
+    // there. A session started any other way — `spawn_session`, Clear, the
+    // control API, a terminal — made no choice, and resets nothing.
+    const progressLists = new Map<string, boolean>();
+    for (const row of rows) {
+      const cwd = repoOfWorktreeDir(row.cwd);
+      if (row.progressListChoice !== null && !progressLists.has(cwd)) progressLists.set(cwd, row.progressListChoice);
+    }
     const seen = new Set<string>();
     for (const row of rows) {
       // A worktree stands for its repository: RECENT must not fill up with
@@ -2879,6 +2959,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         cwd,
         lastModel: row.model ?? row.resolvedModel ?? null,
         lastAt: row.lastAt ?? null,
+        lastProgressList: progressLists.get(cwd) ?? false,
       });
       if (projects.length === PROJECTS_LIMIT) break;
     }
@@ -2904,6 +2985,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       permissionMode: (ctx.settings.get('default_permission_mode') || 'acceptEdits') as PermissionMode,
       model: ctx.settings.get('default_model') || null,
       rememberModelPerProject: ctx.settings.get('remember_model_per_project') !== 'false',
+      // Whether New session offers the progress list switch: the phone cannot read the setting.
+      progressListEnabled: ctx.settings.get(PROGRESS_LIST_ENABLED_KEY) === 'true',
       claudeDirs: ctx.claudeDirs.info().map(({ id, name, path, account, exists }) => ({ id, name, path, account, exists })),
       defaultClaudeDir: ctx.claudeDirs.defaultId(),
       lastClaudeDir: Number.isInteger(last) && ctx.claudeDirs.has(last) ? last : null,

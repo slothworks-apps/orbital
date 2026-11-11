@@ -8,6 +8,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ### Changed
 - End session with “Also remove worktree” closes as soon as the session has ended; the worktree is removed in the background, and if that fails you see it in the error log.
+- Settings → Labs → Progress list: a session can be started with a progress list, the agent's own list of what it is going to do and how far it has got, shown beside the session, as a figure next to its name on the map, and in the transcript whenever the agent adds or drops an item and says why.
 
 ## [0.48.0] — 2026-11-07
 ### Added

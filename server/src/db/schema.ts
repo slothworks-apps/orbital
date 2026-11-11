@@ -132,6 +132,30 @@ export const sessions = sqliteTable(
      * Declared last for the same reason as `runnerStatus`.
      */
     claudeDirId: integer('claude_dir_id').notNull().default(1),
+    /**
+     * The session was started with a progress list (spec
+     * 2026-11-09-progress-list-design): every start of it, resumes included,
+     * gives it the list's tool. Set at launch and never after, since a
+     * running session cannot be given one. The list itself lives in the
+     * transcript. Declared last for the same reason as `runnerStatus`.
+     */
+    progressList: integer('progress_list', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * When a harness was first attached to this session while it had a
+     * progress list: the list is frozen from then on, for good — removing the
+     * harness, or Labs turning the harness off, does not give the tool back
+     * (spec 2026-11-09-progress-list-design § Turning it on). Null while it is
+     * not frozen. Declared last for the same reason as `runnerStatus`.
+     */
+    progressFrozenAt: integer('progress_frozen_at'),
+    /**
+     * What the New session dialog's progress list switch said at launch, null
+     * for a session whose launch offered none — a `spawn_session` child, a
+     * Clear, the control API, a terminal session. Only these choices are
+     * remembered per directory. Declared last for the same reason as
+     * `runnerStatus`.
+     */
+    progressListChoice: integer('progress_list_choice', { mode: 'boolean' }),
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );

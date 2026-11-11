@@ -23,7 +23,8 @@ import {
 import { primaryTag } from '../../lib/primaryTag'
 import { countedBySummary, loadEndedFold } from '../endedFold'
 import { isMacAsleep, useMobile } from '../state'
-import { anySupports } from '../version'
+import { anySupports, sessionSupports } from '../version'
+import { figureOf } from '../progress/figure'
 import { opensTask } from '../subagents/model'
 import { MobileScreen, PrimaryButton } from '../ui'
 import { WhereLine } from '../where/WhereLine'
@@ -532,6 +533,10 @@ function SessionRow({
       : idle
         ? agoLabel(session.lastAt, now)
         : timeAgo(session.lastAt, now)
+  // Only on a session with a progress list, from a Mac that serves it (67g);
+  // none once a harness has frozen it and taken its place.
+  const progress =
+    session.progress && !session.progress.frozen && sessionSupports('progressList', session.id) ? figureOf(session.progress) : null
   const summary = moonsSummary(session)
   const hasMoons = summary.subagents !== null || summary.tasks !== null
   // Canvas 10a asleep: a row with moons trades its where line for the counts, and the
@@ -611,14 +616,19 @@ function SessionRow({
             </span>
           )}
         </span>
-        {time !== null && (
-          <span
-            className={[
-              'shrink-0 self-start whitespace-nowrap pt-[3px] font-mono fs-11',
-              input ? 'text-[var(--state-input)]' : offline ? 'text-ink-900/50' : idle ? 'text-ink-900/55' : 'text-ink-900/65',
-            ].join(' ')}
-          >
-            {time}
+        {(time !== null || progress !== null) && (
+          // Canvas 67g: the progress figure under the time, in muted mono; it costs the row no height.
+          <span className="flex shrink-0 flex-col items-end gap-1.5 self-start whitespace-nowrap pt-[3px] font-mono fs-11">
+            {time !== null && (
+              <span
+                className={
+                  input ? 'text-[var(--state-input)]' : offline ? 'text-ink-900/50' : idle ? 'text-ink-900/55' : 'text-ink-900/65'
+                }
+              >
+                {time}
+              </span>
+            )}
+            {progress !== null && <span className="fs-10.5 text-ink-900/70">{progress}</span>}
           </span>
         )}
       </button>
