@@ -397,6 +397,48 @@ describe('launching into a worktree', () => {
       await app.close();
     }
   });
+
+  it('starts a harness launch in its worktree on the kickoff, with the progress list it was launched with', async () => {
+    const repo = makeRepo();
+    const held = heldNaming('feat/checklist');
+    const { app, starts, prompts, oneShot, dirs } = await serverWith(held.naming);
+    try {
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { harness_enabled: 'true', progress_list_enabled: 'true' } });
+      const steps = [{ id: 'one', title: 'One', instructions: 'Do it.', mode: 'auto', doneWhen: 'done' }];
+      const made = (await post(app, '/api/harness/templates', { name: 'Ship it', tags: [], inputs: [], steps })).json();
+      const templateId = made.template?.id ?? made.id;
+      const res = await launch(app, {
+        cwd: repo, prompt: 'mind the dock', worktree: { base: 'origin/main' },
+        harness: { templateId, inputs: {}, lucky: false }, progressList: true,
+      });
+      expect(res.statusCode).toBe(201);
+      const { sessionId } = res.json();
+      // Attached at the launch, before anything starts.
+      expect((await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}/harness` })).json().harness).not.toBeNull();
+      expect(starts).toHaveLength(0);
+
+      held.release();
+      const ready = await settledAt(app, sessionId, 'ready');
+      expect(ready.cwd).toBe(join(repo, '.claude/worktrees/checklist'));
+      // The branch is named from the user's note, not from the kickoff the agent reads.
+      const namingPrompt = String(oneShot.mock.calls.find(([c]) => String(c.options.systemPrompt).includes('git branch'))?.[0].prompt);
+      expect(namingPrompt).toContain('mind the dock');
+      expect(namingPrompt).not.toContain('A note from the user for step 1:');
+      // The first turn is the kickoff, the note after it.
+      await vi.waitFor(() => expect(prompts).toHaveLength(1));
+      expect(prompts[0]).toContain('A note from the user for step 1:\n\nmind the dock');
+      expect(prompts[0]).not.toBe('mind the dock');
+      const raw = new BetterSqlite3(dirs.dbPath);
+      try {
+        expect(raw.prepare('SELECT progress_list, progress_list_choice FROM sessions WHERE id = ?').get(sessionId))
+          .toEqual({ progress_list: 1, progress_list_choice: 1 });
+      } finally {
+        raw.close();
+      }
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 describe('discarding a session that never started', () => {
@@ -483,6 +525,27 @@ describe('discarding a session that never started', () => {
       const ready = await settledAt(app, sessionId, 'ready');
       expect(ready.cwd).toBe(join(repo, '.claude/worktrees/harnessed'));
       expect(starts).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('lets go of the harness a launch attached when its setup is discarded', async () => {
+    const repo = makeRepo();
+    const held = heldNaming('feat/dropped');
+    const { app, starts } = await serverWith(held.naming);
+    try {
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { harness_enabled: 'true' } });
+      const steps = [{ id: 'one', title: 'One', instructions: 'Do it.', mode: 'auto', doneWhen: 'done' }];
+      const made = (await post(app, '/api/harness/templates', { name: 'Ship it', tags: [], inputs: [], steps })).json();
+      const { sessionId } = (await launch(app, {
+        cwd: repo, worktree: { base: 'origin/main' }, harness: { templateId: made.template?.id ?? made.id, inputs: {}, lucky: false },
+      })).json();
+      expect((await post(app, `/api/sessions/${sessionId}/discard`)).statusCode).toBe(200);
+      held.release();
+      expect((await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}/harness` })).json().harness).toBeNull();
+      await new Promise((r) => setTimeout(r, 300));
+      expect(starts).toHaveLength(0);
     } finally {
       await app.close();
     }
