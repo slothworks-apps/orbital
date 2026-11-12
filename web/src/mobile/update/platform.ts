@@ -180,6 +180,20 @@ async function applyDiagnostics(beam: Beam, on: boolean): Promise<void> {
 }
 
 /**
+ * The updater's install id, the one Beam files this phone's update checks
+ * and diagnostics under. Shown in Settings → About so a request to delete
+ * them can name it (privacy policy → Your rights). Null without the updater.
+ */
+export async function installId(): Promise<string | null> {
+  if (!native()) return null
+  try {
+    return (await CapacitorUpdater.getDeviceId()).deviceId
+  } catch {
+    return null
+  }
+}
+
+/**
  * "Send diagnostics" switched in 9f: stored, then applied to the plugin at
  * once. A shell without the updater refuses the call, which changes nothing.
  */
