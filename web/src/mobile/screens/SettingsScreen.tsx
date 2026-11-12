@@ -242,11 +242,6 @@ function AboutSection() {
   useEffect(() => {
     void installId().then(setId)
   }, [])
-  const copy = async () => {
-    if (!id) return
-    await copyToClipboard(id)
-    setCopied(true)
-  }
   return (
     <>
       <SectionLabel>ABOUT</SectionLabel>
@@ -266,23 +261,22 @@ function AboutSection() {
         {id && (
           <button
             type="button"
-            onClick={() => void copy()}
+            onClick={() => void copyToClipboard(id).then(setCopied)}
             className="flex min-h-13 w-full flex-col items-start justify-center gap-0.5 border-t border-line/8 px-3.5 py-2 text-left"
           >
             <span className="flex w-full items-center gap-2.5">
               <span className="flex-1 fs-14 font-semibold">Install ID</span>
               <span className="font-mono fs-11 text-ink-900/60">{copied ? 'copied' : 'copy'}</span>
             </span>
-            <span className="break-all font-mono fs-11 text-ink-900/60">{id}</span>
+            <span data-selectable className="break-all font-mono fs-11 text-ink-900/60">
+              {id}
+            </span>
+            <span className="fs-12 leading-[1.5] text-ink-900/65">
+              Send it to orbital@slothworks.io to have this phone’s update data deleted.
+            </span>
           </button>
         )}
       </div>
-      {id && (
-        <p className="px-1 pt-2 fs-12 leading-[1.5] text-ink-900/65">
-          The update server files this phone’s update checks and diagnostics under this ID. To have them deleted, send
-          it to orbital@slothworks.io.
-        </p>
-      )}
       <SheetPresence>{open && <FeedbackSheet onClose={() => setOpen(false)} />}</SheetPresence>
     </>
   )

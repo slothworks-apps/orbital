@@ -335,6 +335,10 @@ with no install id in them. To have it deleted sooner:
    when it is done, within one month. Backups of the update server keep a
    copy for up to three months before they expire.
 
+Nothing else ties these records to you, so without the install ID we cannot
+find them: if you no longer have the app or the phone, they are deleted on
+their own within 90 days.
+
 You can also stop it yourself: Settings → Send diagnostics off stops the
 reports at once, and uninstalling the app on Android deletes its install id,
 so nothing sent later can be joined to what was sent before. Firebase's
