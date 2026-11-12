@@ -34,7 +34,7 @@ export interface DialogProps {
    * `xl` = 760px error log (canvas 5b) — lg's chrome, one step wider,
    * `2xl` = New session (canvas 63a, sized by 65e) — lg's chrome at a 28px
    * gutter, 80 % of the window wide and the window less 80px high, at most
-   * 1120 × 812; where that would fall under 760 × 600 it fills the window.
+   * 1120 × 1000; where that would fall under 760 × 600 it fills the window.
    */
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
   /** Mono muted line on the ruled header's right, before the esc keycap
@@ -217,7 +217,7 @@ const sizeClasses: Record<NonNullable<DialogProps['size']>, string> = {
   lg: 'w-[660px] bg-gradient-to-b from-raised/90 to-space-deep/94',
   xl: 'w-[760px] bg-gradient-to-b from-raised/90 to-space-deep/94',
   // 65e: one size for step 1 and step 2, so ‹ Back never moves the window.
-  '2xl': 'h-[min(calc(100vh-80px),812px)] w-[min(80vw,1120px)] bg-gradient-to-b from-raised/90 to-space-deep/94',
+  '2xl': 'h-[min(calc(100vh-80px),1000px)] w-[min(80vw,1120px)] bg-gradient-to-b from-raised/90 to-space-deep/94',
 }
 
 /** Inner gutter: confirms sit at 24px, the form dialogs at 26px. */

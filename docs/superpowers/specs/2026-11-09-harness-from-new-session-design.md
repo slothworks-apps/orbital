@@ -39,8 +39,11 @@ checklist.
   everything kept, and nothing typed in either step is lost.
 - The dialog's size (canvas 65e, from desktop 0.49.1) is one rule for
   every launch, harness or not, so the two steps can never differ: 80 % of
-  the window wide and the window less 80 px high, at most 1120 × 812, the
-  body scrolling between the header and the footer. Where that would fall
+  the window wide and the window less 80 px high, at most 1120 × 1000
+  (812 in 0.49.1). The height left over goes to what can use it: in step 1
+  the options scroll on their own and FIRST PROMPT takes the rest, never
+  under 150 px, so its three lines stay above the footer; in step 2 the
+  templates take it and the note keeps its three lines. Where the size would fall
   under 760 × 600 it fills the window, square and opaque, its header clear
   of the desktop app's traffic lights. Step 2's TEMPLATES column is 300 px
   from a 960 px dialog, 240 px below.
@@ -125,8 +128,10 @@ checklist.
 - **Where it lives:** in the existing Harness feature, behind its switch
   (off by default). No new switch.
 - **What someone updating notices:** with Harness off, New session's size
-  only (from 0.49.1: larger on a large window, filling a small one). With
-  it on, also one more button in the New session footer, With harness….
+  only (from 0.49.1: larger on a large window, filling a small one; after
+  0.49.1 also taller on a tall window, its first prompt filling the height
+  the options leave). With it on, also one more button in the New session
+  footer, With harness…, whose template list takes that height.
 - **What can be set:** nothing new; templates and their defaults are set
   where they are today.
 

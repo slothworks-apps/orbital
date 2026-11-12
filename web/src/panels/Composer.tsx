@@ -253,6 +253,13 @@ export interface ComposerProps {
    * surface. The well becomes the marker while it is true (canvas 9c-1).
    */
   dropArmed?: boolean
+  /**
+   * The well takes the height its mount gives it and the field grows to fill
+   * it, past the usual ceiling (canvas 65e: New session's first prompt takes
+   * the dialog's spare height). The composer grows as a flex item, so its
+   * mount must be a flex column.
+   */
+  fill?: boolean
   /** Layout-only passthrough. */
   className?: string
   /** What the mount's own controls can do to the field. */
@@ -298,6 +305,7 @@ export function Composer({
   onBrowserDismiss,
   attachments,
   dropArmed = false,
+  fill = false,
   className,
   control,
   ...aria
@@ -375,7 +383,7 @@ export function Composer({
         tabindex: '0',
         'data-composer-field': '',
         class: FIELD_CLASS,
-        style: `max-height: ${MAX_FIELD_PX}px`,
+        style: `max-height: var(--composer-field-max, ${MAX_FIELD_PX}px)`,
       },
       handleKeyDown: (_view: EditorView, e: KeyboardEvent) => keyDownRef.current(e),
       handleDOMEvents: {
@@ -789,7 +797,7 @@ export function Composer({
   }
 
   return (
-    <div className={className} data-text-scope="transcript">
+    <div className={fill ? ['flex min-h-0 flex-1 flex-col', className].filter(Boolean).join(' ') : className} data-text-scope="transcript">
       <div
         ref={wellRef}
         onMouseOver={handleWellMouseOver}
@@ -810,6 +818,7 @@ export function Composer({
           // 26c: a locked well drops to a .08 hairline over a .3 fill.
           locked ? 'bg-space/30' : 'bg-space/60',
           variant === 'dialog' ? 'min-h-24 px-3.5 pb-2.5 pt-3' : 'px-3 pb-2.5 pt-3',
+          fill ? 'min-h-0 flex-1' : '',
           // 9c-1: the marker is 96px tall, so the panel's well grows to it for
           // the duration of the drag — the dialog's already is.
           dropArmed ? 'min-h-24' : '',
@@ -893,8 +902,8 @@ export function Composer({
           </div>
         )}
 
-        <div className="relative">
-          <EditorContent editor={editor} />
+        <div className={fill ? 'relative flex min-h-0 flex-1 flex-col [--composer-field-max:none]' : 'relative'}>
+          <EditorContent editor={editor} className={fill ? 'flex min-h-0 flex-1 flex-col *:flex-1' : undefined} />
         </div>
 
         {/* Hint row — 8px above, mono 10 at .06em (9e). Four states, in this
