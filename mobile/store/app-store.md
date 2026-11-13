@@ -452,11 +452,12 @@ website first.
    0.10.0, build 15): Settings → About, and the pairing screen, which a
    reviewer sees first. Submit that build or a later one.
 2. **Support URL.** Done: the site's footer links `orbital@slothworks.io`.
-3. **The website and SlothWorks' relay.** Done: once `PHONE_RELEASE` is
-   `public`, the site says the relay is one you run yourself and that
-   notifications arrive while the app is open; testers keep the old wording.
-   The switch covers both stores, so it waits for Google Play
-   (`docs/ops/release-to-the-app-store.md` → After approval).
+3. **The website and SlothWorks' relay.** Done: a store whose switch in
+   `site/src/site.ts` is `public` gets the wording for a relay you run
+   yourself, and notifications that arrive while the app is open; a store
+   still in testing keeps the tester wording. The iPhone switch is public
+   since the App Store release (`docs/ops/release-to-the-app-store.md` →
+   After approval).
 4. **No push with a self-hosted relay.** Accepted for the first release; the
    paid relay or push gateway is an idea
    (`docs/ideas/a-paid-slothworks-relay-with-push.md`).
