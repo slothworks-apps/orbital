@@ -1110,18 +1110,26 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       >
         {/* Hidden rather than unmounted while the question is up, so Back
             finds every field — the custom model's text included — as it was. */}
-        <div hidden={question !== null || missingDir !== null}>
+        <div hidden={question !== null || missingDir !== null} className="h-full">
           {/* 20px between field groups, 8px inside one (canvas 1d). */}
-          <div className="flex flex-col gap-5">
+          <div className="flex h-full flex-col gap-5">
             {/* Everything but FIRST PROMPT steps back to .35 while a drop is armed —
                 9c-1's "the transcript drops to 35 % so nothing competes", read into
                 this mount: the marker is the only lit thing, and the field it
                 replaces is the only group that keeps its brightness. The groups are
                 wrapped rather than dimmed one by one so the 20px rhythm survives. */}
-            {/* Canvas 65a/65b: step 2 takes step 1's place at step 1's size. Step 1's
-                columns stay laid out underneath, invisible and inert, so the window
-                neither grows nor shrinks and Back finds every field as it was. */}
-            <div className="relative">
+            {/* Canvas 65a/65b: step 2 takes step 1's place. Step 1's columns stay
+                laid out underneath, invisible and inert, so Back finds every field
+                as it was. 65e: in step 1 the columns scroll on their own and FIRST
+                PROMPT takes the height they leave; in step 2 the templates take it
+                and the note keeps its three lines. The 4px inset keeps the fields'
+                focus rings inside the scroll's clip. */}
+            <div
+              className={[
+                'relative min-h-0',
+                step2 ? 'flex-1 overflow-hidden' : '-m-1 flex-[0_1_auto] overflow-y-auto p-1',
+              ].join(' ')}
+            >
             <div
               data-content-dim
               inert={step2 || undefined}
@@ -1414,7 +1422,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             )}
             </div>
 
-            <div className="flex flex-col gap-2">
+            <div className={['flex flex-col gap-2', step2 ? 'flex-none' : 'min-h-[150px] flex-[1_1_auto]'].join(' ')}>
               {step2 ? (
                 // 65a: the same text, labelled as what it becomes — a note appended to step 1's kickoff.
                 <FieldLabel htmlFor="new-session-prompt">
@@ -1466,6 +1474,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 }
                 attachments={attachments}
                 dropArmed={dropArmed}
+                fill={!step2}
               />
             </div>
           </div>
