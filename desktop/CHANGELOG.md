@@ -3,8 +3,11 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.49.2] — 2026-11-16
 ### Changed
 - New session grows taller in a tall window, up to 1000 px: the extra room goes to the first prompt, or to the template list with a harness. With many options open, they scroll on their own and the first prompt stays in view.
+- Updated dependencies, including the Claude Agent SDK.
 
 ## [0.49.1] — 2026-11-11
 ### Changed
