@@ -183,13 +183,24 @@ const getLede = !anyPublic
           <span class="hero-btn-name">Orbital for Mac</span>
           <span class="mono hero-btn-note">DMG · APPLE SILICON · GITHUB ↗</span>
         </a>
-        <a href="#get" class="hero-btn">
+        {/* A public store opens straight away, as the Mac button does; an invite-only one leads to its card. */}
+        <a
+          href={iphoneTesters ? '#get' : APP_STORE_URL}
+          class="hero-btn"
+          target={iphoneTesters ? undefined : '_blank'}
+          rel={iphoneTesters ? undefined : 'noopener'}
+        >
           <span class="hero-btn-name">iPhone</span>
-          <span class="mono hero-btn-note">{iphoneTesters ? 'TESTFLIGHT · INVITE ONLY' : 'APP STORE'}</span>
+          <span class="mono hero-btn-note">{iphoneTesters ? 'TESTFLIGHT · INVITE ONLY' : 'APP STORE ↗'}</span>
         </a>
-        <a href="#get" class="hero-btn">
+        <a
+          href={androidTesters ? '#get' : PLAY_URL}
+          class="hero-btn"
+          target={androidTesters ? undefined : '_blank'}
+          rel={androidTesters ? undefined : 'noopener'}
+        >
           <span class="hero-btn-name">Android</span>
-          <span class="mono hero-btn-note">{androidTesters ? 'GOOGLE PLAY · INVITE ONLY' : 'GOOGLE PLAY'}</span>
+          <span class="mono hero-btn-note">{androidTesters ? 'GOOGLE PLAY · INVITE ONLY' : 'GOOGLE PLAY ↗'}</span>
         </a>
       </div>
     </section>
