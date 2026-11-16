@@ -4,6 +4,11 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.49.2] — 2026-11-16
+### Changed
+- New session grows taller in a tall window, up to 1000 px: the extra room goes to the first prompt, or to the template list with a harness. With many options open, they scroll on their own and the first prompt stays in view.
+- Updated dependencies, including the Claude Agent SDK.
+
 ## [0.49.1] — 2026-11-11
 ### Changed
 - New session is as large as your window allows, up to 1120 × 812, and the same size with or without a harness; in a small window it fills the window.
