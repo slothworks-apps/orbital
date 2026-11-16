@@ -455,9 +455,8 @@ website first.
 3. **The website and SlothWorks' relay.** Done: a store whose switch in
    `site/src/site.ts` is `public` gets the wording for a relay you run
    yourself, and notifications that arrive while the app is open; a store
-   still in testing keeps the tester wording. The iPhone switch is public
-   since the App Store release (`docs/ops/release-to-the-app-store.md` →
-   After approval).
+   still in testing keeps the tester wording. Both switches are public since
+   the App Store and Google Play releases (November 2026).
 4. **No push with a self-hosted relay.** Accepted for the first release; the
    paid relay or push gateway is an idea
    (`docs/ideas/a-paid-slothworks-relay-with-push.md`).
