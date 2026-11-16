@@ -155,8 +155,8 @@ All under Apps → Orbital by SlothWorks. The app record exists already
 2. Note the app's Apple ID (App Information → General Information) and its
    store URL, `https://apps.apple.com/app/id<Apple ID>`.
 3. **The website**: in `site/src/site.ts` set `APP_STORE_URL` to the store
-   URL, and `PHONE_RELEASE` to `public` once Google Play is public too (it
-   switches both phone cards at once). The site deploys from `main`.
+   URL and `IPHONE_RELEASE` to `public`; `ANDROID_RELEASE` follows Google
+   Play on its own. The site deploys from `main`.
 4. **The app**: `web/src/mobile/platform/store.ts` → `storeUrl()` returns
    no link on iOS because the App Store id did not exist. With the id known,
    the update screen can open the App Store listing; a phone change of its
@@ -309,6 +309,17 @@ Record it again when a screen it shows changes noticeably before a
 submission.
 
 ## Troubleshooting
+
+- **Approved and Ready for Distribution, but missing in the EU**: the
+  account has not declared its trader status under the Digital Services
+  Act. The app shows in every other country and in none of the EU. Business
+  → the DSA notice → Complete Compliance Requirements: SlothWorks s.r.o. is
+  a trader, with an address, phone and e-mail that show on the EU product
+  page. Both are verified by a code; once Apple accepts the declaration the
+  app appears in the EU by itself, with no new build or review. The first
+  release went out this way (November 2026); declare it before submitting.
+  The public lookup shows where the app is:
+  `curl "https://itunes.apple.com/lookup?id=6819307405&country=cz"`.
 
 - **The build does not appear under Add Build**: it is still processing, or
   its export compliance is unanswered, or it is expired (TestFlight builds

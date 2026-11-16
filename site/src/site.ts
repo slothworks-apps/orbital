@@ -6,10 +6,12 @@
 export type PhoneRelease = 'testers' | 'public'
 
 /**
- * Switches every text and button the canvas switches with its `release`
- * tweak. Going public is this line plus APP_STORE_URL and PLAY_URL.
+ * Switch every text and button the canvas switches with its `release`
+ * tweak, one store at a time: the iPhone app went public before the Android
+ * one. Going public on a store is its line here plus its URL below.
  */
-export const PHONE_RELEASE = 'testers' as PhoneRelease
+export const IPHONE_RELEASE = 'public' as PhoneRelease
+export const ANDROID_RELEASE = 'public' as PhoneRelease
 
 export const SITE_URL = 'https://orbital.slothworks.io'
 
@@ -23,9 +25,9 @@ export const REPO_URL = 'https://github.com/slothworks-apps/orbital'
  */
 export const RELEASES_URL = `${REPO_URL}/releases/latest`
 
-/** Empty until PHONE_RELEASE is 'public'. */
-export const APP_STORE_URL = ''
-export const PLAY_URL = ''
+/** Each is empty until its store's release is 'public'. */
+export const APP_STORE_URL = 'https://apps.apple.com/app/id6819307405'
+export const PLAY_URL = 'https://play.google.com/store/apps/details?id=io.slothworks.orbital.mobile'
 
 export const CONTACT_EMAIL = 'orbital@slothworks.io'
 

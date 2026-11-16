@@ -44,10 +44,13 @@ whatever is added here.
 
 ## Testers vs. public
 
-`PHONE_RELEASE` in `site/src/site.ts` is the one build-time switch
-between the phone apps being invite-only (`'testers'`) and public
-(`'public'`). It changes the texts and buttons the canvas switches with
-its `release` tweak. Going public is this one line plus the store URLs.
+`IPHONE_RELEASE` and `ANDROID_RELEASE` in `site/src/site.ts` are the
+build-time switches between a phone app being invite-only (`'testers'`) and
+public (`'public'`), one per store, since the stores go public at different
+times. Each changes its own hero button and card, the texts the canvas
+switches with its `release` tweak; the texts about the phone in general
+follow whether either store is still invite-only. Going public on a store is
+its line plus its store URL.
 
 ## The demo images are screenshots, committed
 
