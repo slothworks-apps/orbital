@@ -55,6 +55,8 @@ import { ErrorLog } from '../src/errors/log.js';
 import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
 import { SESSION_CONTEXT, SESSION_RULES, SESSION_TIPS, composeAppendix } from '../src/runner/sessionInstructions.js';
 import { makeTmpDir, openTmpDb, makeHomeDir } from './tmp.js';
+import { ViewsService } from '../src/views/service.js';
+import { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY, VIEW_SEND_MAX_CHARS, VIEW_TOOL } from '@orbital/shared/views';
 
 /**
  * The narrate query when a test does not script one: it fails, which no
@@ -174,7 +176,7 @@ function makeApp(opts: {
   createIssue?: RouteContext['createIssue']; findSimilarIssues?: RouteContext['findSimilarIssues'];
   checkDuplicates?: RouteContext['checkDuplicates']; endCli?: RouteContext['endCli'];
   sharedSettings?: (db: OrbitalDb) => RouteContext['sharedSettings']; controlKey?: string;
-  fileListings?: ListingCache;
+  fileListings?: ListingCache; views?: boolean;
 } = {}) {
   const db = openTmpDb('api');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
@@ -268,8 +270,22 @@ function makeApp(opts: {
         .onConflictDoUpdate({ target: settingsTable.key, set: { value: v } })
         .run(),
   };
+  const viewsDataDir = makeTmpDir('views');
+  const views = opts.views
+    ? new ViewsService({
+        isEnabled: () => settings.get(VIEWS_ENABLED_KEY) === 'true',
+        dataDir: viewsDataDir,
+        transcriptPathOf: (id) => {
+          const row = db.select({ projectDir: sessions.projectDir }).from(sessions).where(eq(sessions.id, id)).get();
+          return row ? join(opts.projectsDir ?? '/nonexistent', row.projectDir, `${id}.jsonl`) : null;
+        },
+        cwdOf: () => null,
+        runner: () => runner as any,
+      })
+    : undefined;
   registerRoutes(app, {
     harness: stubHarness(db),
+    views,
     db, registry: registry as any, runner: runner as any, hub,
     claudeDirs: testClaudeDirs(db, settings, claudeDir, modelCatalog),
     transcriptPath: (id, projectDir) => join(opts.projectsDir ?? '/nonexistent', projectDir, `${id}.jsonl`),
@@ -303,7 +319,7 @@ function makeApp(opts: {
   });
   return {
     app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, backgroundTasks, errors,
-    imageStore, imagesDir, filesDir, claudeDir,
+    imageStore, imagesDir, filesDir, claudeDir, settings, views, viewsDataDir,
   };
 }
 
@@ -5363,5 +5379,122 @@ describe('issue routes', () => {
     expect(failed.json()).toEqual({ error: 'list' });
     expect((await app.inject({ method: 'POST', url, payload: { title: '', body: 'b', model: 'haiku' } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url, payload: { title: 'Map', body: 'b', model: '--settings=x' } })).statusCode).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Generated views (spec 2026-11-18-generated-views-design)
+// ---------------------------------------------------------------------------
+
+describe('generated views', () => {
+  const HTML = '<p>hi</p>';
+  const line = (o: object) => JSON.stringify(o) + '\n';
+
+  /** An app with views, session `sv` in its transcript calling show_view twice (the second updating the first). */
+  function viewsApp() {
+    const projectsDir = makeTmpDir('views-routes');
+    mkdirSync(join(projectsDir, 'p'), { recursive: true });
+    writeFileSync(
+      join(projectsDir, 'p', 'sv.jsonl'),
+      line({ type: 'user', uuid: 'u1', parentUuid: null, timestamp: '2026-11-18T10:00:00.000Z', message: { role: 'user', content: 'go' } }) +
+        line({
+          type: 'assistant', uuid: 'a1', parentUuid: 'u1', timestamp: '2026-11-18T10:01:00.000Z',
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_v1', name: VIEW_TOOL, input: { title: 'Chart', html: HTML, liveDomains: ['api.github.com'] } }] },
+        }) +
+        line({
+          type: 'user', uuid: 'u2', parentUuid: 'a1', timestamp: '2026-11-18T10:01:01.000Z',
+          message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_v1', content: 'View toolu_v1: shown.' }] },
+        }) +
+        line({
+          type: 'assistant', uuid: 'a2', parentUuid: 'u2', timestamp: '2026-11-18T10:02:00.000Z',
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_v2', name: VIEW_TOOL, input: { title: 'Chart 2', html: HTML, replaces: 'toolu_v1' } }] },
+        }),
+    );
+    const made = makeApp({ projectsDir, views: true });
+    made.db.insert(sessions)
+      .values({ id: 'sv', projectDir: 'p', cwd: '/w/v', title: 'views', lastAt: 300, source: 'web', permissionMode: null })
+      .run();
+    return made;
+  }
+
+  it("answers a view's payload, and 404s another session's or an unknown call", async () => {
+    const { app } = viewsApp();
+    const body = res200(await app.inject({ method: 'GET', url: '/api/sessions/sv/views/toolu_v2' }));
+    expect(body).toMatchObject({ viewId: 'toolu_v1', toolUseId: 'toolu_v2', title: 'Chart 2', kind: 'html', html: HTML, waiting: false });
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/s1/views/toolu_v2' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/sv/views/toolu_nope' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/nope/views/toolu_v2' })).statusCode).toBe(404);
+  });
+
+  it('serves the data copy of a call as copied, and 404s a call without one', async () => {
+    const { app, viewsDataDir } = viewsApp();
+    mkdirSync(join(viewsDataDir, 'views', 'sv'), { recursive: true });
+    writeFileSync(join(viewsDataDir, 'views', 'sv', 'toolu_v1.csv'), 'a,b\n1,2\n');
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/sv/views/toolu_v1/data' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^text\/csv/);
+    expect(res.body).toBe('a,b\n1,2\n');
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/sv/views/toolu_v2/data' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/s1/views/toolu_v1/data' })).statusCode).toBe(404);
+  });
+
+  it('allows live domains per session, keeps them, tells every client and refuses what is not an https host', async () => {
+    const { app, hub } = viewsApp();
+    const received = subscribeFake(hub, 'session:sv');
+    const post = (domains: unknown) => app.inject({ method: 'POST', url: '/api/sessions/sv/view-domains', payload: { domains } });
+    expect((await post(['http://api.github.com'])).statusCode).toBe(400);
+    expect((await post(['localhost'])).statusCode).toBe(400);
+    expect((await post([])).statusCode).toBe(400);
+    expect((await post(Array.from({ length: 17 }, (_, i) => `a${i}.example.com`))).statusCode).toBe(400);
+    expect(res200(await post(['https://API.github.com/', 'api.github.com']))).toEqual({ domains: ['api.github.com'] });
+    expect(received).toContainEqual({ topic: 'session:sv', event: 'view_domains', domains: ['api.github.com'] });
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/sv/view-domains' }))).toEqual({ domains: ['api.github.com'] });
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/s1/view-domains' }))).toEqual({ domains: [] });
+    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/sv/views/toolu_v1' })).approvedDomains).toEqual(['api.github.com']);
+  });
+
+  it('lists one media item per view only to a client that asks, and only while Labs has views on', async () => {
+    const { app, settings } = viewsApp();
+    const items = async (url: string) => res200(await app.inject({ method: 'GET', url })).items;
+    expect(await items('/api/sessions/sv/media?views=1')).toEqual([]);
+    settings.set(VIEWS_ENABLED_KEY, 'true');
+    expect(await items('/api/sessions/sv/media')).toEqual([]);
+    expect(await items('/api/sessions/sv/media?views=1')).toEqual([{
+      id: 'view:toolu_v1', kind: 'view', source: 'view', messageId: 'a2:0', ts: '2026-11-18T10:02:00.000Z',
+      view: { id: 'toolu_v1', toolUseId: 'toolu_v2', title: 'Chart 2' },
+    }]);
+  });
+
+  it("answers a waiting view's decision with its value, or cancels it, and refuses anything else", async () => {
+    const { app, runner } = makeApp();
+    const answered: any[] = [];
+    runner.pendingDecision = (id: string) =>
+      id === 's1' ? { id: 'toolu_w', kind: 'view', input: { viewId: 'toolu_w', title: 'Pick' }, createdAt: 1 } : null;
+    runner.answerDecision = ((id: string, decisionId: string, answer: unknown) => {
+      answered.push(answer);
+      return decisionId === 'toolu_w';
+    });
+    const post = (payload: unknown) => app.inject({ method: 'POST', url: '/api/sessions/s1/decision/toolu_w', payload: payload as any });
+    expect(res200(await post({ value: { colour: 'red' } }))).toEqual({ ok: true });
+    expect(res200(await post({ value: null }))).toEqual({ ok: true });
+    expect(res200(await post({ approved: false, message: 'Closed' }))).toEqual({ ok: true });
+    expect(answered).toEqual([{ value: { colour: 'red' } }, { value: null }, { approved: false, message: 'Closed' }]);
+    expect((await post({ approved: true })).json()).toEqual({ error: 'view_needs_value' });
+    expect((await post({})).statusCode).toBe(400);
+    expect((await post({ value: 'x'.repeat(VIEW_SEND_MAX_CHARS) })).json()).toEqual({ error: 'value_too_large' });
+    expect(answered).toHaveLength(3);
+  });
+
+  it('saves only a CDN host list that reads back as it was written', async () => {
+    const { app, settings } = makeApp();
+    const patch = (value: string) => app.inject({ method: 'PATCH', url: '/api/settings', payload: { [VIEWS_CDN_HOSTS_KEY]: value } });
+    const good = JSON.stringify([{ host: 'cdn.example.com', addedAt: 1 }]);
+    expect((await patch(good)).statusCode).toBe(200);
+    expect(settings.get(VIEWS_CDN_HOSTS_KEY)).toBe(good);
+    expect((await patch('[]')).statusCode).toBe(200);
+    for (const bad of ['nope', '{}', JSON.stringify([{ host: 'https://cdn.example.com', addedAt: 1 }]), JSON.stringify([{ host: 'unpkg.com', addedAt: 1 }])]) {
+      expect((await patch(bad)).json()).toEqual({ error: 'invalid_cdn_hosts' });
+    }
+    expect(settings.get(VIEWS_CDN_HOSTS_KEY)).toBe('[]');
   });
 });

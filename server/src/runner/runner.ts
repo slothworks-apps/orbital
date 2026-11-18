@@ -38,6 +38,7 @@ import { ORBITAL_MCP_SERVER, orbitalMcpServer, type Spawner } from './spawnTool.
 import { LIST_SESSIONS_TOOL, type SessionKeeper } from './sessionsTools.js';
 import { CONTROL_READ_TOOLS, type ControlCall } from './controlTools.js';
 import { shellIntentHooks } from './shellIntentHook.js';
+import { VIEW_TOOL, type ViewResult } from '@orbital/shared/views';
 
 /**
  * How long a turn's end waits for the CLI to say how full the window is
@@ -520,11 +521,51 @@ export interface DecisionVerdict {
  * is `Record<string, string>` and could hold any key at all, so the shape
  * alone can never be the discriminator.
  */
-export type DecisionAnswer = Record<string, string> | DecisionVerdict;
+export type DecisionAnswer = Record<string, string> | DecisionVerdict | ViewValue;
+
+/**
+ * What a waiting view sent (`orbital.send` in the page): the `view` arm of
+ * `DecisionAnswer`. A `view` decision also takes `{approved: false}`, the
+ * view closed without an answer.
+ */
+export interface ViewValue {
+  value: unknown;
+}
 
 /** True for the verdict arm of `DecisionAnswer`. */
 export function isDecisionVerdict(answer: DecisionAnswer): answer is DecisionVerdict {
   return typeof (answer as DecisionVerdict).approved === 'boolean';
+}
+
+/** True for the `view` arm of `DecisionAnswer`. */
+export function isViewValue(answer: DecisionAnswer): answer is ViewValue {
+  return !isDecisionVerdict(answer) && Object.prototype.hasOwnProperty.call(answer, 'value') && Object.keys(answer).length === 1;
+}
+
+/** The key a view's sent value rides under in a settled `view` decision's `updatedInput`. */
+const VIEW_VALUE_KEY = 'viewValue';
+/** The key the composer's text rides under when it answers a waiting view instead. */
+const VIEW_TYPED_KEY = 'typed';
+
+/**
+ * What a settled `view` decision comes to (spec
+ * 2026-11-18-generated-views-design § The bridge): the value the page sent,
+ * the words typed in the composer instead, or — any refusal: interrupted,
+ * ended, superseded, closed — cancelled, with why.
+ */
+export function viewResultOf(viewId: string, result: PermissionResult): ViewResult {
+  if (result.behavior === 'allow') {
+    const input = result.updatedInput ?? {};
+    if (Object.prototype.hasOwnProperty.call(input, VIEW_VALUE_KEY)) return { viewId, outcome: 'sent', value: input[VIEW_VALUE_KEY] };
+    if (typeof input[VIEW_TYPED_KEY] === 'string') return { viewId, outcome: 'answered', text: input[VIEW_TYPED_KEY] };
+  }
+  return { viewId, outcome: 'cancelled', reason: result.behavior === 'deny' ? result.message : '' };
+}
+
+/** The view a parked `view` decision is about. */
+function viewIdOfPending(pending: PendingDecision): string {
+  const viewId = (pending.input as { viewId?: unknown }).viewId;
+  return typeof viewId === 'string' ? viewId : pending.id;
 }
 
 /**
@@ -3071,13 +3112,69 @@ export class Runner {
       parked.pending.kind === 'question' && result.behavior === 'allow'
         ? questionAnswersOf(result.updatedInput)
         : undefined;
+    // A view's outcome rides along the same way: every client shows the view
+    // sent, answered or cancelled before the tool_result is written.
+    const view = parked.pending.kind === 'view' ? viewResultOf(viewIdOfPending(parked.pending), result) : undefined;
     this.hub.publish(`session:${sessionId}`, {
       event: 'decision_resolved',
       decisionId: parked.pending.id,
       ...(answers ? { answers } : {}),
+      ...(view ? { view } : {}),
     });
     this.onDecision?.(sessionId);
     return true;
+  }
+
+  /**
+   * Parks a generated view that waits on the user (spec
+   * 2026-11-18-generated-views-design § The bridge): the same parking as
+   * `decide()` — one decision at a time, `decision_pending` on the hub,
+   * `needs_input`, no deadline — so the map, the snapshot and the
+   * notification treat it as a question. Its id is the call's tool_use id.
+   * The decision carries the view's id and title only, never its page: the
+   * snapshot carries `input`.
+   *
+   * Settles with what the page sent (`answerDecision` with `{value}`), with
+   * the composer's text (`send`), or cancelled — interrupted, ended,
+   * superseded, `signal` aborted, or the session not running here at all.
+   */
+  parkView(
+    sessionId: string,
+    toolUseId: string,
+    view: { viewId: string; title: string },
+    signal?: AbortSignal,
+  ): Promise<ViewResult> {
+    const s = this.sessions.get(sessionId);
+    if (!s) return Promise.resolve({ viewId: view.viewId, outcome: 'cancelled', reason: 'The session is not running.' });
+    // As in `decide()`: an older ask still parked is settled, never dropped.
+    this.settleDecision(sessionId, { behavior: 'deny', message: 'Superseded by a newer request.' });
+    const pending: PendingDecision = {
+      id: toolUseId,
+      kind: 'view',
+      input: { viewId: view.viewId, title: view.title },
+      createdAt: Date.now(),
+      toolName: VIEW_TOOL,
+      title: `${view.title} is waiting for you`,
+    };
+    return new Promise<ViewResult>((resolve) => {
+      if (signal?.aborted) {
+        resolve({ viewId: view.viewId, outcome: 'cancelled', reason: 'The request was aborted.' });
+        return;
+      }
+      const onAbort = () => this.settleDecision(sessionId, { behavior: 'deny', message: 'The request was aborted.' });
+      signal?.addEventListener('abort', onAbort, { once: true });
+      s.decision = {
+        pending,
+        settle: (result) => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve(viewResultOf(view.viewId, result));
+        },
+        review: null,
+      };
+      this.hub.publish(`session:${sessionId}`, { event: 'decision_pending', decision: pending });
+      this.onDecision?.(sessionId);
+      this.setStatus(sessionId, 'needs_input');
+    });
   }
 
   /**
@@ -3107,10 +3204,25 @@ export class Runner {
     if (!s || !parked || parked.pending.id !== decisionId) return false;
     const { kind, input } = parked.pending;
 
+    // A waiting view: what the page sent becomes the tool's result; a refusal
+    // (the view closed, the legacy `{approved: false}`) cancels the wait.
+    if (kind === 'view') {
+      if (isViewValue(answer)) {
+        this.settleDecision(sessionId, { behavior: 'allow', updatedInput: { [VIEW_VALUE_KEY]: answer.value } });
+      } else if (isDecisionVerdict(answer) && !answer.approved) {
+        this.settleDecision(sessionId, { behavior: 'deny', message: answer.message?.trim() || 'The user closed the view without sending anything.' });
+      } else {
+        return false;
+      }
+      this.setStatus(sessionId, 'working');
+      return true;
+    }
+
     if (kind === 'question') {
       if (isDecisionVerdict(answer)) return false;
       this.settleDecision(sessionId, {
         behavior: 'allow',
+        // A map that happens to hold one `value` key is still a map of answers here.
         updatedInput: { ...input, answers: answer },
       });
       this.setStatus(sessionId, 'working');
@@ -3200,6 +3312,11 @@ export class Runner {
           behavior: 'allow',
           updatedInput: { ...parked.pending.input, answers },
         });
+      } else if (parked.pending.kind === 'view') {
+        // A waiting view is answered in words as a question is: the text
+        // becomes the tool's result (spec 2026-11-18-generated-views-design
+        // § The bridge).
+        this.settleDecision(sessionId, { behavior: 'allow', updatedInput: { [VIEW_TYPED_KEY]: text } });
       } else {
         // The CLI's own "No, and tell Claude what to do differently". Typing
         // instead of clicking approve is a refusal with a reason in it, never

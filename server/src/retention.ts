@@ -33,7 +33,7 @@
 import { and, inArray, isNull, lt, ne, notExists, sql } from 'drizzle-orm';
 import type { OrbitalDb } from './db/database.js';
 import {
-  backgroundTasks, compactionFailures, narrations, pendingRewinds, permissionWaits, rewinds, sessions, sessionSetups,
+  backgroundTasks, compactionFailures, narrations, pendingRewinds, permissionWaits, rewinds, sessions, sessionSetups, viewDomainApprovals,
   sessionTags, sweptSessions,
 } from './db/schema.js';
 
@@ -122,6 +122,7 @@ function deleteSessionRows(tx: Tx, ids: string[], keepSetup = false): void {
   tx.delete(rewinds).where(inArray(rewinds.sessionId, ids)).run();
   tx.delete(narrations).where(inArray(narrations.sessionId, ids)).run();
   tx.delete(permissionWaits).where(inArray(permissionWaits.sessionId, ids)).run();
+  tx.delete(viewDomainApprovals).where(inArray(viewDomainApprovals.sessionId, ids)).run();
   if (!keepSetup) tx.delete(sessionSetups).where(inArray(sessionSetups.sessionId, ids)).run();
   tx.delete(sessions).where(inArray(sessions.id, ids)).run();
 }

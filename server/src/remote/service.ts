@@ -245,6 +245,7 @@ export class RemoteService {
       opts.db,
       opts.transcriptPath ?? ((id, projectDir) => join(CONFIG.projectsDir, projectDir, `${id}.jsonl`)),
       opts.trees,
+      opts.dataDir,
     );
   }
 

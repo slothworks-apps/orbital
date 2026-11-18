@@ -54,6 +54,12 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['PATCH', '/api/sessions/:id', 'sessions'],
   ['GET', '/api/sessions/:id/messages', 'sessions'],
   ['GET', '/api/sessions/:id/media', 'sessions'],
+  // A generated view's payload and the domains its session allowed (spec
+  // 2026-11-18-generated-views-design § Phone). Its data copy travels as a
+  // `file_get` as `view-data`, never through the data route.
+  ['GET', '/api/sessions/:id/views/:toolUseId', 'sessions'],
+  ['GET', '/api/sessions/:id/view-domains', 'sessions'],
+  ['POST', '/api/sessions/:id/view-domains', 'sessions'],
   ['GET', '/api/sessions/:id/progress-calls', 'sessions'],
   ['POST', '/api/sessions/:id/messages', 'sessions'],
   ['GET', '/api/sessions/:id/subagents/:toolUseId/messages', 'sessions'],

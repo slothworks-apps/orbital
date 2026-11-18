@@ -5,6 +5,7 @@
  * § 2, which bounds it as 2026-10-03-api-token-and-named-files-design § 2
  * does). Reading only: nothing here opens or runs a file.
  */
+import { readFileSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import type { FileAs } from '@orbital/shared/remote/messages';
 import type { OrbitalDb } from '../db/database.js';
@@ -12,6 +13,7 @@ import { sessions } from '../db/schema.js';
 import { NamedPathCache, PDF_CONTENT_TYPE, readImageFile, readInSandboxes, readTextFile } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { sniffDims } from '../images/store.js';
+import { VIEW_DATA_MEDIA_TYPES, viewDataCopy } from '../views/service.js';
 
 /** The largest text file the phone previews; past it the phone says the file can't be shown there. */
 export const PHONE_TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
@@ -49,11 +51,11 @@ export function createPhoneFileReader(
   db: OrbitalDb,
   transcriptPath: (sessionId: string, projectDir: string, claudeDirId: number) => string,
   trees?: Pick<WorkingTrees, 'sandboxes'>,
+  /** Where the views' data copies are kept (`<dataDir>`); absent, `view-data` reads nothing. */
+  dataDir?: string,
 ): PhoneFileReader {
   const namedPaths = new NamedPathCache(PHONE_NAMED_PATH_CACHE_ENTRIES);
   return (session, path, as, cwd) => {
-    // A view's data copy is named by its call, not by a path: never read as a file here.
-    if (as === 'view-data') return { status: 404 };
     const row = db
       .select({
         id: sessions.id, cwd: sessions.cwd, project_dir: sessions.projectDir, claude_dir_id: sessions.claudeDirId,
@@ -62,6 +64,10 @@ export function createPhoneFileReader(
       .where(eq(sessions.id, session))
       .get();
     if (!row) return { status: 404 };
+    // A view's data copy is named by its call, not by a path (spec
+    // 2026-11-18-generated-views-design § Phone): `path` is the tool_use id,
+    // and only a copy in this session's own views directory is read.
+    if (as === 'view-data') return dataDir ? readViewDataCopy(dataDir, session, path) : { status: 404 };
     const named = namedPaths.forSession(session, transcriptPath(session, row.project_dir, row.claude_dir_id));
     const sandboxes = trees?.sandboxes(row, cwd) ?? [row.cwd];
 
@@ -111,4 +117,16 @@ export function createPhoneFileReader(
         return { status: 415, size: read.size, mediaType: read.mediaType };
     }
   };
+}
+
+/** A view's data copy for `file_get` as `view-data`: 404 for an id outside the safe alphabet or no copy. */
+function readViewDataCopy(dataDir: string, session: string, toolUseId: string): PhoneFileAnswer {
+  const copy = viewDataCopy(dataDir, session, toolUseId);
+  if (!copy) return { status: 404 };
+  try {
+    const bytes = readFileSync(copy.path);
+    return { status: 200, bytes: new Uint8Array(bytes), mediaType: VIEW_DATA_MEDIA_TYPES[copy.format], size: bytes.length };
+  } catch {
+    return { status: 404 };
+  }
 }

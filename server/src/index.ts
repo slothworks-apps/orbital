@@ -63,6 +63,8 @@ import { worktreeContextOf } from './worktree/service.js';
 import { SetupStore } from './worktree/setup.js';
 import { HarnessService } from './harness/service.js';
 import { PROGRESS_LIST_ENABLED_KEY, ProgressService } from './progress/service.js';
+import { ViewsService, removeViewFiles } from './views/service.js';
+import { VIEWS_ENABLED_KEY } from '@orbital/shared/views';
 import { RewindStore } from './rewind/store.js';
 import { askWatcher } from './harness/watcher.js';
 import { askOnce } from './harness/ask.js';
@@ -1002,6 +1004,7 @@ export async function buildServer(overrides: {
     // list's `progress_write`, each for as long as its feature is on.
     sessionTools: (sessionId, { progressList }) => mergeSessionTools(
       harness.tools(sessionId), browserSessionTools(browser), progress.sessionTools(sessionId, progressList),
+      views.sessionTools(sessionId),
     ),
     // The step commits the harness asks for, while commit-per-step is on.
     autoAllow: (sessionId, toolName, input) => harness.allowsWithoutAsking(sessionId, toolName, input),
@@ -1171,6 +1174,17 @@ export async function buildServer(overrides: {
     onChange: (sessionId) => republish(sessionId),
   });
 
+  // Generated views (spec 2026-11-18-generated-views-design): the `show_view`
+  // tool while Labs has it on, its files under the data directory, and the
+  // payload a client draws a view from.
+  const views: ViewsService = new ViewsService({
+    isEnabled: () => settingsStore.get(VIEWS_ENABLED_KEY) === 'true',
+    dataDir,
+    transcriptPathOf,
+    cwdOf: (sessionId) => workingDirOf(sessionId) ?? null,
+    runner: () => runner,
+  });
+
   /**
    * Settings → General → "Delete sessions older than" (spec
    * 2026-09-21-settings-sections-design § 4). Runs at boot and again whenever
@@ -1187,6 +1201,8 @@ export async function buildServer(overrides: {
     const now = Date.now();
     const cutoff = retentionCutoff(parseRetentionDays(settingsStore.get(RETENTION_KEY)), now);
     const swept = sweepSessions(db, cutoff, now);
+    // Their views' scripts and data copies go with them.
+    removeViewFiles(dataDir, swept);
     // Their setup rows went with them; a queue still being handed over stops.
     setups.forget(swept);
     for (const id of swept) hub.publish('sessions', { event: 'remove', sessionId: id });
@@ -1759,7 +1775,7 @@ export async function buildServer(overrides: {
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees, progress,
-    foreign, browser,
+    views, foreign, browser,
     // About no session: the default directory's account, as the harness drafter.
     // Bounded: a stuck call would otherwise keep its `claude` process and the
     // rail's "Checking…" for as long as the dialog stays open.
