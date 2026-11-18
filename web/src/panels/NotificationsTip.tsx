@@ -5,7 +5,7 @@ import { notifyDesktopSettingsChanged, openNotificationSettings, requestNotifica
 import { reportError } from '../lib/errors'
 import { END_TIP_PATCH, shouldOfferNotificationsTip, turnOnPatch } from '../lib/notificationsTip'
 import { useMapNotices } from '../store/mapNotices'
-import { useOrbital } from '../store/store'
+import { openSettingsSection, useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { MapNotice, MapNoticeText } from '../ui/MapNotice'
 
@@ -66,12 +66,7 @@ function NotificationsTip({ close }: { close: () => void }) {
 
   const toSettings = () => {
     endTip()
-    // In memory only, like the harness templates' way in: this visit opens on
-    // Notifications, and the stored section stays whatever the user picked.
-    useOrbital.setState((state) => ({
-      settings: { ...state.settings, settings_last_section: 'notifications' },
-      ui: { ...state.ui, dialog: 'settings' },
-    }))
+    openSettingsSection('notifications', { persist: false })
     close()
   }
 

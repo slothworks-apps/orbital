@@ -5,9 +5,9 @@ import { clock, figureText, itemNote, progressMeta, progressSummary, type Progre
 import { useProgressFold, useProgressFrozen } from '../lib/useProgressList'
 import { Panel } from '../ui/Panel'
 import { useEscapeLayer } from '../ui/escapeLayer'
-import { HarnessGlyph, ProgressGlyph } from '../ui/UtilityButton'
+import { CloseGlyph, HarnessGlyph, ProgressGlyph } from '../ui/UtilityButton'
 import { slotChrome } from './HarnessPanel'
-import { CloseGlyph, DashedSeam, HeadButton, HeaderBlock, Kicker, ScopeChip } from './harness/parts'
+import { DashedSeam, HeadButton, HeaderBlock, Kicker, ScopeChip } from './harness/parts'
 import { ItemMark, ItemRow } from './progress/parts'
 import { BackToSession, type SubagentPanelProps } from './SubagentPanel'
 

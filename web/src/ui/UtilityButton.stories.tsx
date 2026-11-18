@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { fn } from 'storybook/test'
 import {
   ClearGlyph,
+  CloseGlyph,
   CollapseGlyph,
   CopyGlyph,
   CutGlyph,
@@ -107,6 +108,7 @@ export const HeaderStrip: Story = {
 const GLYPHS: { name: string; glyph: ReactNode }[] = [
   { name: 'ClearGlyph', glyph: <ClearGlyph /> },
   { name: 'EndGlyph', glyph: <EndGlyph /> },
+  { name: 'CloseGlyph', glyph: <CloseGlyph /> },
   { name: 'CollapseGlyph right', glyph: <CollapseGlyph /> },
   { name: 'CollapseGlyph left', glyph: <CollapseGlyph direction="left" /> },
   { name: 'MoreGlyph', glyph: <MoreGlyph /> },

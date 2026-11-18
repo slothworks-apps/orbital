@@ -93,6 +93,7 @@ import {
 } from './camera'
 import { useDockClearancePx, useSideSlotWidth } from '../terminal/useTerminalHost'
 import { MAP_OVERLAY_BOTTOM_PX } from './shell/MapShell'
+import { TipsButton, columnButtonClass, columnDimClass, useColumnDim } from '../tips/TipsButton'
 
 /**
  * Top-down space map scene: a `Canvas` (WebGL, untestable in jsdom) driven
@@ -528,7 +529,11 @@ function SpaceBackdrop() {
   )
 }
 
-export function SpaceMap() {
+/**
+ * `showTips` false leaves the tips button out of the zoom column: the
+ * website's demo draws this map without the server or All tips behind it.
+ */
+export function SpaceMap({ showTips = true }: { showTips?: boolean } = {}) {
   const model = useSceneModel()
   const select = useOrbital((s) => s.select)
   const setDialog = useOrbital((s) => s.setDialog)
@@ -621,6 +626,7 @@ export function SpaceMap() {
   const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
   const errorsUnseen = useOrbital((s) => s.errorsUnseen)
   const errorLogOpen = useOrbital((s) => s.ui.dialog === 'errors')
+  const columnDim = useColumnDim()
   // How much of the right edge the docked panel(s) occupy, detail panel
   // width plus its 16px gutter — and, with the subagent panel open, ITS
   // width plus a second 16px gutter on top of that (the same constant
@@ -1461,37 +1467,42 @@ export function SpaceMap() {
               absent; open → accent frame and ring. The badge red is
               oklch(60% .2 25), precomputed to #de3b3d, and is the only red
               on the map. */}
-          <button
-            type="button"
-            aria-label={errorsUnseen > 0 ? `Error log — ${errorsUnseen} unseen` : 'Error log'}
-            title={`Error log · ${shortcutLabel('global.errors')}`}
-            onClick={() => setDialog('errors')}
-            className={[
-              'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-panel/92 fs-16 font-bold leading-none transition-colors',
-              errorLogOpen
-                ? 'border-accent/50 text-ink-100 shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-accent)_10%,_transparent)]'
-                : [
-                    'border-line/16 hover:border-line/30 hover:bg-line/10 hover:text-ink-50',
-                    errorsUnseen > 0 ? 'text-ink-100' : 'text-ink-500/60',
-                  ].join(' '),
-            ].join(' ')}
-          >
-            <span aria-hidden>!</span>
-            {errorsUnseen > 0 && (
-              <span
-                aria-hidden
-                className={[
-                  'absolute -top-1.5 grid h-4 min-w-[16px] place-items-center rounded-full border border-space/80 bg-danger font-mono fs-9.5 font-medium tracking-[0.02em] text-white',
-                  // The wider 99+ badge hangs 4px further out (5c).
-                  errorsUnseen > 99 ? '-right-2.5 px-[5px]' : '-right-1.5 px-1',
-                ].join(' ')}
-              >
-                {errorsUnseen > 99 ? '99+' : errorsUnseen}
-              </span>
-            )}
-          </button>
+          {/* Tips sit on top: they matter least (canvas `Feature - Tips` 68b). */}
+          {showTips && <TipsButton dim={columnDim.tips} />}
 
-          <div className="flex flex-col overflow-hidden rounded-[9px] border border-line/16 bg-panel/92">
+          <div className={columnDimClass(columnDim.errors)}>
+            <button
+              type="button"
+              aria-label={errorsUnseen > 0 ? `Error log — ${errorsUnseen} unseen` : 'Error log'}
+              title={`Error log · ${shortcutLabel('global.errors')}`}
+              onClick={() => setDialog('errors')}
+              className={[
+                columnButtonClass(errorLogOpen, errorsUnseen > 0),
+                'fs-16 font-bold leading-none',
+              ].join(' ')}
+            >
+              <span aria-hidden>!</span>
+              {errorsUnseen > 0 && (
+                <span
+                  aria-hidden
+                  className={[
+                    'absolute -top-1.5 grid h-4 min-w-[16px] place-items-center rounded-full border border-space/80 bg-danger font-mono fs-9.5 font-medium tracking-[0.02em] text-white',
+                    // The wider 99+ badge hangs 4px further out (5c).
+                    errorsUnseen > 99 ? '-right-2.5 px-[5px]' : '-right-1.5 px-1',
+                  ].join(' ')}
+                >
+                  {errorsUnseen > 99 ? '99+' : errorsUnseen}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <div
+              className={[
+                'flex flex-col overflow-hidden rounded-[9px] border border-line/16 bg-panel/92',
+                columnDimClass(columnDim.zoom),
+              ].join(' ')}
+            >
             <button
               type="button"
               aria-label="Zoom in"

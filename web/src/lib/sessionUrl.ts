@@ -82,17 +82,6 @@ export function withoutSettingsParam(href: string = window.location.href): strin
 /** The map's URL that opens Settings on `section`. */
 export const settingsHref = (section: string): string => `/?${SETTINGS_PARAM}=${encodeURIComponent(section)}`
 
-/**
- * Opens Settings on `section`. The dialog opens on the last section the user
- * chose (`settings_last_section`), so this makes `section` that choice, here
- * and on the server, before it opens.
- */
-export function openSettingsSection(section: string): void {
-  useOrbital.setState((state) => ({ settings: { ...state.settings, settings_last_section: section } }))
-  void api.patchSettings({ settings_last_section: section }).catch(() => {})
-  useOrbital.getState().setDialog('settings')
-}
-
 /** The store's `ui.fileViewer` shape, as the URL carries it. */
 export type FileViewerTarget = { path: string; line: number | null }
 

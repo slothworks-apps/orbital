@@ -260,7 +260,8 @@ export interface OrbitalUiState {
    */
   hiddenDeviceIds?: string[]
   wsStatus: string
-  dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'take-over' | 'remove-worktree' | 'settings' | 'errors'
+  /** `tips`: All tips (spec 2026-11-16-tips-design); the one-tip card is not a dialog. */
+  dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'take-over' | 'remove-worktree' | 'settings' | 'errors' | 'tips'
   /**
    * The session Clear, End or Take over is open for when it is not the
    * selected one — the context menu opens them over the map without
@@ -3318,12 +3319,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   openHarnessTemplates(focus) {
-    // In memory only: Settings opens on its last section, and this visit's is Harness.
-    set((state) => ({
-      harnessTemplatesFocus: focus,
-      settings: { ...state.settings, settings_last_section: 'harness' },
-      ui: { ...state.ui, dialog: 'settings' },
-    }))
+    set({ harnessTemplatesFocus: focus })
+    openSettingsSection('harness', { persist: false })
   },
 
   applyTaskOutputEvent(sessionId, taskId, msg) {
@@ -4114,6 +4111,19 @@ export function showContext(settings: Record<string, string>): boolean {
   return settings.map_show_context !== 'false'
 }
 
+
+/**
+ * Opens Settings on `section`. The dialog opens on the last section the user
+ * chose (`settings_last_section`), so this makes `section` that choice, here
+ * and, unless `persist` is false, on the server too. `persist: false` is for
+ * a way in that is not the user's pick (a tip, a notice, the harness
+ * templates): this visit opens on `section` and the stored one stays theirs.
+ */
+export function openSettingsSection(section: string, { persist = true }: { persist?: boolean } = {}): void {
+  useOrbital.setState((state) => ({ settings: { ...state.settings, settings_last_section: section } }))
+  if (persist) void api.patchSettings({ settings_last_section: section }).catch(() => {})
+  useOrbital.getState().setDialog('settings')
+}
 /** `map_show_compact_badge` — only effective while `showContext` is also on
  * (spec `context-fill-arc`); callers gate on both. Default-on convention. */
 export function showCompactBadge(settings: Record<string, string>): boolean {

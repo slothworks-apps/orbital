@@ -622,3 +622,13 @@ export function SelectAllGlyph() {
     </span>
   )
 }
+
+/** Close: two 1.4 px strokes in a 9 px box (canvas 30b; the tip card's ×, 68c). */
+export function CloseGlyph() {
+  return (
+    <span aria-hidden className="relative block size-[9px]">
+      <span className="absolute left-1/2 top-0 -ml-[0.7px] block h-full w-[1.4px] rotate-45 rounded-[1px] bg-current" />
+      <span className="absolute left-1/2 top-0 -ml-[0.7px] block h-full w-[1.4px] -rotate-45 rounded-[1px] bg-current" />
+    </span>
+  )
+}
