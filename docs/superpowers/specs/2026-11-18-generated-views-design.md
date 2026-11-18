@@ -2,7 +2,7 @@
 id: 2026-11-18-generated-views-design
 title: Generated views — small HTML pages an Orbital session writes and shows in its transcript
 type: spec
-status: draft
+status: active
 domain: sessions
 related:
   - 2026-11-09-progress-list-design
@@ -115,6 +115,14 @@ best and Tailwind gives it Orbital's own vocabulary:
 - A view without `wait` cannot send while the session waits on another
   answer (a question, a permission): its message would answer that instead.
 - Allowed domains do not carry over when a session is cleared.
+- The waiting call's decision id is its tool_use id, which the CLI passes
+  to the tool as `_meta["claudecode/toolUseId"]`; a PreToolUse hook that
+  notes each call's id is the fallback.
+- The Orbital MCP server's own call timeout is set to the CLI's cap, so a
+  user's `MCP_TOOL_TIMEOUT` cannot cancel a view waiting on them; their
+  other MCP servers keep it.
+- A view's payload fits one relay frame: a page too large for it is refused
+  when the call is made, and data that does not fit travels on its own.
 
 ### Isolation and network
 
