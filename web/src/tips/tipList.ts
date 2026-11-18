@@ -11,8 +11,8 @@ const ORCHESTRATE_PROMPT =
 
 /**
  * Every tip, in the order the card offers them (spec 2026-11-16-tips-design
- * § The first tips). A tip names only what works on a default install; a
- * feature behind Experimental gets none. Add a tip at the place it should be
+ * § The first tips). A tip names only what works on a default install, or
+ * says where to turn it on; a feature behind Experimental gets none. Add a tip at the place it should be
  * offered; its id must never change, since `TIPS_SEEN_KEY` remembers it.
  */
 export const TIPS: readonly Tip[] = [
@@ -36,7 +36,7 @@ export const TIPS: readonly Tip[] = [
   {
     id: 'harness',
     group: 'Starting a session',
-    text: 'A harness gives a session a checklist to follow: it ticks each step and can stop for your review. A session can write the template for you.',
+    text: 'A harness gives a session a checklist to follow: it ticks each step and can stop for your review. Turn it on in Settings → Harness; a session can write the template for you.',
     action: { kind: 'settings', section: 'harness', label: 'Open Settings → Harness' },
   },
   {
