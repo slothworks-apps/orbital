@@ -206,3 +206,24 @@ export function decideNavigation(url: string, port: number): NavigationDecision 
   if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return 'external';
   return 'deny';
 }
+
+/**
+ * What a subframe of an Orbital window may navigate to (spec
+ * 2026-11-18-generated-views-design § Isolation and network). A generated
+ * view is an iframe whose page arrives as `srcdoc`; it may load that, a
+ * blank frame, or a page of Orbital's own — never anything else. A link in a
+ * view does not navigate its frame: it goes through the view's bridge to
+ * `window.open`, which `decideNavigation` hands to the user's browser. So
+ * there is no `external` here: a frame that tries to leave is stopped.
+ */
+export function decideFrameNavigation(url: string, port: number): 'allow' | 'deny' {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return 'deny';
+  }
+  if (parsed.protocol === 'about:') return parsed.pathname === 'srcdoc' || parsed.pathname === 'blank' ? 'allow' : 'deny';
+  // A `blob:` URL carries the origin that made it: one Orbital made is Orbital's.
+  return appOrigins(port).includes(parsed.origin) ? 'allow' : 'deny';
+}
