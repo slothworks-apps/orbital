@@ -488,7 +488,7 @@ export function ViewFrame({
       ].join(' ')}
     >
       {/* 69b: the window glyph, the name, the tag, the domains and ⤢, over a hairline. */}
-      <div className={['flex items-center gap-2 border-b border-line/8 pl-[11px] pr-1.5', phone ? 'h-11' : 'h-[34px]'].join(' ')}>
+      <div className={['flex items-center gap-2 border-b border-line/8 pl-[11px] pr-1.5', phone ? 'h-11' : 'h-[35px]'].join(' ')}>
         <span className="flex text-ink-900/60">
           <ViewGlyph />
         </span>
