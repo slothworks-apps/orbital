@@ -161,9 +161,15 @@ const mix = (token: Token, share: number) => `color-mix(in srgb, var(--color-${t
  * space floor and Orbital's text, links, tables, buttons and inputs. Values
  * from 69b/69c where the canvas draws them (the view's own table, its Send
  * button, the frame's Reload); the rest is marked.
+ *
+ * It sits in a cascade layer of its own, ordered after Tailwind's preflight
+ * (`base`) and before its `utilities`: unlayered, it would beat every utility,
+ * so `bg-accent` on a `<button>` would draw nothing. A page's own unlayered
+ * CSS beats it too, as it should.
  */
 function baseStylesheet(kind: ViewPayload['kind']): string {
-  return `
+  return `@layer theme,base,orbital,components,utilities;
+@layer orbital{
 *,*::before,*::after{box-sizing:border-box}
 html{color-scheme:light dark;scrollbar-width:thin;scrollbar-color:${mix('line', 30)} transparent}
 /* 69b: the page draws on the bare space floor. */
@@ -192,6 +198,7 @@ input,select,textarea{font:inherit;color:var(--color-ink-100);background:${mix('
 input:focus,select:focus,textarea:focus{outline:none;border-color:${mix('accent', 55)}}
 input[type=checkbox],input[type=radio]{accent-color:var(--color-accent)}
 ::selection{background:${mix('accent', 30)}}
+}
 `
 }
 
