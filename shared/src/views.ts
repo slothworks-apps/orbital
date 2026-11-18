@@ -101,7 +101,7 @@ export const showViewShape = {
     .describe(
       'The view as a React component in TSX, the usual way: a module whose default export is the component; it receives the data as the `data` prop. ' +
         'Style it with Tailwind classes, which use Orbital\'s own tokens (bg-panel, text-ink-300, border-line, text-accent…). ' +
-        'React is provided; other packages are imported by name (import { LineChart } from \'recharts\') and load from esm.sh. Read the data from the prop, never fetch it.',
+        'React is provided; other packages are imported by name (import { LineChart } from \'recharts\') and load from esm.sh. Read the data from the prop, never fetch it; a binary asset (a 3D model, a texture) goes in the data as base64 and is loaded from a data: or blob: URL.',
     ),
   html: z
     .string()
@@ -607,8 +607,9 @@ export function readCdnHosts(stored?: string | null): CdnHost[] {
 /**
  * The page's Content-Security-Policy. `cdnHosts`: where scripts, styles,
  * fonts and images may load from; the built-in hosts are always in.
- * `connect`: the approved domains the page may fetch from, `'none'` when
- * none. Every host is checked again here, so nothing stored or sent can add
+ * `connect`: the approved domains the page may fetch from. Without them a
+ * page fetches only `data:` and `blob:` URLs: what it already holds, such
+ * as a 3D model passed in its data, never the network. Every host is checked again here, so nothing stored or sent can add
  * a directive of its own.
  *
  * `data:` is among the script sources: a React view's React packages and its
@@ -629,7 +630,7 @@ export function viewCsp({ cdnHosts, connect }: { cdnHosts: readonly string[]; co
     `img-src ${list(['data:', 'blob:'], cdn, live)}`,
     `font-src ${list(['data:'], cdn)}`,
     `media-src data: blob:`,
-    `connect-src ${live.length > 0 ? live.join(' ') : "'none'"}`,
+    `connect-src ${list(['data:', 'blob:'], live)}`,
     `form-action 'none'`,
     `base-uri 'none'`,
   ].join('; ');

@@ -192,9 +192,9 @@ describe('echoViewResult', () => {
 });
 
 describe('viewCsp', () => {
-  it('lets nothing fetch without approved domains', () => {
+  it('lets the page fetch only what it holds without approved domains', () => {
     const csp = viewCsp({ cdnHosts: [], connect: [] });
-    expect(csp).toContain(`connect-src 'none'`);
+    expect(csp).toContain('connect-src data: blob:;');
     expect(csp).toContain(`script-src 'unsafe-inline' 'unsafe-eval' data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://esm.sh;`);
     expect(csp.startsWith(`default-src 'none'; `)).toBe(true);
   });
@@ -205,7 +205,7 @@ describe('viewCsp', () => {
       connect: ['api.github.com', "a.com; connect-src *", 'http://plain.com'],
     });
     expect(csp).toContain('https://ga.jspm.io');
-    expect(csp).toContain('connect-src https://api.github.com;');
+    expect(csp).toContain('connect-src data: blob: https://api.github.com;');
     expect(csp).not.toContain('evil');
     expect(csp).not.toContain('*');
     expect(csp).not.toContain('plain.com');

@@ -33,7 +33,7 @@ describe('buildViewDocument', () => {
     const head = parse(html('<p>hi</p>')).head
     const first = head.firstElementChild
     expect(first?.getAttribute('http-equiv')).toBe('Content-Security-Policy')
-    expect(first?.getAttribute('content')).toContain("connect-src 'none'")
+    expect(first?.getAttribute('content')).toContain('connect-src data: blob:;')
   })
 
   it('runs the bridge before anything of the page', () => {

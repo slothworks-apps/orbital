@@ -144,8 +144,10 @@ best and Tailwind gives it Orbital's own vocabulary:
   `allow-same-origin`: an opaque origin with no access to Orbital's API,
   its token, its storage or the parent page.
 - A CSP in the page allows scripts and styles from a fixed list of CDNs
-  (cdnjs, jsDelivr, unpkg, esm.sh) plus the hosts the user added in Settings, and
-  `connect-src 'none'`.
+  (cdnjs, jsDelivr, unpkg, esm.sh) plus the hosts the user added in Settings.
+  `connect-src` allows only `data:` and `blob:`: a page can load what it
+  already holds, such as a 3D model passed in its data for a three.js
+  loader, never the network.
 - With `liveDomains`, the view first shows the domains in place of its
   content, at its height, with Allow and Don't load. Nothing loads before
   Allow. Don't load leaves the frame with "Not loaded · allow". The
