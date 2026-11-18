@@ -112,7 +112,7 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
   const session = useOrbital((s) => s.sessions[sessionId])
   const resolveDecision = useOrbital((s) => s.resolveDecision)
 
-  const isPending = pending?.id === decisionId && pending.kind !== 'question'
+  const isPending = pending?.id === decisionId && pending.kind !== 'question' && pending.kind !== 'view'
   // The pending decision's own copy wins over the transcript's: it is what the
   // server is actually blocked on, and it carries the bridge's prompt copy,
   // which the transcript's tool_use block does not.

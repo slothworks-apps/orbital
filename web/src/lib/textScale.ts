@@ -108,11 +108,25 @@ export function useTextScaleVersion(): number {
   return version
 }
 
+function rootScale(name: '--text-scale' | '--transcript-text-scale'): number {
+  const raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name))
+  return Number.isFinite(raw) && raw > 0 ? raw : NaN
+}
+
 /** The app's multiplier the root carries now, following every change. */
 export function useAppTextScale(): number {
   useTextScaleVersion()
-  const raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--text-scale'))
-  return Number.isFinite(raw) && raw > 0 ? raw : 1
+  const app = rootScale('--text-scale')
+  return Number.isNaN(app) ? 1 : app
+}
+
+/** The transcript's multiplier the root carries now (the app's where it has none), following every change. */
+export function useTranscriptTextScale(): number {
+  useTextScaleVersion()
+  const transcript = rootScale('--transcript-text-scale')
+  if (!Number.isNaN(transcript)) return transcript
+  const app = rootScale('--text-scale')
+  return Number.isNaN(app) ? 1 : app
 }
 
 /**

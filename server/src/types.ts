@@ -346,7 +346,9 @@ export type ErrorKind =
   /** Git refused to remove a session's worktree, or a failed worktree launch could not be fully undone. */
   | 'worktree_failed'
   /** The call naming a worktree's branch failed, timed out or answered nothing usable; the temporary name stood in. */
-  | 'branch_naming_failed';
+  | 'branch_naming_failed'
+  /** The retention sweep could not remove a swept session's generated-view files; they were left. */
+  | 'view_files_failed';
 
 export interface ErrorRecord {
   id: number;

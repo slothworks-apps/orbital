@@ -281,6 +281,13 @@
       "when": 1794385933846,
       "tag": "0039_session_setups",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1795016710057,
+      "tag": "0040_view_domain_approvals",
+      "breakpoints": true
     }
   ]
 }

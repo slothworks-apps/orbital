@@ -30,6 +30,11 @@ import { PLAN_TOOL_NAME } from '../lib/decisionCard'
 import { limitResetLabel } from '../lib/limits'
 import { loginNoticePlaces } from '../lib/profileLogin'
 import { LoginLostRow, LoginRestoredRow } from './LoginNotice'
+import { VIEW_TOOL, foldViews, readShowView, type ViewFold } from '@orbital/shared/views'
+import { viewsEnabled } from '../lib/experimental'
+import { useOrbital } from '../store/store'
+import { ViewRow, type ViewMaximise } from './ViewRow'
+import { ViewJumpContext, ViewUpdatedRow } from './ViewParts'
 
 /** The accent hue (`oklch(85% .12 205)`'s angle), for a mark drawn without a session tag. */
 const NEUTRAL_MARK_HUE = 205
@@ -121,6 +126,34 @@ export type TranscriptGroup =
   | { kind: 'decision'; key: string; item: Extract<TranscriptItem, { kind: 'tool' }> }
   | { kind: 'message'; key: string; item: Extract<TranscriptItem, { kind: 'message' }> }
   | { kind: 'model-divider'; key: string; from: string; to: string; timestamp?: string }
+  /** A generated view, drawn from this call: its view's newest (spec 2026-11-18-generated-views-design). */
+  | { kind: 'view'; key: string; item: Extract<TranscriptItem, { kind: 'tool' }>; viewId: string }
+  /**
+   * Where a view was before a later call updated it: one line, "<title> ·
+   * updated below", that jumps to `targetToolUseId`, the call drawn now.
+   */
+  | {
+      kind: 'view-updated'
+      key: string
+      item: Extract<TranscriptItem, { kind: 'tool' }>
+      viewId: string
+      title: string
+      targetToolUseId: string
+    }
+
+/**
+ * The view calls of a transcript folded into views (`foldViews`), over every
+ * paired item held — not the windowed ones, so a call whose update is cut
+ * off by the window still knows it was updated.
+ */
+export function foldTranscriptViews(items: readonly TranscriptItem[]): ViewFold {
+  const calls = []
+  for (const item of items) {
+    if (item.kind !== 'tool' || item.toolUse.toolName !== VIEW_TOOL || !item.toolUse.toolUseId) continue
+    calls.push({ toolUseId: item.toolUse.toolUseId, input: item.toolUse.toolInput, isError: item.toolResult?.isError === true })
+  }
+  return foldViews(calls)
+}
 
 /**
  * Folds consecutive tool rows into one group. Canvas 1b sets the
@@ -147,11 +180,32 @@ export type TranscriptGroup =
 export function groupToolRuns(
   items: TranscriptItem[],
   pendingDecisionId?: string,
+  /**
+   * Labs → Views is on: the transcript's views, folded (`foldTranscriptViews`).
+   * A shown view call is its own group — before the pending-decision check,
+   * since a view that waits is the session's decision and must not become a
+   * permission card. Absent, a view call is an ordinary tool row.
+   */
+  views?: ViewFold,
 ): TranscriptGroup[] {
   const groups: TranscriptGroup[] = []
   for (const item of items) {
     if (item.kind === 'message') {
       groups.push({ kind: 'message', key: item.key, item })
+      continue
+    }
+    const viewId = views && item.toolUse.toolName === VIEW_TOOL && item.toolUse.toolUseId
+      ? views.viewOf.get(item.toolUse.toolUseId)
+      : undefined
+    if (views && viewId !== undefined) {
+      const toolUseId = item.toolUse.toolUseId!
+      const target = views.latest.get(viewId)
+      if (views.superseded.has(toolUseId) && target !== undefined) {
+        const title = readShowView(item.toolUse.toolInput)?.title.trim() || 'View'
+        groups.push({ kind: 'view-updated', key: item.key, item, viewId, title, targetToolUseId: target })
+      } else {
+        groups.push({ kind: 'view', key: item.key, item, viewId })
+      }
       continue
     }
     if (item.toolUse.toolName === QUESTION_TOOL_NAME) {
@@ -447,6 +501,12 @@ export interface TranscriptViewProps {
    * 2026-11-09-worktree-setup-in-background-design).
    */
   afterFirstTurn?: ReactNode
+  /**
+   * ⤢ on a generated view: the phone opens its own viewer. Absent, the
+   * desktop's maximised media viewer opens over the transcript; on the phone
+   * surface, absent means no ⤢.
+   */
+  onMaximiseView?: (view: ViewMaximise) => void
 }
 
 /**
@@ -487,6 +547,8 @@ function groupMessageIds(group: TranscriptGroup): string {
       return group.items.flatMap((item) => [item.toolUse.id, item.toolResult?.id ?? []].flat()).join(' ')
     case 'question':
     case 'decision':
+    case 'view':
+    case 'view-updated':
       return [group.item.toolUse.id, group.item.toolResult?.id].filter(Boolean).join(' ')
     case 'model-divider':
       return ''
@@ -750,6 +812,7 @@ export function TranscriptView({
   isWaiting,
   waitCaption,
   afterFirstTurn,
+  onMaximiseView,
 }: TranscriptViewProps) {
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_MESSAGES)
   // The row under the pointer in pick mode. Forgotten when the mode ends, so
@@ -767,9 +830,15 @@ export function TranscriptView({
   // window the paired rows — never the other way around.
   const pairedAll = useMemo(() => pairMessages(messages), [messages])
   const items = useMemo(() => pairedAll.slice(-visibleCount), [pairedAll, visibleCount])
+  // Generated views, while Labs → Views is on: folded over everything held,
+  // so an update cut off by the window still marks the call it replaced.
+  // A view still waiting when Labs was turned off is drawn as a view all the
+  // same: as a tool row it would become a permission card that cannot answer it.
+  const viewsOn = useOrbital((s) => viewsEnabled(s.settings) || s.pendingDecisions[sessionId]?.kind === 'view')
+  const views = useMemo(() => (viewsOn ? foldTranscriptViews(pairedAll) : undefined), [viewsOn, pairedAll])
   const groups = useMemo(
-    () => insertModelDividers(groupToolRuns(items, pendingDecisionId)),
-    [items, pendingDecisionId],
+    () => insertModelDividers(groupToolRuns(items, pendingDecisionId, views)),
+    [items, pendingDecisionId, views],
   )
 
   // Over the FULL array: `N OF M` counts every compaction held, not only the
@@ -1060,7 +1129,23 @@ export function TranscriptView({
   // does, and the reader is deliberately no longer at the bottom. A
   // transcript paged to its start without it (the message was rewound away)
   // reports so and is left where it was — prepends keep the reader anchored.
+  // A jump asked from inside the transcript — a view's "updated below" line,
+  // a message's "from <view> ↑" — goes the same way as Show in transcript.
+  const [localJump, setLocalJump] = useState<{ messageId: string; onDone: (found: boolean) => void } | null>(null)
+  const activeJump = jumpTo ?? localJump ?? undefined
+  const jumpToView = useCallback(
+    (viewId: string) => {
+      const toolUseId = views?.latest.get(viewId)
+      const call = toolUseId ? pairedAll.find((p) => p.kind === 'tool' && p.toolUse.toolUseId === toolUseId) : undefined
+      if (!call) return
+      setLocalJump({ messageId: call.key, onDone: () => setLocalJump(null) })
+    },
+    [views, pairedAll],
+  )
+  const viewJump = useMemo(() => (views ? { jump: jumpToView, has: (viewId: string) => views.latest.has(viewId) } : null), [views, jumpToView])
+
   useLayoutEffect(() => {
+    const jumpTo = activeJump
     if (!jumpTo) return
     const el = containerRef.current && findMessageRow(containerRef.current, jumpTo.messageId)
     if (el) {
@@ -1082,7 +1167,7 @@ export function TranscriptView({
       return
     }
     void loadOlder()
-  }, [jumpTo, items, pages, loadOlder, setStick])
+  }, [activeJump, items, pages, loadOlder, setStick])
 
   // Pick mode's preview: the picked row while one is held, else the one
   // under the pointer (canvas 27a, 27b's confirmation keeps its ring).
@@ -1116,6 +1201,7 @@ export function TranscriptView({
   return (
     // The indicator sits over the scroll container, not inside it, so it does
     // not scroll away with the rows.
+    <ViewJumpContext.Provider value={viewJump}>
     <div className="relative h-full" data-text-scope="transcript">
     {/* Canvas 1b: the transcript owns the panel's 18px/22px inset and stacks
         its rows 14px apart. */}
@@ -1225,6 +1311,18 @@ export function TranscriptView({
             toolResult={group.item.toolResult}
             readOnly={readOnly || offline}
           />
+        ) : group.kind === 'view' ? (
+          <ViewRow
+            sessionId={sessionId}
+            viewId={group.viewId}
+            toolUse={group.item.toolUse}
+            toolResult={group.item.toolResult}
+            surface={phone ? 'phone' : 'panel'}
+            offline={offline || readOnly}
+            onMaximise={onMaximiseView}
+          />
+        ) : group.kind === 'view-updated' ? (
+          <ViewUpdatedRow title={group.title} onJump={() => jumpToView(group.viewId)} />
         ) : group.kind === 'decision' ? (
           <PermissionCard
             sessionId={sessionId}
@@ -1350,5 +1448,6 @@ export function TranscriptView({
       }}
     />
     </div>
+    </ViewJumpContext.Provider>
   )
 }

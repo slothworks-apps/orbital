@@ -5,7 +5,7 @@ import { useSessionMedia } from '../../store/media'
 import { useOrbital } from '../../store/store'
 import { CantShow } from '../files/CantShow'
 import { ImageViewer } from '../files/ImageViewer'
-import { mediaItemFor } from '../files/mediaPaging'
+import { pagedMediaFor } from '../files/mediaPaging'
 import { MediaPager } from '../files/MediaPager'
 import { PdfPage } from '../files/PdfViewer'
 import { fileKindOf } from '../files/route'
@@ -81,7 +81,7 @@ export function FileScreen() {
 
   const message = item.messageId ? messages.find((m) => m.id === item.messageId) : undefined
   const kind = item.ref ? 'image' : item.path ? fileKindOf(item.path) : null
-  const listed = kind === 'image' || kind === 'pdf' ? mediaItemFor(item, media, fromSession) : undefined
+  const listed = pagedMediaFor(item, kind, media, fromSession)
   const caption = [title, clock(message?.timestamp)].filter(Boolean).join(' ')
 
   if (listed && media) {

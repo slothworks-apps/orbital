@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
-  MEDIA_SOURCES,
   SOURCE_LABELS,
+  listedSources,
   mediaClock,
   mediaCount,
   mediaTileCaption,
@@ -15,6 +15,7 @@ import {
 } from '../../lib/media'
 import type { MediaItem } from '../../lib/types'
 import { GoneMark, MediaPicture, NothingShown, TileCaption, isGone, tileTag, tileTitle } from '../../panels/MediaParts'
+import { ViewGlyph } from '../../panels/ViewParts'
 import { useHiddenSources, useSessionMedia } from '../../store/media'
 import { useOrbital } from '../../store/store'
 import { pushedTop, useMobile } from '../state'
@@ -136,13 +137,13 @@ function SourcesSheet({
   const toggle = (key: MediaSourceKey) =>
     onChange(hidden.includes(key) ? hidden.filter((k) => k !== key) : [...hidden, key])
   return (
-    <BottomSheet label="Show images from" onDismiss={onClose}>
+    <BottomSheet label="Show media from" onDismiss={onClose}>
       <div className="pb-[26px]">
         <div className="flex items-center px-2.5 pb-2 pt-0.5 font-mono fs-10 tracking-[0.18em] text-ink-900/60">
-          <span className="flex-1">SHOW IMAGES FROM</span>
+          <span className="flex-1">SHOW MEDIA FROM</span>
           <span className="tracking-[0.04em]">{mediaCount(summary)}</span>
         </div>
-        {MEDIA_SOURCES.map((key) => {
+        {listedSources(items).map((key) => {
           const empty = counts[key] === 0
           const on = sourceShown(key, hidden, counts) && !empty
           const detail = sourceDetail(key, items)
@@ -161,6 +162,12 @@ function SourcesSheet({
             >
               {key === 'subagent' && (
                 <span aria-hidden className="block h-2 w-2 flex-none rounded-full border-[1.4px] border-current" />
+              )}
+              {key === 'view' && (
+                // 69d: the Views row carries the window glyph.
+                <span className="flex flex-none">
+                  <ViewGlyph />
+                </span>
               )}
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span>{SOURCE_LABELS[key]}</span>

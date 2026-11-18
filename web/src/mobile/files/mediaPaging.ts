@@ -1,6 +1,7 @@
 import { matchMediaItem, positionIn } from '../../lib/media'
 import type { MediaItem } from '../../lib/types'
 import type { PushedOf } from '../state'
+import type { FileKind } from './route'
 
 /**
  * Which listed media item a pushed file is (spec 2026-10-09-session-media-design
@@ -35,4 +36,22 @@ export function stepMedia(order: readonly MediaItem[], all: readonly MediaItem[]
   const at = positionIn(order, all, currentId)
   if (at < 0) return null
   return order[Math.min(order.length - 1, Math.max(0, at + delta))].id
+}
+
+/**
+ * The listed item the file screen pages from (`mediaItemFor`), for what it
+ * pushed: an image or a PDF by its ref or path, or a generated view the
+ * gallery named by its id — a view has neither (spec
+ * 2026-11-18-generated-views-design § Media).
+ */
+export function pagedMediaFor(
+  item: Pick<PushedOf<'file'>, 'path' | 'ref' | 'cwd' | 'messageId' | 'mediaId'>,
+  kind: FileKind | null,
+  items: readonly MediaItem[] | undefined,
+  fromSession: boolean,
+): MediaItem | undefined {
+  if (kind === 'image' || kind === 'pdf') return mediaItemFor(item, items, fromSession)
+  if (item.mediaId === undefined) return undefined
+  const named = mediaItemFor(item, items, fromSession)
+  return named?.kind === 'view' ? named : undefined
 }

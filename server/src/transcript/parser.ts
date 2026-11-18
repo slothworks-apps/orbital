@@ -1,4 +1,5 @@
 import type { ChatMessage, ImageRefEntry } from '../types.js';
+import { VIEW_MESSAGE_BLOCK } from '@orbital/shared/views';
 import type { ImageWriter } from '../images/store.js';
 import {
   AUTHENTICATION_FAILED, STOP_HOOK_EVENT, designLoginLine, isDesignSyncTool, loginLostNotice, messageFromLocalCommandEntry,
@@ -260,6 +261,8 @@ const ATTACHED_FILES_BLOCK = /(?:^|\n\n)Attached files:\n(?:- \/[^\n]*(?:\n|$))+
 export function cleanTitle(text: string): string {
   text = text
     .trimEnd()
+    // A message sent from a generated view (`viewMessageText`, `viewErrorText`).
+    .replace(VIEW_MESSAGE_BLOCK, '')
     .replace(ATTACHED_FILES_BLOCK, '')
     .replace(IDE_SELECTION_BLOCK, '')
     .replace(IDE_OPEN_FILE_LINE, '')

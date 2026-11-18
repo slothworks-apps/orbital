@@ -37,6 +37,8 @@ import { PhoneToolRowContext } from '../../panels/ToolRow'
 import { QuestionCardPhoneContext } from '../../panels/QuestionCard'
 import { LoginNoticeContext } from '../../panels/LoginNotice'
 import { TranscriptView } from '../../panels/TranscriptView'
+import type { ViewMaximise } from '../../panels/ViewRow'
+import { viewMediaId } from '@orbital/shared/media'
 import { useMedia } from '../../store/media'
 import { useOrbital, type SessionEvent } from '../../store/store'
 import { FullTextTip } from '../FullTextTip'
@@ -154,6 +156,19 @@ function SessionView({ id }: { id: string }) {
     [openSubagent, id],
   )
   const handleOpenTask = useCallback((task: BackgroundTask) => openTask({ sessionId: id, taskId: task.id }), [openTask, id])
+  // ⤢ on a generated view (canvas `Feature - Views` 69e): the media viewer on
+  // its item, which pages on through the session's media. A view shown a
+  // moment ago may not be in the list held yet, so the list is asked first.
+  const openFile = useMobile((s) => s.openFile)
+  const handleMaximiseView = useCallback(
+    (view: ViewMaximise) => {
+      const mediaId = viewMediaId(view.viewId)
+      const open = () => openFile({ sessionId: id, path: null, line: null, messageId: view.messageId, mediaId })
+      if (useMedia.getState().lists[id]?.some((m) => m.id === mediaId)) open()
+      else void useMedia.getState().load(id).then(open)
+    },
+    [openFile, id],
+  )
 
   // Removing the session's worktree (canvas 63g CLEANUP): one read for the row and its sheet.
   const cleanup = useWorktreeCleanup(session, offline)
@@ -250,6 +265,7 @@ function SessionView({ id }: { id: string }) {
         onOpenSubagent={handleOpenSubagent}
         backgroundTasks={session?.backgroundTasks ?? NO_TASKS}
         onOpenTaskOutput={handleOpenTask}
+        onMaximiseView={handleMaximiseView}
         footer={
           session ? (
             <>

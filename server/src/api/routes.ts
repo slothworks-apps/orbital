@@ -23,6 +23,9 @@ import { isBareFileName } from '@orbital/shared/paths';
 import { createDirectory, directoryState, listDirs } from '../files/directory.js';
 import { locateOnDisk } from '../media/items.js';
 import { SubagentMedia, sessionMedia, type SessionMediaContext } from '../media/sessionMedia.js';
+import { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY, VIEW_SEND_MAX_BYTES, readCdnHosts, viewValueBytes } from '@orbital/shared/views';
+import { viewMediaItems, type ViewsService } from '../views/service.js';
+import { registerViewRoutes } from '../views/routes.js';
 import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
 import type { OrbitalDb } from '../db/database.js';
@@ -247,6 +250,11 @@ export interface RouteContext {
    */
   progress?: ProgressService;
   /**
+   * Generated views (spec 2026-11-18-generated-views-design). Absent, their
+   * routes are not registered and the media list carries none.
+   */
+  views?: ViewsService;
+  /**
    * The settings the group shares (spec 2026-10-24-group-shared-settings-design):
    * a local change of one is stamped and pushed, and members read and push
    * them on `/api/settings/shared`. Absent, nothing is shared and those routes do not exist.
@@ -301,6 +309,19 @@ export function settingsChangedEffects(
   if (changed.has(PR_SETTING) || changed.has(LINES_SETTING)) ctx.branchStatus.settingsChanged();
   // Turned off, the browser bridge drops every extension connected.
   if (changed.has(BROWSER_BRIDGE_SETTING)) ctx.browser?.settingsChanged();
+}
+
+/** Whether a `views_cdn_hosts` value is a list `readCdnHosts` reads back unchanged; empty is none. */
+export function cdnHostsRoundTrip(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  if (value.trim() === '') return true;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return false;
+  }
+  return JSON.stringify(readCdnHosts(value)) === JSON.stringify(parsed);
 }
 
 const SIMULATED_OUTCOMES = new Set<string>(['success', 'success_no_post_tokens', 'failed', 'failed_no_error']);
@@ -698,6 +719,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     ctx.harness.sessionEnded(id);
     ctx.limits?.drop(id);
     ctx.logins?.forget(id);
+    ctx.views?.forget([id]);
     ctx.terminals.closeSession(id);
     // The setup's row stays while its rollback runs: `discard` deletes it after.
     deleteSessions(db, [id], { keepSetup: true });
@@ -831,6 +853,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return failures.length ? mergeCompactionFailures(messages, failures) : messages;
   }
 
+  // A view's calls are read off the same parsed transcript.
+  ctx.views?.readMessagesWith((id) => readBranchOf(id)?.messages ?? null);
+
   function readTranscriptMessages(id: string): ChatMessage[] | null {
     const read = readBranchOf(id);
     return read && withCompactionFailures(id, read.messages, null);
@@ -933,6 +958,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     presentTranscript,
     locate: (id, row) => locateOnDisk((cwd) => sandboxesOf(row, cwd), namedBy(id, row)),
     subagents: (id, row) => subagentMedia.read(ctx.transcriptPath(id, row.project_dir, row.claude_dir_id)),
+    views: viewMediaItems,
   };
 
   // Every image and PDF of the session and its subagents, oldest first (specs
@@ -941,9 +967,15 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // is one the panel can scroll to. A path a reply named or a call wrote is
   // located within the file routes' bounds; one the session may not show is
   // left out.
+  //
+  // `?views=1`: the client reads view items (spec 2026-11-18-generated-views-design
+  // § Phone) — a shipped phone would take one for an image. Listed only while
+  // the Labs switch is on, as the transcript draws them only then.
   app.get('/api/sessions/:id/media', (req, reply) => {
     const { id } = req.params as { id: string };
-    const items = sessionMedia(mediaCtx, id);
+    const views = (req.query as { views?: unknown }).views === '1' && ctx.views !== undefined
+      && ctx.settings.get(VIEWS_ENABLED_KEY) === 'true';
+    const items = sessionMedia(mediaCtx, id, { views });
     if (!items) return reply.code(404).send({ error: 'not found' });
     return { items };
   });
@@ -2567,12 +2599,40 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // The lookup comes first now: which body is valid depends on the kind, so
     // there is nothing to check a payload against until the decision is known.
     // A session with nothing parked is still the same 404 it always was.
-    const pending = ctx.runner.pendingDecision(id);
+    let pending = ctx.runner.pendingDecision(id);
+    // A waiting view is answered by its own id while a decision is shown in front of it.
+    if (pending && pending.id !== decisionId) pending = ctx.runner.waitingView(id);
     if (!pending || pending.id !== decisionId) return reply.code(404).send({ error: 'not found' });
-    const body = (req.body ?? {}) as { answers?: unknown; approved?: unknown; message?: unknown };
+    const body = (req.body ?? {}) as { answers?: unknown; approved?: unknown; message?: unknown; value?: unknown };
 
     let answer: DecisionAnswer;
-    if (pending.kind === 'question') {
+    if (pending.kind === 'view') {
+      // A waiting view (spec 2026-11-18-generated-views-design § The bridge):
+      // `{value}`, what the page sent, or `{approved: false}`, closed unsent.
+      // A phone from before views (0.26.1 and older) draws it as a permission
+      // card: its refusal with a reason answers the view in words
+      // (`Runner.answerDecision`), and its approval, which carries nothing to
+      // answer with, is refused in words the phone shows.
+      if (body.approved === false) {
+        if (body.message !== undefined && typeof body.message !== 'string') {
+          return reply.code(400).send({ error: 'message must be a string' });
+        }
+        answer = { approved: false, ...(typeof body.message === 'string' ? { message: body.message } : {}) };
+      } else {
+        if (!Object.prototype.hasOwnProperty.call(body, 'value') || body.value === undefined) {
+          return reply.code(400).send({
+            error: body.approved === true
+              ? 'This is a view waiting for an answer from its page. Type the answer instead, or update Orbital on this phone to use the view.'
+              : 'view_needs_value',
+          });
+        }
+        const bytes = viewValueBytes(body.value);
+        if (bytes === null || bytes > VIEW_SEND_MAX_BYTES) {
+          return reply.code(400).send({ error: 'value_too_large' });
+        }
+        answer = { value: body.value };
+      }
+    } else if (pending.kind === 'question') {
       const { answers } = body;
       if (
         !answers ||
@@ -3463,6 +3523,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     // The default must name a configured directory; nothing is saved when it does not.
     const patch = req.body as Record<string, string>;
+    // The views' CDN hosts are stored only as `readCdnHosts` reads them back:
+    // a list it would quietly shorten or rewrite is refused instead.
+    if (VIEWS_CDN_HOSTS_KEY in patch && !cdnHostsRoundTrip(patch[VIEWS_CDN_HOSTS_KEY])) {
+      return reply.code(400).send({ error: 'invalid_cdn_hosts' });
+    }
     if (DEFAULT_CLAUDE_DIR_KEY in patch && ctx.claudeDirs.resolveId(patch[DEFAULT_CLAUDE_DIR_KEY]) === null) {
       return reply.code(400).send({ error: 'unknown_claude_dir' });
     }
@@ -3551,6 +3616,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { count: ctx.retention.preview(String(days ?? '')) };
   });
 
+  if (ctx.views) registerViewRoutes(app, { db, hub: ctx.hub, views: ctx.views, settings: ctx.settings });
   registerStatsRoutes(app, ctx);
   registerMcpRoutes(app, ctx);
   registerTerminalRoutes(app, ctx);

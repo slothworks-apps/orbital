@@ -98,8 +98,11 @@ const NO_CONTROL_CHARS = /^[^\u0000-\u001f\u007f]+$/;
  * read-only preview, or a PDF's bytes for pdf.js (spec
  * 2026-10-09-session-media-design § Phone). An older Mac refuses `pdf` at
  * this schema, and the phone reads any refusal as "can't show this here".
+ * `view-data`: a generated view's data copy, `path` being the tool_use id of
+ * the call drawn (spec 2026-11-18-generated-views-design § Phone); an older
+ * Mac refuses it the same way.
  */
-export const FileAs = z.enum(['image', 'text', 'pdf']);
+export const FileAs = z.enum(['image', 'text', 'pdf', 'view-data']);
 export type FileAs = z.infer<typeof FileAs>;
 
 export const AskMessage = z.discriminatedUnion('t', [

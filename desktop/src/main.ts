@@ -59,6 +59,7 @@ import {
 } from './lib/sessionWindows';
 import {
   classifyChildExit,
+  decideFrameNavigation,
   decideNavigation,
   decideAttach,
   decideStartup,
@@ -675,6 +676,12 @@ function confineToOrbital(contents: WebContents): void {
     if (decision === 'allow') return;
     event.preventDefault();
     if (decision === 'external') void shell.openExternal(url);
+  });
+  // A subframe — a generated view's — stays on its own page (`decideFrameNavigation`);
+  // the main frame is `will-navigate`'s above.
+  contents.on('will-frame-navigate', (event) => {
+    if (event.isMainFrame) return;
+    if (decideFrameNavigation(event.url, PORT) === 'deny') event.preventDefault();
   });
 }
 

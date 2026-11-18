@@ -98,6 +98,8 @@ const initialSnapshot: OrbitalState = {
   decisionDrafts: {},
   questionCursors: {},
   decisionVerdicts: {},
+  viewAnswers: {},
+  viewDomains: {},
   ideDismissed: {},
   browserSelections: {},
   composerDrafts: {},

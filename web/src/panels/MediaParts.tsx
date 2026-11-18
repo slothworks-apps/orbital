@@ -6,6 +6,7 @@ import type { MediaSourceKey, MediaTile } from '../lib/media'
 import {
   MEDIA_SOURCES,
   SOURCE_LABELS,
+  listedSources,
   isToolFrame,
   mediaClock,
   mediaSourceLabel,
@@ -19,6 +20,7 @@ import { useMediaSourceUrl } from '../lib/images'
 import { usePdfThumbnail } from '../lib/pdf'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { POPUP_SHELL, usePopupPosition } from '../ui/usePopupPosition'
+import { ViewGlyph } from './ViewParts'
 
 /**
  * The pieces every media surface shares (canvas `Feature - Media` 24b, 24d,
@@ -78,25 +80,45 @@ export function GoneMark({ size }: { size: GoneSize }) {
   )
 }
 
-/**
- * What fills a tile: the image cropped square, or a PDF's first page. Reports
- * a file that would not load, which the tile then draws as gone — a reply's
- * path that was never listed is checked no other way.
- */
-export function MediaPicture({
-  sessionId,
-  item,
-  onPages,
-  onGone,
-  fit = 'cover',
-}: {
+interface MediaPictureProps {
   sessionId: string
   item: MediaItem
   onPages?: (pages: number) => void
   onGone: () => void
   /** `contain` shows the whole image, letterboxed — a wide screenshot read whole rather than cropped to its middle. */
   fit?: 'cover' | 'contain'
-}) {
+}
+
+/**
+ * What fills a tile: the image cropped square, a PDF's first page, or a
+ * generated view's glyph and name (`ViewTileFace`). Reports a file that would
+ * not load, which the tile then draws as gone — a reply's path that was never
+ * listed is checked no other way.
+ */
+export function MediaPicture(props: MediaPictureProps) {
+  if (props.item.kind === 'view') return <ViewTileFace title={props.item.view?.title} named />
+  return <FilePicture {...props} />
+}
+
+/**
+ * A generated view on a tile (canvas `Feature - Views` 69d): no live page and
+ * no preview — it would run a page for every tile — the window glyph and,
+ * `named`, the view's name on the tile's floor.
+ */
+export function ViewTileFace({ title, named }: { title?: string; named: boolean }) {
+  return (
+    <span className="grid h-full w-full place-items-center">
+      <span className="flex min-w-0 flex-col items-center gap-2 p-2.5 text-ink-200/80">
+        <ViewGlyph scale={2.2} />
+        {named && (
+          <span className="line-clamp-3 text-center fs-11.5 font-semibold leading-[1.3] text-ink-100">{title || 'View'}</span>
+        )}
+      </span>
+    </span>
+  )
+}
+
+function FilePicture({ sessionId, item, onPages, onGone, fit = 'cover' }: MediaPictureProps) {
   const { url } = useMediaSourceUrl(sessionId, item, { thumb: true })
   const pdf = usePdfThumbnail(item.kind === 'pdf' ? url : null, url ? pdfKey(url, item) : '')
   const latest = useRef({ onGone, onPages })
@@ -141,6 +163,64 @@ export function MediaTileButton({
   onOpen: (item: MediaItem) => void
 }) {
   const { cover, first, count } = tile
+  if (cover.source === 'view') return <ViewTileButton item={cover} variant={variant} onOpen={onOpen} />
+  return <PictureTileButton sessionId={sessionId} tile={tile} variant={variant} onOpen={onOpen} first={first} count={count} />
+}
+
+/**
+ * A generated view's tile (canvas `Feature - Views` 69d): no live page and no
+ * preview, the window glyph and the view's name on the tile's floor, VIEW top
+ * left, the time top right, the name again as the caption.
+ */
+function ViewTileButton({ item, variant, onOpen }: { item: MediaItem; variant: TileVariant; onOpen: (item: MediaItem) => void }) {
+  const title = item.view?.title || 'View'
+  const gallery = variant === 'gallery'
+  return (
+    <button
+      type="button"
+      title={[title, mediaClock(item.ts)].filter(Boolean).join(' — ')}
+      aria-label={`Open ${title}`}
+      onClick={() => onOpen(item)}
+      className="group flex w-full min-w-0 cursor-zoom-in flex-col gap-[5px] p-0 text-left"
+    >
+      <span
+        className={[
+          'relative grid aspect-square w-full place-items-center overflow-hidden rounded-[7px] border border-line/8 bg-space/60',
+          'transition-[border-color,box-shadow] duration-[160ms] ease-[ease] group-hover:border-line/42',
+          HOVER_HALO,
+        ].join(' ')}
+      >
+        <ViewTileFace title={title} named={gallery} />
+        <span className="absolute left-[5px] top-[5px] rounded-[3px] border border-line/16 bg-panel-solid/96 px-[5px] py-px font-mono fs-8.5 tracking-[0.08em] text-ink-200/80">
+          VIEW
+        </span>
+        {gallery && (
+          <span className="absolute right-1.5 top-[5px] font-mono fs-9 text-ink-900/60">{mediaClock(item.ts)}</span>
+        )}
+      </span>
+      <span className={['min-w-0 truncate font-mono leading-[1.3] text-ink-200/80', gallery ? 'fs-10' : 'fs-9'].join(' ')}>
+        {title}
+      </span>
+    </button>
+  )
+}
+
+function PictureTileButton({
+  sessionId,
+  tile,
+  variant,
+  onOpen,
+  first,
+  count,
+}: {
+  sessionId: string
+  tile: MediaTile
+  variant: TileVariant
+  onOpen: (item: MediaItem) => void
+  first: MediaItem
+  count: number
+}) {
+  const { cover } = tile
   const [goneKey, setGoneKey] = useState<string | null>(null)
   const [pages, setPages] = useState<number | null>(null)
   const gone = isGone(cover) || goneKey === cover.id
@@ -200,6 +280,7 @@ export function MediaTileButton({
 
 /** ⚙ on the parent's own tool frames, ⚙ ×n on a stack of them; PDF · pages on a PDF that is there. */
 export function tileTag(cover: MediaItem, count: number, gone: boolean, pages: number | null): string | null {
+  if (cover.kind === 'view') return 'VIEW'
   if (isToolFrame(cover)) return count > 1 ? `⚙ ×${count}` : '⚙'
   if (count > 1) return `×${count}`
   if (cover.kind === 'pdf' && !gone) return pages ? `PDF · ${pages}` : 'PDF'
@@ -209,6 +290,7 @@ export function tileTag(cover: MediaItem, count: number, gone: boolean, pages: n
 /** 26d A: the full name, the source and the time — what the caption had to cut. */
 export function tileTitle(tile: MediaTile): string {
   const { cover, count } = tile
+  if (cover.kind === 'view') return [cover.view?.title || 'View', [mediaSourceLabel(cover), mediaClock(cover.ts)].filter(Boolean).join(' · ')].join(' — ')
   const what = count > 1 ? `${count} tool images` : (cover.path ?? (cover.kind === 'pdf' ? 'PDF' : 'Image'))
   return [what, [mediaSourceLabel(cover), mediaClock(cover.ts)].filter(Boolean).join(' · ')].join(' — ')
 }
@@ -363,8 +445,8 @@ function SourcesList({
       onClick={(event) => event.stopPropagation()}
       className={['orbital-no-drag orbital-popover-in fixed z-[70] w-[264px] overflow-hidden font-mono', POPUP_SHELL].join(' ')}
     >
-      <div className="px-3 pb-1.5 pt-[9px] fs-9.5 tracking-[0.14em] text-ink-900/55">SHOW IMAGES FROM</div>
-      {MEDIA_SOURCES.map((key) => {
+      <div className="px-3 pb-1.5 pt-[9px] fs-9.5 tracking-[0.14em] text-ink-900/55">SHOW MEDIA FROM</div>
+      {listedSources(items).map((key) => {
         const count = counts[key]
         const on = sourceShown(key, hidden, counts)
         const empty = count === 0
@@ -393,6 +475,12 @@ function SourcesList({
               </span>
               {key === 'subagent' && (
                 <span aria-hidden className="block h-[7px] w-[7px] flex-none rounded-full border-[1.3px] border-current" />
+              )}
+              {key === 'view' && (
+                // 69d: the Views row carries the window glyph.
+                <span className="flex flex-none text-ink-200/80">
+                  <ViewGlyph />
+                </span>
               )}
               <span className="flex min-w-0 flex-1 flex-col gap-px">
                 <span className="truncate">{SOURCE_LABELS[key]}</span>

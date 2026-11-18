@@ -1,6 +1,7 @@
 import type { ChatMessage, MediaItem } from './types'
 import { mediaPathsInReply } from './pathLinks'
 import { isScreenshotTool, writtenImagePaths } from '@orbital/shared/paths'
+import { VIEW_TOOL } from '@orbital/shared/views'
 
 /**
  * The pure half of a session's media (spec 2026-10-09-session-media-design;
@@ -25,8 +26,18 @@ export type MediaTarget =
  * named — so turning Subagents off hides all of a moon's output, and Tools
  * stays the parent's own tool frames.
  */
-export type MediaSourceKey = 'you' | 'tool' | 'named' | 'saved' | 'subagent'
-export const MEDIA_SOURCES: readonly MediaSourceKey[] = ['you', 'tool', 'named', 'saved', 'subagent']
+export type MediaSourceKey = 'you' | 'tool' | 'named' | 'saved' | 'subagent' | 'view'
+export const MEDIA_SOURCES: readonly MediaSourceKey[] = ['you', 'tool', 'named', 'saved', 'subagent', 'view']
+
+/**
+ * The rows the Sources list shows for these items: every source, except
+ * Views (canvas `Feature - Views` 69d) while the session has none — the
+ * server lists views only while Labs → Views is on, and a row that could
+ * never hold anything would only lengthen the list and the `n of m`.
+ */
+export function listedSources(items: readonly MediaItem[]): MediaSourceKey[] {
+  return items.some((item) => item.source === 'view') ? MEDIA_SOURCES.slice() : MEDIA_SOURCES.filter((key) => key !== 'view')
+}
 
 /** The row an item is filtered under; null for a source a newer Mac sent that this client does not know, which is always shown. */
 export function mediaSourceKey(item: Pick<MediaItem, 'source' | 'subagent'>): MediaSourceKey | null {
@@ -40,6 +51,8 @@ export function mediaSourceKey(item: Pick<MediaItem, 'source' | 'subagent'>): Me
       return 'named'
     case 'written':
       return 'saved'
+    case 'view':
+      return 'view'
     default:
       return null
   }
@@ -60,7 +73,7 @@ export function visibleMedia(items: readonly MediaItem[], hidden: readonly Media
 }
 
 export function sourceCounts(items: readonly MediaItem[]): Record<MediaSourceKey, number> {
-  const counts: Record<MediaSourceKey, number> = { you: 0, tool: 0, named: 0, saved: 0, subagent: 0 }
+  const counts: Record<MediaSourceKey, number> = { you: 0, tool: 0, named: 0, saved: 0, subagent: 0, view: 0 }
   for (const item of items) {
     const key = mediaSourceKey(item)
     if (key) counts[key]++
@@ -89,11 +102,12 @@ export interface SourcesSummary {
 
 export function sourcesSummary(items: readonly MediaItem[], hidden: readonly MediaSourceKey[]): SourcesSummary {
   const counts = sourceCounts(items)
-  const on = MEDIA_SOURCES.filter((key) => sourceShown(key, hidden, counts)).length
+  const listed = listedSources(items)
+  const on = listed.filter((key) => sourceShown(key, hidden, counts)).length
   const shown = visibleMedia(items, hidden).length
-  const filtered = on < MEDIA_SOURCES.length
+  const filtered = on < listed.length
   const label =
-    !filtered ? 'Sources: All' : shown === 0 && items.length > 0 ? 'Sources: none' : `Sources: ${on} of ${MEDIA_SOURCES.length}`
+    !filtered ? 'Sources: All' : shown === 0 && items.length > 0 ? 'Sources: none' : `Sources: ${on} of ${listed.length}`
   return { label, filtered, shown, total: items.length }
 }
 
@@ -108,6 +122,8 @@ export function mediaCount(summary: SourcesSummary): string {
  */
 export function sourceDetail(key: MediaSourceKey, items: readonly MediaItem[]): string {
   if (key === 'saved') return 'not mentioned in a reply'
+  // 69d: the Views row's line.
+  if (key === 'view') return 'written by the session'
   const names = new Set<string>()
   for (const item of items) {
     if (mediaSourceKey(item) !== key) continue
@@ -124,6 +140,7 @@ export const SOURCE_LABELS: Record<MediaSourceKey, string> = {
   named: 'Named in a reply',
   saved: 'Saved by the agent',
   subagent: 'Subagents',
+  view: 'Views',
 }
 
 /**
@@ -251,6 +268,8 @@ export function mediaArrived(arrived: readonly ChatMessage[], messages: readonly
     if (message.role !== 'tool_result' || !message.toolUseId) return false
     const call = messages.find((m) => m.role === 'tool_use' && m.toolUseId === message.toolUseId)
     if (!call?.toolName) return false
+    // A generated view is listed once its call was shown (spec 2026-11-18-generated-views-design § Media).
+    if (call.toolName === VIEW_TOOL) return !message.isError
     return (
       SUBAGENT_TOOLS.has(call.toolName) ||
       isScreenshotTool(call.toolName) ||
@@ -260,7 +279,8 @@ export function mediaArrived(arrived: readonly ChatMessage[], messages: readonly
 }
 
 /** The house clock reading (`MessageView`'s `clockTime`), or '' for a stamp `Date` cannot read. */
-export function mediaClock(ts: string): string {
+export function mediaClock(ts: string | number | undefined): string {
+  if (ts === undefined) return ''
   const at = new Date(ts)
   if (Number.isNaN(at.getTime())) return ''
   return at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -290,6 +310,8 @@ export function mediaToolLabel(tool: string): string {
 export function mediaSourceLabel(item: MediaItem): string {
   if (item.subagent) return `From moon ${item.subagent.name}`
   if (item.source === 'written') return 'Saved by the agent · not mentioned in a reply'
+  // 69d: "VIEW written by the session · <title>" — the tag and the title are the viewer's.
+  if (item.source === 'view') return 'written by the session'
   return shortSourceLabel(item)
 }
 
@@ -305,6 +327,8 @@ function shortSourceLabel(item: MediaItem): string {
       return 'Named in a reply'
     case 'written':
       return 'Saved by the agent'
+    case 'view':
+      return item.view?.title ?? 'View'
     default:
       return ''
   }

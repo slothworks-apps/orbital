@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Labs → Views: a session can show its answer as a small live page in the transcript, a chart, a table, a picker or a form, drawn in your colours. A view can ask you to pick or fill something and wait for it, fetches live data only from domains you allow, and is listed in the session's media, where it opens full size.
 
 ## [0.49.2] — 2026-11-16
 ### Changed

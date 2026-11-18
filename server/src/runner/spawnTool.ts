@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import * as z from 'zod/v4';
+import { VIEW_TOOL_NAME } from '@orbital/shared/views';
 import { archiveSessionTool, listSessionsTool, type SessionKeeper } from './sessionsTools.js';
 import { controlTools, type ControlCall } from './controlTools.js';
 import type { SessionTools } from './runner.js';
@@ -83,7 +84,7 @@ export function orbitalMcpServer(
   extra?: { tools?: SdkMcpToolDefinition<any>[]; instructions?: string; getDeviceName?: (id: string) => string | null },
 ) {
   const { spawn, keeper, control } = backs;
-  return createSdkMcpServer({
+  const server = createSdkMcpServer({
     name: ORBITAL_MCP_SERVER,
     ...(extra?.instructions ? { instructions: extra.instructions } : {}),
     tools: [
@@ -93,7 +94,20 @@ export function orbitalMcpServer(
       ...(extra?.tools ?? []),
     ],
   });
+  // A generated view that waits on the user may wait for hours, and the
+  // user's `MCP_TOOL_TIMEOUT` is for their own servers, so it must not cut
+  // it short. Only a session given `show_view` lifts it; every other keeps
+  // the CLI's timeout as before.
+  const waitsOnUser = extra?.tools?.some((t) => t.name === VIEW_TOOL_NAME) === true;
+  return waitsOnUser ? { ...server, timeout: ORBITAL_TOOL_TIMEOUT_MS } : server;
 }
+
+/**
+ * The tool-call timeout of Orbital's own MCP server: the most the CLI takes
+ * (a timer's limit, about 24 days), in place of `MCP_TOOL_TIMEOUT` or the
+ * CLI's default.
+ */
+export const ORBITAL_TOOL_TIMEOUT_MS = 2_147_483_647;
 
 /**
  * Several features' extra tools as one: each part comes from a feature that

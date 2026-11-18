@@ -21,6 +21,8 @@ export interface SessionMediaContext {
   locate(id: string, row: SessionRow): LocateMedia;
   /** Each subagent's media candidates, by the `Agent` call that launched it (`SubagentMedia`). */
   subagents(id: string, row: SessionRow): ReadonlyMap<string, MediaItem[]>;
+  /** The session's generated views as items (`viewMediaItems`); absent, none are listed. */
+  views?(messages: readonly ChatMessage[]): MediaItem[];
 }
 
 /**
@@ -92,15 +94,21 @@ function mergeByTime(lists: ReadonlyArray<readonly MediaItem[]>): MediaItem[] {
  * transcript presents — that call's row is where Show in transcript goes,
  * and a call a rewind took away takes its subagent's media with it.
  */
-export function sessionMedia(ctx: SessionMediaContext, sessionId: string): MediaItem[] | null {
+export function sessionMedia(ctx: SessionMediaContext, sessionId: string, opts: { views?: boolean } = {}): MediaItem[] | null {
   const row = ctx.row(sessionId);
   const messages = row && ctx.presentTranscript(sessionId);
   if (!row || !messages) return null;
   const locate = ctx.locate(sessionId, row);
   const main = locateMedia(mediaCandidates(messages), locate);
+  // A view is its own item beside the files, never one of them: listed only
+  // to a client that asked for views (spec 2026-11-18-generated-views-design § Media).
+  const views = opts.views && ctx.views ? ctx.views(messages) : [];
 
   const subagents = ctx.subagents(sessionId, row);
-  if (subagents.size === 0) return withoutRepeatedFiles(main);
+  if (subagents.size === 0) {
+    const files = withoutRepeatedFiles(main);
+    return views.length > 0 ? mergeByTime([files, views]) : files;
+  }
   const calls = new Map<string, ChatMessage>();
   for (const m of messages) {
     if (m.role === 'tool_use' && m.toolUseId && m.toolName && SUBAGENT_TOOLS.has(m.toolName)) calls.set(m.toolUseId, m);
@@ -116,5 +124,6 @@ export function sessionMedia(ctx: SessionMediaContext, sessionId: string): Media
     );
     if (items.length) lists.push(items);
   }
-  return withoutRepeatedFiles(mergeByTime(lists));
+  const files = withoutRepeatedFiles(mergeByTime(lists));
+  return views.length > 0 ? mergeByTime([files, views]) : files;
 }

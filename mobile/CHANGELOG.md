@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- Views a session shows on the Mac appear on the phone too: live in the transcript, full screen in the session's media, and a view waiting for you can be answered from the phone. Settings → Labs keeps the Mac's list of extra script hosts. Needs Orbital for Mac with Views.
 
 ## [0.26.1] — 2026-11-11
 ### Added

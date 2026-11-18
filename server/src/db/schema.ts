@@ -182,6 +182,24 @@ export const claudeDirs = sqliteTable('claude_dirs', {
 });
 
 /**
+ * The domains a session allowed its generated views to fetch from (spec
+ * 2026-11-18-generated-views-design § Isolation and network): one row per
+ * domain, wherever the click was made. A cleared session's successor starts
+ * with none.
+ */
+export const viewDomainApprovals = sqliteTable(
+  'view_domain_approvals',
+  {
+    sessionId: text('session_id').notNull(),
+    /** Lower case, no scheme (`normaliseLiveDomain`). */
+    domain: text('domain').notNull(),
+    /** Epoch ms. */
+    approvedAt: integer('approved_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.sessionId, table.domain] })],
+);
+
+/**
  * Orbital's fingerprint of each `.mcp.json` server the user allowed through
  * it (spec 2026-10-08-mcpjson-approval-design § Behaviour 4). The CLI keys an
  * approval by name alone; a server whose entry no longer hashes to its row

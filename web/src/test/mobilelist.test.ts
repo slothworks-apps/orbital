@@ -105,6 +105,12 @@ describe('decisionReason', () => {
     expect(decisionReason({ id: 'p', kind: 'plan', input: {}, createdAt: 1 })).toBe('plan to approve')
     expect(decisionReason({ id: 'r', kind: 'permission', input: {}, createdAt: 1, toolName: 'Bash' })).toBe('wants to run Bash')
     expect(decisionReason({ id: 'r', kind: 'permission', input: {}, createdAt: 1, title: 'Run npm test?' })).toBe('Run npm test?')
+    expect(
+      decisionReason({
+        id: 'v', kind: 'view', input: { viewId: 'v', title: 'Release latency' }, createdAt: 1,
+        toolName: 'mcp__orbital__show_view', title: 'Release latency',
+      }),
+    ).toBe('Release latency is waiting')
     expect(decisionReason(null)).toBeNull()
   })
 })
