@@ -139,8 +139,9 @@ export function TipsButton({ dim }: { dim: boolean }) {
       >
         <BulbGlyph />
       </button>
-      {/* 68b SOMETHING NEW: a 7px accent dot at the corner — no number, no motion. */}
-      {dot && (
+      {/* 68b SOMETHING NEW: a 7px accent dot at the corner — no number, no
+          motion. Not while the button is pressed (68b OPEN · CARD SHOWN). */}
+      {dot && !pressed && (
         <span
           aria-hidden
           className="pointer-events-none absolute -right-[3px] -top-[3px] box-border h-[9px] w-[9px] rounded-full border border-space/90 bg-accent"
