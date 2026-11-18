@@ -83,7 +83,7 @@ export function orbitalMcpServer(
   extra?: { tools?: SdkMcpToolDefinition<any>[]; instructions?: string; getDeviceName?: (id: string) => string | null },
 ) {
   const { spawn, keeper, control } = backs;
-  return createSdkMcpServer({
+  const server = createSdkMcpServer({
     name: ORBITAL_MCP_SERVER,
     ...(extra?.instructions ? { instructions: extra.instructions } : {}),
     tools: [
@@ -93,7 +93,18 @@ export function orbitalMcpServer(
       ...(extra?.tools ?? []),
     ],
   });
+  // The tools run in this process and end on their own; a generated view that
+  // waits on the user may wait for hours. The user's `MCP_TOOL_TIMEOUT` is
+  // for their own servers, so it must not cut these short.
+  return { ...server, timeout: ORBITAL_TOOL_TIMEOUT_MS };
 }
+
+/**
+ * The tool-call timeout of Orbital's own MCP server: the most the CLI takes
+ * (a timer's limit, about 24 days), in place of `MCP_TOOL_TIMEOUT` or the
+ * CLI's default.
+ */
+export const ORBITAL_TOOL_TIMEOUT_MS = 2_147_483_647;
 
 /**
  * Several features' extra tools as one: each part comes from a feature that

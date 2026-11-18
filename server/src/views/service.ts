@@ -17,7 +17,7 @@ import { transform } from 'sucrase';
 import { TOKENS } from '@orbital/shared/colourTokens';
 import type { MediaItem } from '@orbital/shared/media';
 import {
-  VIEW_BUILTIN_CDN_HOSTS, VIEW_DATA_INLINE_REST_MAX, VIEW_TOOL, VIEW_TOOL_NAME, clampViewHeight, foldViews,
+  VIEW_BUILTIN_CDN_HOSTS, VIEW_DATA_INLINE_REST_MAX, VIEW_PAYLOAD_MAX_BYTES, VIEW_SEND_MAX_CHARS, VIEW_TOOL, VIEW_TOOL_NAME, clampViewHeight, foldViews,
   normaliseLiveDomain, readShowView, readViewResult, showViewRefusal, showViewShape, viewDataFormat, viewIdOf,
   viewResultText, type ShowViewCheck, type ShowViewInput, type ViewCall, type ViewPayload, type ViewResult,
 } from '@orbital/shared/views';
@@ -40,6 +40,35 @@ const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 /** The key the CLI puts a tool call's tool_use id under in the MCP request's `_meta`. */
 const TOOL_USE_ID_META = 'claudecode/toolUseId';
+
+/**
+ * What a payload carries beside its page and its inline data — ids, title,
+ * domains, CDN hosts, a short result — kept free of `VIEW_PAYLOAD_MAX_BYTES`
+ * when a call is checked. A waiting view also keeps room for what is sent
+ * back (`VIEW_SEND_MAX_CHARS`, the page's own bound).
+ */
+const PAYLOAD_METADATA_BYTES = 16 * 1024;
+
+/** A value's size serialised, in UTF-8 bytes. */
+function jsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value) ?? '');
+}
+
+/**
+ * Why a page is too large for its payload, or null when it fits: the compiled
+ * script or the html, with the inline `data`, measured as the payload carries
+ * them, against `VIEW_PAYLOAD_MAX_BYTES` less the room metadata and a sent
+ * value need. A `dataFile` is not counted: it rides outside when it does not fit.
+ */
+export function viewPageTooLarge(page: { script?: string; html?: string; data?: unknown; wait?: boolean }): string | null {
+  const room = VIEW_PAYLOAD_MAX_BYTES - PAYLOAD_METADATA_BYTES - (page.wait === true ? VIEW_SEND_MAX_CHARS : 0);
+  const bytes = jsonBytes({ script: page.script, html: page.html, data: page.data });
+  if (bytes <= room) return null;
+  return (
+    `The view comes to ${bytes} bytes${page.script !== undefined ? ' compiled' : ''} with its inline data; the most is ${room}. ` +
+    `Write the data to a .json or .csv file and pass it as \`dataFile\`, and keep the page smaller. ${RETRY}`
+  );
+}
 
 /** Transcripts whose calls are kept read, by path and stamp. */
 const TRANSCRIPT_ENTRIES = 64;
@@ -418,6 +447,9 @@ export class ViewsService {
       if (!compiled.ok) return refuse(`${compiled.error}\n${RETRY}`);
       script = compiled.script;
     }
+    // The payload has to fit one relay frame for the phone (spec § Phone).
+    const tooLarge = viewPageTooLarge({ ...(script !== null ? { script } : { html: input.html }), data: input.data, wait: input.wait });
+    if (tooLarge) return refuse(tooLarge);
     let dataText: string | null = null;
     const format = dataPath ? viewDataFormat(dataPath) : null;
     if (dataPath && format === 'json') {
@@ -504,7 +536,7 @@ export class ViewsService {
       ? null
       : (record.resultText !== undefined ? readViewResult(record.resultText) : null) ?? memory?.result ?? null;
 
-    return {
+    const payload: ViewPayload = {
       viewId,
       toolUseId,
       title: input.title.trim(),
@@ -519,6 +551,13 @@ export class ViewsService {
       waiting,
       result,
     };
+    // A data copy rides inside only while the whole payload fits one relay
+    // frame; past it, the client fetches it on its own.
+    const data = payload.data;
+    if (data && data.format !== 'inline' && data.inline && jsonBytes(payload) > VIEW_PAYLOAD_MAX_BYTES) {
+      payload.data = { format: data.format, bytes: data.bytes, inline: false };
+    }
+    return payload;
   }
 
   /** The payload's data: inline as the call gave it, or the copy — inline when small, fetched on its own when not. */

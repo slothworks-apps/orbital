@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  VIEW_DATA_FILE_MAX_BYTES, VIEW_DATA_INLINE_REST_MAX, VIEW_TOOL, readViewResult, viewMessageText, type ViewPayload,
+  VIEW_DATA_FILE_MAX_BYTES, VIEW_DATA_INLINE_REST_MAX, VIEW_PAYLOAD_MAX_BYTES, VIEW_TOOL, readViewResult, viewMessageText, type ViewPayload,
 } from '@orbital/shared/views';
 import { Hub } from '../src/api/hub.js';
 import { sessions } from '../src/db/schema.js';
 import { createPhoneFileReader } from '../src/remote/phoneFiles.js';
 import { Runner, type PendingDecision } from '../src/runner/runner.js';
+import { ORBITAL_TOOL_TIMEOUT_MS, orbitalMcpServer } from '../src/runner/spawnTool.js';
 import { cleanTitle, entriesToMessages, parseTranscript } from '../src/transcript/parser.js';
 import {
   SUBAGENT_REFUSAL, VIEWS_OFF_REFUSAL, ViewsService, compileViewComponent, viewMediaItems,
@@ -113,6 +114,27 @@ describe('show_view', () => {
     expect(service.payload('s1', 'toolu_2', extras)?.data).toMatchObject({ format: 'json', inline: false });
     expect(service.payload('s1', 'toolu_2', extras)?.data?.value).toBeUndefined();
     expect(service.dataCopy('s1', 'toolu_2')?.format).toBe('json');
+  });
+
+  it('keeps every payload within one relay frame: a data copy rides outside past it, a page too large is refused', async () => {
+    const { call, cwd, service } = makeService();
+    // Under VIEW_PAGE_MAX_CHARS in characters, past the payload's budget in UTF-8 bytes.
+    const wide = await call('toolu_w', { title: 'T', html: `<p>${'ž'.repeat(110_000)}</p>` });
+    expect(wide.isError).toBe(true);
+    expect(textOf(wide)).toMatch(/bytes/);
+    const component = `export default function V() { return <p>{${JSON.stringify('é'.repeat(70_000))}}</p> }`;
+    expect(textOf(await call('toolu_c', { title: 'T', component, wait: true }))).toMatch(/compiled/);
+
+    // Under VIEW_DATA_INLINE_REST_MAX on its own.
+    writeFileSync(join(cwd, 'rows.csv'), 'a,b\n'.repeat(25_000));
+    await call('toolu_1', { title: 'T', html: `<p>${'x'.repeat(100_000)}</p>`, dataFile: 'rows.csv' });
+    const big = service.payload('s1', 'toolu_1', extras)!;
+    expect(big.data).toMatchObject({ format: 'csv', inline: false });
+    expect(big.data?.text).toBeUndefined();
+    expect(Buffer.byteLength(JSON.stringify(big))).toBeLessThanOrEqual(VIEW_PAYLOAD_MAX_BYTES);
+    // The same copy beside a small page still rides inside.
+    await call('toolu_2', { title: 'T', html: HTML, dataFile: 'rows.csv' });
+    expect(service.payload('s1', 'toolu_2', extras)?.data).toMatchObject({ format: 'csv', inline: true });
   });
 
   it('updates a view with replaces, resolving a later call to the view, and refuses an unknown one', async () => {
@@ -349,5 +371,11 @@ describe('Runner.parkView', () => {
   it('answers cancelled at once for a session it does not run', async () => {
     const runner = new Runner({ hub: new Hub(), queryFn: fakeQueryFnAsking().fn as any, newSessionId: () => 'web-1' });
     expect(await runner.parkView('nope', 'toolu_v', { viewId: 'toolu_v', title: 'T' })).toMatchObject({ outcome: 'cancelled' });
+  });
+});
+
+describe("Orbital's MCP server", () => {
+  it("carries its own tool-call timeout, so the user's MCP_TOOL_TIMEOUT cannot cut a waiting view", () => {
+    expect(orbitalMcpServer('s1', {})).toMatchObject({ type: 'sdk', timeout: ORBITAL_TOOL_TIMEOUT_MS });
   });
 });

@@ -44,6 +44,13 @@ export const VIEW_DATA_FILE_MAX_BYTES = 10 * 1024 * 1024;
  * (`ViewDataSource.data`, `file_get` as `view-data` on the phone).
  */
 export const VIEW_DATA_INLINE_REST_MAX = 192 * 1024;
+/**
+ * The most a `ViewPayload` may come to, serialised, in UTF-8 bytes: it has to
+ * fit one relay frame (`MAX_FRAME_BYTES` in `remote/frame.ts`) with room for
+ * the envelope. A data copy that would push it past rides outside it
+ * (`data.inline` false); a page that would on its own is refused at call time.
+ */
+export const VIEW_PAYLOAD_MAX_BYTES = 200 * 1024;
 /** The longest value one `orbital.send` may carry, serialised; a longer one is refused in the page. */
 export const VIEW_SEND_MAX_CHARS = 64_000;
 /** The most domains one call may ask to fetch from. */
