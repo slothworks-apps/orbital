@@ -447,10 +447,12 @@ const PLAN_TOOL = 'ExitPlanMode';
 
 /**
  * What kind of surface a parked decision needs. The `kind` on the envelope the
- * spec left as an extension point, now with all three of its values
- * (spec 2026-09-23-permission-and-plan-decisions-design).
+ * spec left as an extension point (spec
+ * 2026-09-23-permission-and-plan-decisions-design); `view` is a generated
+ * view that waits on the user (spec 2026-11-18-generated-views-design), parked
+ * by its tool, never by `decisionKindFor`.
  */
-export type DecisionKind = 'question' | 'permission' | 'plan';
+export type DecisionKind = 'question' | 'permission' | 'plan' | 'view';
 
 /**
  * Which surface a tool's ask belongs on. Total by design: any tool that is not

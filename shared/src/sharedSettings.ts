@@ -38,6 +38,8 @@ export const SHARED_SETTING_KEYS: readonly string[] = [
   'worktree_auto_on_when_occupied',
   // Labs (spec 2026-11-09-progress-list-design).
   'progress_list_enabled',
+  // Labs (spec 2026-11-18-generated-views-design).
+  'views_enabled',
 ];
 
 /**
@@ -69,6 +71,8 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   'worktree_copy_patterns', 'worktree_dismissed',
   // The browser bridge: the extension pairs with this Mac's server, and its browser sits beside this Mac.
   'browser_bridge_enabled',
+  // Generated views: the CDN hosts the Mac's sessions load scripts from; the phone edits the Mac's list.
+  'views_cdn_hosts',
 ];
 
 const PER_DEVICE_PREFIXES = ['remote_', 'new_session_last_'];

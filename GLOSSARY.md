@@ -29,3 +29,12 @@ _Avoid_: checklist, plan, task list, todo list
 One entry of a progress list: pending, in progress, done or dropped. A dropped
 item stays on the list, struck through, with the reason it was dropped.
 _Avoid_: step, task, todo
+
+## Showing what a session made
+
+**View**:
+A small HTML page an Orbital session writes for one purpose, hands its data,
+and shows live in its transcript, in the user's colours; what the user does
+in it can go back to the session. Updating a view replaces it: it is one
+thing, not a series of versions.
+_Avoid_: widget, artifact, app, canvas, render

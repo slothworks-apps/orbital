@@ -52,6 +52,8 @@ export function createPhoneFileReader(
 ): PhoneFileReader {
   const namedPaths = new NamedPathCache(PHONE_NAMED_PATH_CACHE_ENTRIES);
   return (session, path, as, cwd) => {
+    // A view's data copy is named by its call, not by a path: never read as a file here.
+    if (as === 'view-data') return { status: 404 };
     const row = db
       .select({
         id: sessions.id, cwd: sessions.cwd, project_dir: sessions.projectDir, claude_dir_id: sessions.claudeDirId,

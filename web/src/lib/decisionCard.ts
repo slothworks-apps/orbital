@@ -1,4 +1,4 @@
-import type { PendingVerdictDecision } from './types'
+import type { PendingVerdictDecision, PendingViewDecision } from './types'
 
 /**
  * The `PermissionCard`'s state machine, extracted from the component so the
@@ -21,8 +21,8 @@ export const DECLINE_TEXT_CAP = 500
  * by the kind rather than by the tool — a row of chips that all read `BASH`
  * says nothing the row below it does not.
  */
-export function decisionChipLabel(kind: 'permission' | 'plan'): string {
-  return kind === 'plan' ? 'PLAN' : 'PERMISSION'
+export function decisionChipLabel(kind: 'permission' | 'plan' | 'view'): string {
+  return kind === 'plan' ? 'PLAN' : kind === 'view' ? 'VIEW' : 'PERMISSION'
 }
 
 /**
@@ -34,7 +34,9 @@ export function decisionChipLabel(kind: 'permission' | 'plan'): string {
  * assembles from raw input would be guessing, and the detail block below the
  * headline shows the whole input anyway.
  */
-export function decisionHeadline(decision: PendingVerdictDecision): string {
+export function decisionHeadline(decision: PendingVerdictDecision | PendingViewDecision): string {
+  // A waiting view (spec 2026-11-18-generated-views-design): its title is the view's, not a sentence.
+  if (decision.kind === 'view') return `${decision.title.trim() || 'A view'} is waiting for you`
   if (decision.title?.trim()) return decision.title.trim()
   if (decision.kind === 'plan') return 'Claude has a plan and wants to start on it'
   const tool = decision.toolName?.trim()
@@ -102,14 +104,16 @@ export function declineVerdict(text: string): { approved: false; message?: strin
  * refusal with a reason in it, never an approval (spec § Answering), and the
  * hint has to say so before someone presses ⏎ expecting the opposite.
  */
-export function composerHintFor(kind: 'permission' | 'plan'): string {
+export function composerHintFor(kind: 'permission' | 'plan' | 'view'): string {
+  if (kind === 'view') return '⏎ sends this as your answer · ⇧⏎ newline'
   return kind === 'plan'
     ? '⏎ sends this back as plan feedback · ⇧⏎ newline'
     : '⏎ declines with your reason · ⇧⏎ newline'
 }
 
 /** The composer's placeholder while a verdict decision is parked. */
-export function composerPlaceholderFor(kind: 'permission' | 'plan'): string {
+export function composerPlaceholderFor(kind: 'permission' | 'plan' | 'view'): string {
+  if (kind === 'view') return 'Answer in words instead…'
   return kind === 'plan'
     ? 'Say what the plan is missing, or approve it above…'
     : 'Say what to do instead, or answer above…'
