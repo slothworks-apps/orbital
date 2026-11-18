@@ -51,8 +51,19 @@ export const VIEW_DATA_INLINE_REST_MAX = 192 * 1024;
  * (`data.inline` false); a page that would on its own is refused at call time.
  */
 export const VIEW_PAYLOAD_MAX_BYTES = 200 * 1024;
-/** The longest value one `orbital.send` may carry, serialised; a longer one is refused in the page. */
-export const VIEW_SEND_MAX_CHARS = 64_000;
+/**
+ * The most one `orbital.send` value may come to, serialised, in UTF-8 bytes
+ * (`viewValueBytes`): the page refuses a larger one, and so does the Mac's
+ * decision route.
+ */
+export const VIEW_SEND_MAX_BYTES = 64 * 1024;
+/**
+ * The most of a call's result a payload or a `decision_resolved` event echoes
+ * back, in UTF-8 bytes (`echoViewResult`): a client shows only a line of it,
+ * and the composer's words answering a waiting view have no bound of their
+ * own. The agent always gets the whole of it in its tool result.
+ */
+export const VIEW_RESULT_ECHO_MAX_BYTES = 4 * 1024;
 /** The most domains one call may ask to fetch from. */
 export const VIEW_LIVE_DOMAINS_MAX = 8;
 /** The longest title a view may carry. */
@@ -342,6 +353,72 @@ export function viewResultText(result: ViewResult): string {
   }
 }
 
+/** A string's size in UTF-8 bytes. */
+export function utf8Bytes(text: string): number {
+  let bytes = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+/** A value's size as `orbital.send` serialises it, in UTF-8 bytes; null for one JSON cannot carry. */
+export function viewValueBytes(value: unknown): number | null {
+  let text: string | undefined;
+  try {
+    text = JSON.stringify(value === undefined ? null : value);
+  } catch {
+    return null;
+  }
+  return typeof text === 'string' ? utf8Bytes(text) : null;
+}
+
+/** The longest start of `text` that, with a closing `…`, fits `maxBytes` UTF-8 bytes; `text` itself when it fits. */
+function cutToBytes(text: string, maxBytes: number): string {
+  if (utf8Bytes(text) <= maxBytes) return text;
+  const room = maxBytes - 3;
+  let bytes = 0;
+  let end = 0;
+  for (const ch of text) {
+    const size = utf8Bytes(ch);
+    if (bytes + size > room) break;
+    bytes += size;
+    end += ch.length;
+  }
+  return `${text.slice(0, end)}…`;
+}
+
+/**
+ * A result as a client is handed it back (`ViewPayload.result`, the
+ * `decision_resolved` event): what the user sent or typed cut to
+ * `maxBytes`. A sent value too large is replaced by the start of its JSON,
+ * as a string — the client shows a summary line of it, nothing more.
+ */
+export function echoViewResult(result: ViewResult, maxBytes = VIEW_RESULT_ECHO_MAX_BYTES): ViewResult {
+  switch (result.outcome) {
+    case 'sent': {
+      const bytes = viewValueBytes(result.value);
+      if (bytes !== null && bytes <= maxBytes) return result;
+      let text: string;
+      try {
+        text = JSON.stringify(result.value === undefined ? null : result.value) ?? 'null';
+      } catch {
+        text = '';
+      }
+      // Serialised again, the string is quoted, and each quote or backslash in it
+      // doubled (the JSON text has no control characters left to escape).
+      return { ...result, value: cutToBytes(text, Math.floor((maxBytes - 2) / 2)) };
+    }
+    case 'answered':
+      return { ...result, text: cutToBytes(result.text, maxBytes) };
+    case 'cancelled':
+      return { ...result, reason: cutToBytes(result.reason, maxBytes) };
+    case 'shown':
+      return result;
+  }
+}
+
 const RESULT_HEAD = /^View (\S+): ([^\n]*)/;
 const SENT_BLOCK = /^(`{3,})json\n([\s\S]*)\n\1$/;
 
@@ -532,6 +609,12 @@ export function readCdnHosts(stored?: string | null): CdnHost[] {
  * `connect`: the approved domains the page may fetch from, `'none'` when
  * none. Every host is checked again here, so nothing stored or sent can add
  * a directive of its own.
+ *
+ * `data:` is among the script sources: a React view's React packages and its
+ * component are modules the import map serves as data: URLs, and Chromium
+ * checks a module's URL against `script-src`. It adds nothing a page could
+ * not already do with `'unsafe-inline'` and `'unsafe-eval'` in a sandboxed
+ * frame.
  */
 export function viewCsp({ cdnHosts, connect }: { cdnHosts: readonly string[]; connect: readonly string[] }): string {
   const origins = (hosts: Iterable<string>) => [...new Set(hosts)].map((host) => `https://${host}`);
@@ -540,7 +623,7 @@ export function viewCsp({ cdnHosts, connect }: { cdnHosts: readonly string[]; co
   const list = (...parts: string[][]) => parts.flat().join(' ');
   return [
     `default-src 'none'`,
-    `script-src ${list(["'unsafe-inline'", "'unsafe-eval'"], cdn)}`,
+    `script-src ${list(["'unsafe-inline'", "'unsafe-eval'", 'data:'], cdn)}`,
     `style-src ${list(["'unsafe-inline'"], cdn)}`,
     `img-src ${list(['data:', 'blob:'], cdn, live)}`,
     `font-src ${list(['data:'], cdn)}`,

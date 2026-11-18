@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { VIEW_SEND_MAX_CHARS } from '@orbital/shared/views'
+import { VIEW_SEND_MAX_BYTES, viewValueBytes } from '@orbital/shared/views'
 import { MESSAGE_TAG } from './bridge'
 
 /**
@@ -100,13 +100,8 @@ function readSend(value: unknown, ctx: FrameContext): FrameAction {
   if (ctx.answered) return { kind: 'refused', reason: 'answered' }
   if (!ctx.userActive) return { kind: 'refused', reason: 'gesture' }
   if (ctx.lastSendAt !== null && ctx.now - ctx.lastSendAt < VIEW_SEND_INTERVAL_MS) return { kind: 'refused', reason: 'rate' }
-  let text: string | undefined
-  try {
-    text = JSON.stringify(value === undefined ? null : value)
-  } catch {
-    text = undefined
-  }
-  if (text === undefined || text.length > VIEW_SEND_MAX_CHARS) return { kind: 'refused', reason: 'size' }
+  const bytes = viewValueBytes(value)
+  if (bytes === null || bytes > VIEW_SEND_MAX_BYTES) return { kind: 'refused', reason: 'size' }
   if (ctx.offline) return { kind: 'refused', reason: 'offline' }
   if (ctx.waiting) return { kind: 'send', as: 'answer', value }
   if (ctx.otherDecisionPending) return { kind: 'refused', reason: 'blocked' }

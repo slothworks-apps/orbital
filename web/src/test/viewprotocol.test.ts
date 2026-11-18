@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { VIEW_SEND_MAX_CHARS } from '@orbital/shared/views'
+import { VIEW_SEND_MAX_BYTES } from '@orbital/shared/views'
 import { MESSAGE_TAG } from '../lib/views/bridge'
 import { VIEW_SEND_INTERVAL_MS, readFrameMessage, type FrameContext } from '../lib/views/protocol'
 
@@ -56,7 +56,10 @@ describe('readFrameMessage', () => {
   })
 
   it('refuses a value too large to send', () => {
-    expect(readFrameMessage(send('x'.repeat(VIEW_SEND_MAX_CHARS)), ctx())).toEqual({ kind: 'refused', reason: 'size' })
+    expect(readFrameMessage(send('x'.repeat(VIEW_SEND_MAX_BYTES)), ctx())).toEqual({ kind: 'refused', reason: 'size' })
+    // In UTF-8 bytes, not characters.
+    expect(readFrameMessage(send('é'.repeat(VIEW_SEND_MAX_BYTES / 2)), ctx())).toEqual({ kind: 'refused', reason: 'size' })
+    expect(readFrameMessage(send('é'.repeat(VIEW_SEND_MAX_BYTES / 2 - 2)), ctx()).kind).toBe('send')
   })
 
   it('takes a waiting view’s first send as its answer, and nothing after', () => {

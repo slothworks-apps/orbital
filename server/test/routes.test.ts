@@ -56,7 +56,7 @@ import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
 import { SESSION_CONTEXT, SESSION_RULES, SESSION_TIPS, composeAppendix } from '../src/runner/sessionInstructions.js';
 import { makeTmpDir, openTmpDb, makeHomeDir } from './tmp.js';
 import { ViewsService } from '../src/views/service.js';
-import { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY, VIEW_SEND_MAX_CHARS, VIEW_TOOL } from '@orbital/shared/views';
+import { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY, VIEW_SEND_MAX_BYTES, VIEW_TOOL } from '@orbital/shared/views';
 
 /**
  * The narrate query when a test does not script one: it fails, which no
@@ -5481,7 +5481,9 @@ describe('generated views', () => {
     expect(answered).toEqual([{ value: { colour: 'red' } }, { value: null }, { approved: false, message: 'Closed' }]);
     expect((await post({ approved: true })).json()).toEqual({ error: 'view_needs_value' });
     expect((await post({})).statusCode).toBe(400);
-    expect((await post({ value: 'x'.repeat(VIEW_SEND_MAX_CHARS) })).json()).toEqual({ error: 'value_too_large' });
+    expect((await post({ value: 'x'.repeat(VIEW_SEND_MAX_BYTES) })).json()).toEqual({ error: 'value_too_large' });
+    // Measured in UTF-8 bytes: fewer characters than the bound, more bytes.
+    expect((await post({ value: 'é'.repeat(VIEW_SEND_MAX_BYTES / 2) })).json()).toEqual({ error: 'value_too_large' });
     expect(answered).toHaveLength(3);
   });
 

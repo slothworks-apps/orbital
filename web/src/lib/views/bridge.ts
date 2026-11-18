@@ -1,4 +1,4 @@
-import { VIEW_SEND_MAX_CHARS } from '@orbital/shared/views'
+import { VIEW_SEND_MAX_BYTES } from '@orbital/shared/views'
 
 /**
  * The `orbital` object a view's page talks to Orbital through (spec
@@ -35,7 +35,7 @@ export const DATA_ELEMENT_ID = 'orbital-data'
  */
 export const BRIDGE_SOURCE = `(function () {
   var TAG = ${JSON.stringify(MESSAGE_TAG)};
-  var MAX = ${VIEW_SEND_MAX_CHARS};
+  var MAX = ${VIEW_SEND_MAX_BYTES};
   var post = function (message) {
     message.tag = TAG;
     try { parent.postMessage(message, '*'); } catch (e) {}
@@ -65,7 +65,7 @@ export const BRIDGE_SOURCE = `(function () {
       if (!activation()) return false;
       var text;
       try { text = JSON.stringify(value === undefined ? null : value); } catch (e) { return false; }
-      if (typeof text !== 'string' || text.length > MAX) return false;
+      if (typeof text !== 'string' || new TextEncoder().encode(text).length > MAX) return false;
       post({ type: 'send', value: JSON.parse(text) });
       return true;
     },

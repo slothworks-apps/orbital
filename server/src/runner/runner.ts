@@ -38,7 +38,7 @@ import { ORBITAL_MCP_SERVER, orbitalMcpServer, type Spawner } from './spawnTool.
 import { LIST_SESSIONS_TOOL, type SessionKeeper } from './sessionsTools.js';
 import { CONTROL_READ_TOOLS, type ControlCall } from './controlTools.js';
 import { shellIntentHooks } from './shellIntentHook.js';
-import { VIEW_TOOL, type ViewResult } from '@orbital/shared/views';
+import { VIEW_TOOL, echoViewResult, type ViewResult } from '@orbital/shared/views';
 
 /**
  * How long a turn's end waits for the CLI to say how full the window is
@@ -3114,7 +3114,8 @@ export class Runner {
         : undefined;
     // A view's outcome rides along the same way: every client shows the view
     // sent, answered or cancelled before the tool_result is written.
-    const view = parked.pending.kind === 'view' ? viewResultOf(viewIdOfPending(parked.pending), result) : undefined;
+    // Cut to what a client shows, so the event fits a relay frame whatever was typed.
+    const view = parked.pending.kind === 'view' ? echoViewResult(viewResultOf(viewIdOfPending(parked.pending), result)) : undefined;
     this.hub.publish(`session:${sessionId}`, {
       event: 'decision_resolved',
       decisionId: parked.pending.id,

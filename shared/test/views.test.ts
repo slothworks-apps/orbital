@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   VIEW_HEIGHT, VIEW_LIVE_DOMAINS_MAX, VIEW_PAGE_MAX_CHARS, VIEW_DATA_FILE_MAX_BYTES, VIEW_MESSAGE_BLOCK,
   checkCdnHost, clampViewHeight, foldViews, normaliseLiveDomain, parseViewMessage, readCdnHosts, readViewResult,
-  showViewRefusal, viewCsp, viewErrorText, viewMessageText, viewResultText, type ViewResult,
+  showViewRefusal, viewCsp, echoViewResult, utf8Bytes, viewValueBytes, viewErrorText, viewMessageText, viewResultText, type ViewResult,
 } from '../src/views.js';
 
 describe('foldViews', () => {
@@ -166,11 +166,36 @@ describe('readCdnHosts', () => {
   });
 });
 
+describe('echoViewResult', () => {
+  it('keeps a short result as it is', () => {
+    const sent: ViewResult = { viewId: 'v', outcome: 'sent', value: { a: [1, 2] } };
+    expect(echoViewResult(sent, 100)).toEqual(sent);
+    expect(echoViewResult({ viewId: 'v', outcome: 'shown' }, 1)).toEqual({ viewId: 'v', outcome: 'shown' });
+  });
+
+  it('cuts words and a sent value to the bound in UTF-8 bytes, without splitting a character', () => {
+    const answered = echoViewResult({ viewId: 'v', outcome: 'answered', text: '😀'.repeat(100) }, 50) as { text: string };
+    expect(utf8Bytes(answered.text)).toBeLessThanOrEqual(50);
+    expect(answered.text).toMatch(/^(?:😀)+…$/u);
+    const sent = echoViewResult({ viewId: 'v', outcome: 'sent', value: { q: '"\\'.repeat(500) } }, 64) as { value: unknown };
+    expect(typeof sent.value).toBe('string');
+    expect(viewValueBytes(sent.value)).toBeLessThanOrEqual(64);
+  });
+
+  it('measures a value as it is sent', () => {
+    expect(viewValueBytes('é')).toBe(4);
+    expect(viewValueBytes(undefined)).toBe(4);
+    const loop: Record<string, unknown> = {};
+    loop.self = loop;
+    expect(viewValueBytes(loop)).toBeNull();
+  });
+});
+
 describe('viewCsp', () => {
   it('lets nothing fetch without approved domains', () => {
     const csp = viewCsp({ cdnHosts: [], connect: [] });
     expect(csp).toContain(`connect-src 'none'`);
-    expect(csp).toContain(`script-src 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://esm.sh;`);
+    expect(csp).toContain(`script-src 'unsafe-inline' 'unsafe-eval' data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://esm.sh;`);
     expect(csp.startsWith(`default-src 'none'; `)).toBe(true);
   });
 

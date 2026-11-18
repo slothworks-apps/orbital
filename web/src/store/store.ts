@@ -39,7 +39,7 @@ import type { MapStatePills } from '../lib/stateStyle'
 import type { LinesMode } from '../lib/branchStatus'
 import { archipelagoEnabled } from '../lib/experimental'
 import type { MachineEvent } from '@orbital/shared/remote/device'
-import { VIEW_DOMAINS_EVENT, type ViewDomainsEvent } from '@orbital/shared/views'
+import { VIEW_DOMAINS_EVENT, type ViewDomainsEvent, type ViewResult } from '@orbital/shared/views'
 import { deviceChips, deviceOf, devicesOn, ideHere, isMemberOffline, machineOffline, withMachine, withMachineOffline } from '../lib/devices'
 import type {
   ApiSession,
@@ -115,7 +115,12 @@ export type SessionEvent =
    * the session ending. A question answered carries its answers; an older
    * Mac sends none.
    */
-  | { event: 'decision_resolved'; decisionId: string; answers?: AnswerMap }
+  /**
+   * `view`: a waiting generated view's outcome (spec
+   * 2026-11-18-generated-views-design § The bridge), cut to what a client
+   * shows (`echoViewResult`).
+   */
+  | { event: 'decision_resolved'; decisionId: string; answers?: AnswerMap; view?: ViewResult }
   /**
    * The transcript's live branch changed under the rows held — a rewind done
    * in the terminal, or an interrupt's dangling call dropped (spec
@@ -2077,6 +2082,13 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // send already stands there and is not replaced.
       if (msg.answers && !state.decisionAnswers[msg.decisionId]) {
         set({ decisionAnswers: { ...state.decisionAnswers, [msg.decisionId]: msg.answers } })
+      }
+      // A view answered elsewhere turns read-only here at once, saying what
+      // was sent, before its payload is read again.
+      const view = msg.view
+      if (view && !state.viewAnswers[msg.decisionId] && (view.outcome === 'sent' || view.outcome === 'answered')) {
+        const answer: ViewAnswer = view.outcome === 'sent' ? { value: view.value, at: Date.now() } : { text: view.text, at: Date.now() }
+        set({ viewAnswers: { ...state.viewAnswers, [msg.decisionId]: answer } })
       }
       // Whoever settled it — this tab, the other window, an interrupt — the
       // card locks. Guarded on the id so a late broadcast for a decision

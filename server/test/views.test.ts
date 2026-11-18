@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  VIEW_DATA_FILE_MAX_BYTES, VIEW_DATA_INLINE_REST_MAX, VIEW_PAYLOAD_MAX_BYTES, VIEW_TOOL, readViewResult, viewMessageText, type ViewPayload,
+  VIEW_DATA_FILE_MAX_BYTES, VIEW_DATA_INLINE_REST_MAX, VIEW_PAYLOAD_MAX_BYTES, VIEW_RESULT_ECHO_MAX_BYTES, VIEW_TOOL, readViewResult, viewMessageText, type ViewPayload,
 } from '@orbital/shared/views';
 import { Hub } from '../src/api/hub.js';
 import { sessions } from '../src/db/schema.js';
@@ -122,7 +122,7 @@ describe('show_view', () => {
     const wide = await call('toolu_w', { title: 'T', html: `<p>${'ž'.repeat(110_000)}</p>` });
     expect(wide.isError).toBe(true);
     expect(textOf(wide)).toMatch(/bytes/);
-    const component = `export default function V() { return <p>{${JSON.stringify('é'.repeat(70_000))}}</p> }`;
+    const component = `export default function V() { return <p>{${JSON.stringify('é'.repeat(95_000))}}</p> }`;
     expect(textOf(await call('toolu_c', { title: 'T', component, wait: true }))).toMatch(/compiled/);
 
     // Under VIEW_DATA_INLINE_REST_MAX on its own.
@@ -175,6 +175,19 @@ describe('show_view', () => {
     expect(service.payload('s1', 'toolu_1', extras)).toMatchObject({ waiting: true, result: null, wait: true });
     park(null);
     expect(service.payload('s1', 'toolu_1', extras)).toMatchObject({ waiting: false, result: { outcome: 'sent', value: { picked: 1 } } });
+  });
+
+  it('echoes only the start of a long answer in the payload; the agent got all of it', async () => {
+    const { call, service, parkView } = makeService();
+    const typed = 'é'.repeat(200_000);
+    parkView.mockResolvedValueOnce({ viewId: 'toolu_1', outcome: 'answered', text: typed } as any);
+    const res = await call('toolu_1', { title: 'Pick', html: HTML, wait: true });
+    expect(readViewResult(textOf(res))).toEqual({ viewId: 'toolu_1', outcome: 'answered', text: typed });
+    const payload = service.payload('s1', 'toolu_1', extras)!;
+    expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThanOrEqual(VIEW_PAYLOAD_MAX_BYTES);
+    expect(payload.result).toMatchObject({ outcome: 'answered' });
+    expect((payload.result as { text: string }).text.startsWith('éé')).toBe(true);
+    expect(Buffer.byteLength((payload.result as { text: string }).text)).toBeLessThanOrEqual(VIEW_RESULT_ECHO_MAX_BYTES);
   });
 
   it("refuses a subagent's call in its hook, and finds the main session's tool_use id there when the call carries none", async () => {

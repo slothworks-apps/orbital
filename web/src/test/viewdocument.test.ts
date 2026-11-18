@@ -3,7 +3,6 @@ import { VIEW_BUILTIN_CDN_HOSTS } from '@orbital/shared/views'
 import {
   VIEW_MODULE,
   buildViewDocument,
-  documentCsp,
   esmUrl,
   inlineScript,
   moduleImports,
@@ -73,19 +72,6 @@ describe('inlineScript', () => {
     const out = inlineScript('const s = "</script><b>"; const c = "<!--"; const t = "</SCRIPT>"')
     expect(out).not.toMatch(/<\/script/i)
     expect(out).not.toContain('<!--')
-  })
-})
-
-describe('documentCsp', () => {
-  it('lets a React view load its data: modules and a plain page not', () => {
-    const scriptSrc = (csp: string) => csp.split('; ').find((d) => d.startsWith('script-src')) ?? ''
-    expect(scriptSrc(documentCsp({ ...base, kind: 'react' })).split(' ')).toContain('data:')
-    expect(scriptSrc(documentCsp({ ...base, kind: 'html' })).split(' ')).not.toContain('data:')
-  })
-
-  it('lets the page reach only the approved domains', () => {
-    const csp = documentCsp({ ...base, kind: 'react', approvedDomains: ['api.github.com'] })
-    expect(csp).toContain('connect-src https://api.github.com')
   })
 })
 

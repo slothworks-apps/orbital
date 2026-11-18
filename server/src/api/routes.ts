@@ -23,7 +23,7 @@ import { isBareFileName } from '@orbital/shared/paths';
 import { createDirectory, directoryState, listDirs } from '../files/directory.js';
 import { locateOnDisk } from '../media/items.js';
 import { SubagentMedia, sessionMedia, type SessionMediaContext } from '../media/sessionMedia.js';
-import { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY, VIEW_SEND_MAX_CHARS, readCdnHosts } from '@orbital/shared/views';
+import { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY, VIEW_SEND_MAX_BYTES, readCdnHosts, viewValueBytes } from '@orbital/shared/views';
 import { viewMediaItems, type ViewsService } from '../views/service.js';
 import { registerViewRoutes } from '../views/routes.js';
 import { OpenTabsReader } from '../files/openTabs.js';
@@ -2612,7 +2612,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         if (!Object.prototype.hasOwnProperty.call(body, 'value') || body.value === undefined) {
           return reply.code(400).send({ error: 'view_needs_value' });
         }
-        if ((JSON.stringify(body.value)?.length ?? 0) > VIEW_SEND_MAX_CHARS) {
+        const bytes = viewValueBytes(body.value);
+        if (bytes === null || bytes > VIEW_SEND_MAX_BYTES) {
           return reply.code(400).send({ error: 'value_too_large' });
         }
         answer = { value: body.value };

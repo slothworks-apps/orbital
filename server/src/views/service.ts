@@ -15,9 +15,9 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { tool, type HookInput, type HookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
 import { transform } from 'sucrase';
 import { TOKENS } from '@orbital/shared/colourTokens';
-import type { MediaItem } from '@orbital/shared/media';
+import { viewMediaId, type MediaItem } from '@orbital/shared/media';
 import {
-  VIEW_BUILTIN_CDN_HOSTS, VIEW_DATA_INLINE_REST_MAX, VIEW_PAYLOAD_MAX_BYTES, VIEW_SEND_MAX_CHARS, VIEW_TOOL, VIEW_TOOL_NAME, clampViewHeight, foldViews,
+  VIEW_BUILTIN_CDN_HOSTS, VIEW_DATA_INLINE_REST_MAX, VIEW_PAYLOAD_MAX_BYTES, VIEW_RESULT_ECHO_MAX_BYTES, VIEW_TOOL, VIEW_TOOL_NAME, clampViewHeight, echoViewResult, foldViews,
   normaliseLiveDomain, readShowView, readViewResult, showViewRefusal, showViewShape, viewDataFormat, viewIdOf,
   viewResultText, type ShowViewCheck, type ShowViewInput, type ViewCall, type ViewPayload, type ViewResult,
 } from '@orbital/shared/views';
@@ -42,10 +42,10 @@ const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const TOOL_USE_ID_META = 'claudecode/toolUseId';
 
 /**
- * What a payload carries beside its page and its inline data — ids, title,
- * domains, CDN hosts, a short result — kept free of `VIEW_PAYLOAD_MAX_BYTES`
- * when a call is checked. A waiting view also keeps room for what is sent
- * back (`VIEW_SEND_MAX_CHARS`, the page's own bound).
+ * What a payload carries beside its page, its inline data and its result —
+ * ids, title, domains, CDN hosts — kept free of `VIEW_PAYLOAD_MAX_BYTES`
+ * when a call is checked. The result has room of its own: the payload echoes
+ * at most `VIEW_RESULT_ECHO_MAX_BYTES` of it.
  */
 const PAYLOAD_METADATA_BYTES = 16 * 1024;
 
@@ -57,11 +57,11 @@ function jsonBytes(value: unknown): number {
 /**
  * Why a page is too large for its payload, or null when it fits: the compiled
  * script or the html, with the inline `data`, measured as the payload carries
- * them, against `VIEW_PAYLOAD_MAX_BYTES` less the room metadata and a sent
- * value need. A `dataFile` is not counted: it rides outside when it does not fit.
+ * them, against `VIEW_PAYLOAD_MAX_BYTES` less the room metadata and the
+ * echoed result need. A `dataFile` is not counted: it rides outside when it does not fit.
  */
-export function viewPageTooLarge(page: { script?: string; html?: string; data?: unknown; wait?: boolean }): string | null {
-  const room = VIEW_PAYLOAD_MAX_BYTES - PAYLOAD_METADATA_BYTES - (page.wait === true ? VIEW_SEND_MAX_CHARS : 0);
+export function viewPageTooLarge(page: { script?: string; html?: string; data?: unknown }): string | null {
+  const room = VIEW_PAYLOAD_MAX_BYTES - PAYLOAD_METADATA_BYTES - VIEW_RESULT_ECHO_MAX_BYTES;
   const bytes = jsonBytes({ script: page.script, html: page.html, data: page.data });
   if (bytes <= room) return null;
   return (
@@ -182,7 +182,7 @@ export function viewMediaItems(messages: readonly ChatMessage[]): MediaItem[] {
     const input = call ? readShowView(call.input) : null;
     if (!call || !input) continue;
     items.push({
-      id: `view:${viewId}`,
+      id: viewMediaId(viewId),
       kind: 'view',
       source: 'view',
       messageId: call.message.id,
@@ -448,7 +448,7 @@ export class ViewsService {
       script = compiled.script;
     }
     // The payload has to fit one relay frame for the phone (spec § Phone).
-    const tooLarge = viewPageTooLarge({ ...(script !== null ? { script } : { html: input.html }), data: input.data, wait: input.wait });
+    const tooLarge = viewPageTooLarge({ ...(script !== null ? { script } : { html: input.html }), data: input.data });
     if (tooLarge) return refuse(tooLarge);
     let dataText: string | null = null;
     const format = dataPath ? viewDataFormat(dataPath) : null;
@@ -532,9 +532,12 @@ export class ViewsService {
     const pending = this.waitingDecision(sessionId);
     const waiting = pending?.id === toolUseId;
     const memory = this.memory.get(sessionId)?.get(toolUseId);
-    const result = waiting
+    const full = waiting
       ? null
       : (record.resultText !== undefined ? readViewResult(record.resultText) : null) ?? memory?.result ?? null;
+    // What the user sent or typed may be far larger than a relay frame holds;
+    // the agent got all of it, a client shows a line.
+    const result = full ? echoViewResult(full) : null;
 
     const payload: ViewPayload = {
       viewId,

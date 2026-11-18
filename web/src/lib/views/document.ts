@@ -251,21 +251,6 @@ export interface ViewDocumentInput {
   runtime?: ReactRuntime
 }
 
-/**
- * The page's CSP: the shared one, with `data:` among the script sources for a
- * React view — its React packages and the component are modules the import
- * map serves as data: URLs, and Chromium checks a module's URL against
- * `script-src`. It adds nothing a page could not already do: `'unsafe-inline'`
- * and `'unsafe-eval'` are in, and the frame is sandboxed.
- */
-export function documentCsp(payload: ViewDocumentInput['payload']): string {
-  const csp = viewCsp({ cdnHosts: payload.cdnHosts, connect: payload.approvedDomains })
-  if (payload.kind !== 'react') return csp
-  return csp.replace(/(^|; )script-src ([^;]*)/, (whole, lead: string, sources: string) =>
-    sources.split(' ').includes('data:') ? whole : `${lead}script-src ${sources} data:`,
-  )
-}
-
 function attr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
 }
@@ -282,7 +267,7 @@ export function buildViewDocument(input: ViewDocumentInput): string {
     .map(([name, value]) => `${name}:${value}`)
     .join(';')
   const head = [
-    `<meta http-equiv="Content-Security-Policy" content="${attr(documentCsp(payload))}">`,
+    `<meta http-equiv="Content-Security-Policy" content="${attr(viewCsp({ cdnHosts: payload.cdnHosts, connect: payload.approvedDomains }))}">`,
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${text(payload.title)}</title>`,

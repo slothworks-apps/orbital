@@ -51,3 +51,8 @@ export interface MediaItem {
    */
   view?: { id: string; toolUseId: string; title: string };
 }
+
+/** A generated view's media item id: one item per view, however often it was updated. */
+export function viewMediaId(viewId: string): string {
+  return `view:${viewId}`;
+}
