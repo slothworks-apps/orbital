@@ -662,6 +662,13 @@ export class ViewsService {
     if (data && data.format !== 'inline' && data.inline && jsonBytes(payload) > VIEW_PAYLOAD_MAX_BYTES) {
       payload.data = { format: data.format, bytes: data.bytes, inline: false };
     }
+    // The source rides along only in the room left: never at the cost of the
+    // data riding inside, nor of the frame.
+    const source = input.component ?? input.html;
+    if (source !== undefined) {
+      const withSource = { ...payload, source };
+      if (jsonBytes(withSource) <= VIEW_PAYLOAD_MAX_BYTES) return withSource;
+    }
     return payload;
   }
 

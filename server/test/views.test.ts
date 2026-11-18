@@ -74,7 +74,7 @@ describe('show_view', () => {
     const script = readFileSync(join(dataDir, 'views', 's1', 'toolu_1.js'), 'utf8');
     expect(script).toContain('react/jsx-runtime');
     expect(script).not.toContain(': { n: number }');
-    expect(service.payload('s1', 'toolu_1', extras)).toMatchObject({ kind: 'react', script });
+    expect(service.payload('s1', 'toolu_1', extras)).toMatchObject({ kind: 'react', script, source: COMPONENT });
 
     const broken = await call('toolu_2', { title: 'T', component: 'export default function V() {\n  return <div>;\n}' });
     expect(broken.isError).toBe(true);
@@ -154,9 +154,18 @@ describe('show_view', () => {
     expect(big.data).toMatchObject({ format: 'csv', inline: false });
     expect(big.data?.text).toBeUndefined();
     expect(Buffer.byteLength(JSON.stringify(big))).toBeLessThanOrEqual(VIEW_PAYLOAD_MAX_BYTES);
-    // The same copy beside a small page still rides inside.
+    // The same copy beside a small page still rides inside, with its source.
     await call('toolu_2', { title: 'T', html: HTML, dataFile: 'rows.csv' });
-    expect(service.payload('s1', 'toolu_2', extras)?.data).toMatchObject({ format: 'csv', inline: true });
+    const small = service.payload('s1', 'toolu_2', extras)!;
+    expect(small.data).toMatchObject({ format: 'csv', inline: true });
+    expect(small.source).toBe(HTML);
+    // A copy that fits inside only without the source keeps riding inside; the source goes.
+    writeFileSync(join(cwd, 'mid.csv'), 'a,b\n'.repeat(20_000));
+    await call('toolu_3', { title: 'T', html: `<p>${'x'.repeat(60_000)}</p>`, dataFile: 'mid.csv' });
+    const mid = service.payload('s1', 'toolu_3', extras)!;
+    expect(mid.data).toMatchObject({ format: 'csv', inline: true });
+    expect(mid.source).toBeUndefined();
+    expect(Buffer.byteLength(JSON.stringify(mid))).toBeLessThanOrEqual(VIEW_PAYLOAD_MAX_BYTES);
   });
 
   it('updates a view with replaces, resolving a later call to the view, and refuses an unknown one', async () => {

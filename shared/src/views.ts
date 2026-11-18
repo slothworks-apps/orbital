@@ -650,6 +650,12 @@ export interface ViewPayload {
   kind: 'react' | 'html';
   script?: string;
   html?: string;
+  /**
+   * The page as the agent wrote it — the component's TSX, or the html — for
+   * reading. Only while the whole payload still fits `VIEW_PAYLOAD_MAX_BYTES`
+   * with it; absent otherwise, and from a Mac before it.
+   */
+  source?: string;
   /** Clamped for the desktop; the phone clamps `VIEW_HEIGHT.phoneMax` on top. */
   height: number;
   wait: boolean;
