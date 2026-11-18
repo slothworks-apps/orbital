@@ -832,7 +832,9 @@ export function TranscriptView({
   const items = useMemo(() => pairedAll.slice(-visibleCount), [pairedAll, visibleCount])
   // Generated views, while Labs → Views is on: folded over everything held,
   // so an update cut off by the window still marks the call it replaced.
-  const viewsOn = useOrbital((s) => viewsEnabled(s.settings))
+  // A view still waiting when Labs was turned off is drawn as a view all the
+  // same: as a tool row it would become a permission card that cannot answer it.
+  const viewsOn = useOrbital((s) => viewsEnabled(s.settings) || s.pendingDecisions[sessionId]?.kind === 'view')
   const views = useMemo(() => (viewsOn ? foldTranscriptViews(pairedAll) : undefined), [viewsOn, pairedAll])
   const groups = useMemo(
     () => insertModelDividers(groupToolRuns(items, pendingDecisionId, views)),
