@@ -8,15 +8,19 @@ import { MESSAGE_TAG } from './bridge'
  * the rules a page cannot get around are tested without a frame.
  *
  * Nothing the page posts is trusted. A message counts only when it comes from
- * the frame's own window and has the bridge's shape; `send` additionally
- * needs a user gesture in this window right now (the frame's click
- * activates its ancestors too, a timer in the page does not), at most one a
- * second, and room for it: a waiting view takes its first send as the
- * answer and nothing after, and a view that does not wait cannot send while
- * the session waits on something else — the message would answer that.
+ * the frame's own window and has the bridge's shape. `send` and `open`
+ * additionally need a user gesture that went into this frame: this window
+ * has transient activation right now (the frame's click activates its
+ * ancestors too, a timer in the page does not) AND the frame holds the focus
+ * (a click into the frame moves the focus into it, a click or typing anywhere
+ * else in Orbital moves it out) — so a page cannot ride on a click the user
+ * made elsewhere in Orbital. Each goes at most once a second. `send` also
+ * needs room: a waiting view takes its first send as the answer and nothing
+ * after, and a view that does not wait cannot send while the session waits on
+ * something else — the message would answer that.
  */
 
-/** A view sends at most once per this many ms. */
+/** A view sends, and opens a link, at most once per this many ms. */
 export const VIEW_SEND_INTERVAL_MS = 1000
 
 const Tag = z.literal(MESSAGE_TAG)
@@ -56,9 +60,13 @@ export interface FrameContext {
   frame: unknown
   /** Whether this window has transient user activation now (`navigator.userActivation.isActive`). */
   userActive: boolean
+  /** Whether the frame holds the focus now (`document.activeElement` is the iframe): the gesture went into it. */
+  frameFocused: boolean
   now: number
   /** When this view last sent, ms; null for never. */
   lastSendAt: number | null
+  /** When this view last opened a link, ms; null for never. */
+  lastOpenAt?: number | null
   /** The call waits on the user and nothing has answered it yet. */
   waiting: boolean
   /** The call waited and was answered, or this view already sent its answer: it is read-only. */
@@ -88,7 +96,10 @@ export function readFrameMessage(event: { source: unknown; data: unknown }, ctx:
     case 'error':
       return { kind: 'error', error: { kind: message.kind, message: message.message, ...(message.url ? { url: message.url } : {}) } }
     case 'open':
-      return openable(message.url) ? { kind: 'open', url: message.url } : { kind: 'ignore' }
+      if (!openable(message.url)) return { kind: 'ignore' }
+      if (!gestureInFrame(ctx)) return { kind: 'refused', reason: 'gesture' }
+      if (tooSoon(ctx.lastOpenAt ?? null, ctx.now)) return { kind: 'refused', reason: 'rate' }
+      return { kind: 'open', url: message.url }
     case 'escape':
       return { kind: 'escape' }
     case 'send':
@@ -96,10 +107,19 @@ export function readFrameMessage(event: { source: unknown; data: unknown }, ctx:
   }
 }
 
+/** A user gesture right now, and one that went into this frame. */
+function gestureInFrame(ctx: FrameContext): boolean {
+  return ctx.userActive && ctx.frameFocused
+}
+
+function tooSoon(last: number | null, now: number): boolean {
+  return last !== null && now - last < VIEW_SEND_INTERVAL_MS
+}
+
 function readSend(value: unknown, ctx: FrameContext): FrameAction {
   if (ctx.answered) return { kind: 'refused', reason: 'answered' }
-  if (!ctx.userActive) return { kind: 'refused', reason: 'gesture' }
-  if (ctx.lastSendAt !== null && ctx.now - ctx.lastSendAt < VIEW_SEND_INTERVAL_MS) return { kind: 'refused', reason: 'rate' }
+  if (!gestureInFrame(ctx)) return { kind: 'refused', reason: 'gesture' }
+  if (tooSoon(ctx.lastSendAt, ctx.now)) return { kind: 'refused', reason: 'rate' }
   const bytes = viewValueBytes(value)
   if (bytes === null || bytes > VIEW_SEND_MAX_BYTES) return { kind: 'refused', reason: 'size' }
   if (ctx.offline) return { kind: 'refused', reason: 'offline' }

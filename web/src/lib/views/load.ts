@@ -1,4 +1,4 @@
-import { viewErrorText, viewMessageText, type ViewPayload } from '@orbital/shared/views'
+import type { ViewPayload } from '@orbital/shared/views'
 import { api } from '../api'
 import { viewSource, type ViewDataSource } from './source'
 
@@ -21,9 +21,15 @@ export function currentViewSource(): ViewDataSource {
   return viewSource() ?? desktopViewSource
 }
 
+/** How many data copies stay read, newest used last. A copy may be large; a few cover the views on screen. */
+const DATA_CACHE_SIZE = 4
+const dataCache = new Map<string, Promise<unknown>>()
+
 /**
  * The data as the page reads it (`orbital.data`): JSON parsed, a CSV as its
- * text, null for none. Data the payload does not carry is fetched.
+ * text, null for none. Data the payload does not carry is fetched once and
+ * kept (a copy never changes), so a view waking from sleep does not fetch it
+ * again.
  */
 export async function viewDataOf(
   sessionId: string,
@@ -33,22 +39,19 @@ export async function viewDataOf(
   const data = payload.data
   if (!data) return null
   if (data.inline) return data.format === 'csv' ? (data.text ?? '') : (data.value ?? null)
-  const text = await source.data(sessionId, payload.toolUseId)
-  return data.format === 'csv' ? text : (JSON.parse(text) as unknown)
-}
-
-/** Allows the session's views to fetch from `domains`; every domain it allows now. */
-export async function approveViewDomains(sessionId: string, domains: readonly string[]): Promise<string[]> {
-  const answer = await api.approveViewDomains(sessionId, domains)
-  return answer.domains
-}
-
-/** The text a non-waiting view's `send` puts in the session, as the user's message. */
-export function viewMessage(payload: Pick<ViewPayload, 'viewId' | 'title'>, value: unknown): string {
-  return viewMessageText({ viewId: payload.viewId, title: payload.title, value })
-}
-
-/** The text Send the error to the session sends. */
-export function viewErrorMessage(payload: Pick<ViewPayload, 'viewId' | 'title'>, error: string): string {
-  return viewErrorText({ viewId: payload.viewId, title: payload.title, error })
+  const key = `${sessionId}\n${payload.toolUseId}`
+  const cached = dataCache.get(key)
+  if (cached) {
+    dataCache.delete(key)
+    dataCache.set(key, cached)
+    return cached
+  }
+  const read = source.data(sessionId, payload.toolUseId).then((text) => (data.format === 'csv' ? text : (JSON.parse(text) as unknown)))
+  dataCache.set(key, read)
+  while (dataCache.size > DATA_CACHE_SIZE) dataCache.delete(dataCache.keys().next().value!)
+  // A read that failed is asked again next time.
+  read.catch(() => {
+    if (dataCache.get(key) === read) dataCache.delete(key)
+  })
+  return read
 }

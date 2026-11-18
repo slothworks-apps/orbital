@@ -83,13 +83,6 @@ export function ViewPlaceholder({ children }: { children: ReactNode }) {
   )
 }
 
-/** 69c: the quiet button of the failure and of Don't load — line/16 hairline, no fill. */
-export const VIEW_BUTTON_QUIET =
-  'cursor-pointer rounded-[8px] border border-line/16 bg-transparent px-[13px] py-[7px] fs-12.5 font-semibold text-ink-100 transition-colors hover:border-line/30 disabled:cursor-default disabled:opacity-45'
-/** 69c: Allow — the accent fill. */
-export const VIEW_BUTTON_PRIMARY =
-  'cursor-pointer rounded-[8px] border-0 bg-accent px-3.5 py-[7px] fs-12.5 font-bold text-space-deep'
-
 /**
  * Jumps to a view's newest row from elsewhere in the transcript — a message
  * it sent ("from <title> ↑"). Null outside a transcript, or while Labs →

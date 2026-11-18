@@ -7,7 +7,7 @@ import { LockGlyph } from '../../panels/ViewsGlyphs'
 import { takeMacViewsSetting } from '../questionSetting'
 import { UNNAMED_MAC } from '../composer'
 import { useMobile } from '../state'
-import { CARD, SectionLabel, Toggle } from '../ui'
+import { CARD, PrimaryButton, SecondaryButton, SectionLabel, Toggle } from '../ui'
 import { defaultSupports } from '../version'
 
 /**
@@ -131,14 +131,14 @@ function CdnHosts({
             </span>
             {!row.builtIn && (
               // 69f: no confirm — adding it back is one line.
-              <button
-                type="button"
+              <SecondaryButton
+                variant="text"
+                tone="loses"
                 disabled={saving}
                 onClick={() => void save({ [VIEWS_CDN_HOSTS_KEY]: withoutCdnHost(stored, row.host) })}
-                className="grid h-11 place-items-center rounded-[10px] px-3 fs-14 font-semibold text-danger-soft disabled:opacity-40"
               >
                 Remove
-              </button>
+              </SecondaryButton>
             )}
           </div>
         ))}
@@ -168,13 +168,9 @@ function CdnHosts({
                 wrong ? 'border-danger-soft/40' : 'border-accent/45',
               ].join(' ')}
             />
-            <button
-              type="submit"
-              disabled={saving || field.state !== 'ok'}
-              className="grid h-11 place-items-center rounded-[10px] bg-accent px-4 fs-14 font-bold text-space-deep disabled:opacity-45"
-            >
+            <PrimaryButton type="submit" variant="compact" disabled={saving || field.state !== 'ok'}>
               Add
-            </button>
+            </PrimaryButton>
           </form>
         ) : (
           <button

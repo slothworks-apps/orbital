@@ -786,10 +786,18 @@ export interface OrbitalActions {
   resolveDecision(sessionId: string, verdict: { approved: boolean; message?: string }): void
   /**
    * Answers the generated view the session waits on: what its page sent, or
-   * words typed in the composer instead. A no-op unless that view is the
-   * session's pending decision.
+   * words typed in the composer instead. A no-op that answers false unless
+   * that view is waiting — the session's pending decision, or, for what its
+   * page sent, `behind` another decision (a permission asked while the view
+   * waits: the Mac takes the view's answer by its id all the same) — and no
+   * answer of this tab is already on its way.
    */
-  answerView(sessionId: string, toolUseId: string, answer: { value: unknown } | { text: string }): void
+  answerView(
+    sessionId: string,
+    toolUseId: string,
+    answer: { value: unknown } | { text: string },
+    opts?: { behind?: boolean },
+  ): boolean
   /**
    * A message from a view that does not wait (`viewMessageText`): the user's
    * message to the session, as typed ones are, but with nothing riding on it —
@@ -2441,9 +2449,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (decision && text.trim()) {
       // A waiting view: the words become its answer, as they would a question's
       // (spec 2026-11-18-generated-views-design § The bridge).
+      // An answer already on its way takes nothing more: the words stay in
+      // the composer rather than vanish.
       if (decision.kind === 'view') {
-        get().answerView(id, decision.id, { text })
-        return true
+        if (get().answerView(id, decision.id, { text })) return true
+        if (!get().composerDrafts[id]) get().setComposerDraft(id, text)
+        return false
       }
       if (decision.kind === 'question') {
         const target = questionComposerTarget(get(), id)
@@ -2674,31 +2685,40 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     })
   },
 
-  answerView(sessionId, toolUseId, answer) {
+  answerView(sessionId, toolUseId, answer, opts) {
     const decision = get().pendingDecisions[sessionId]
-    if (decision?.kind !== 'view' || decision.id !== toolUseId || get().viewAnswers[toolUseId]) return
+    const front = decision?.kind === 'view' && decision.id === toolUseId
+    // Words go as a message, which answers only the decision in front.
+    const behind = opts?.behind === true && 'value' in answer
+    if ((!front && !behind) || get().viewAnswers[toolUseId]) return false
     const recorded: ViewAnswer = { ...answer, at: Date.now() }
     set((state) => ({ viewAnswers: { ...state.viewAnswers, [toolUseId]: recorded } }))
     // Words go as the user's message: while the view waits, the server makes
     // them its answer, as it does a question's.
     const sent = 'text' in answer ? api.sendMessage(sessionId, answer.text) : api.answerView(sessionId, toolUseId, answer.value)
-    sent.catch((err: unknown) => {
-      // Someone answered first, or the wait ended: what was answered stands.
-      if (err instanceof ApiError && err.status === 404) {
-        get().applySessionEvent(sessionId, { event: 'decision_resolved', decisionId: toolUseId })
-        return
-      }
+    const unrecord = () =>
       set((state) => {
         if (state.viewAnswers[toolUseId] !== recorded) return {}
         const viewAnswers = { ...state.viewAnswers }
         delete viewAnswers[toolUseId]
         return { viewAnswers }
       })
+    sent.catch((err: unknown) => {
+      // Someone answered first, or the wait ended: this answer did not go, so
+      // the view shows what the call came to (its payload, read again once
+      // the wait is over), not what this tab tried to send.
+      if (err instanceof ApiError && err.status === 404) {
+        unrecord()
+        get().applySessionEvent(sessionId, { event: 'decision_resolved', decisionId: toolUseId })
+        return
+      }
+      unrecord()
       if ('text' in answer && !get().composerDrafts[sessionId]) get().setComposerDraft(sessionId, answer.text)
       if (get().refusedOffline(sessionId, err)) return
       const message = err instanceof Error ? err.message : 'Failed to send the answer'
       set({ toast: { kind: 'error', message } })
     })
+    return true
   },
 
   async sendViewMessage(sessionId, text) {

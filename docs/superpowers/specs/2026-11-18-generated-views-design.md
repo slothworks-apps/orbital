@@ -123,6 +123,11 @@ best and Tailwind gives it Orbital's own vocabulary:
   other MCP servers keep it.
 - A view's payload fits one relay frame: a page too large for it is refused
   when the call is made, and data that does not fit travels on its own.
+- A page that navigates its own frame away is stopped by the desktop's
+  shell before the request leaves; the phone's WebView has no such guard,
+  so there the request goes out (and can carry data in its URL) before
+  Orbital sees the frame's second load, blanks it and shows the view as
+  failed. Accepted as a residual risk on the phone.
 
 ### Isolation and network
 

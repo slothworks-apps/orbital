@@ -7,6 +7,7 @@ const frame = {}
 const ctx = (over: Partial<FrameContext> = {}): FrameContext => ({
   frame,
   userActive: true,
+  frameFocused: true,
   now: 10_000,
   lastSendAt: null,
   waiting: false,
@@ -48,6 +49,22 @@ describe('readFrameMessage', () => {
   it('sends only inside a user gesture', () => {
     expect(readFrameMessage(send(1), ctx({ userActive: false }))).toEqual({ kind: 'refused', reason: 'gesture' })
     expect(readFrameMessage(send(1), ctx())).toEqual({ kind: 'send', as: 'message', value: 1 })
+  })
+
+  it('sends only when the gesture went into this frame, not elsewhere in Orbital', () => {
+    // A click or typing elsewhere activates Orbital's window, but the focus is not in the frame.
+    expect(readFrameMessage(send(1), ctx({ userActive: true, frameFocused: false }))).toEqual({ kind: 'refused', reason: 'gesture' })
+    // The frame kept the focus, but the gesture has run out: a timer in the page.
+    expect(readFrameMessage(send(1), ctx({ userActive: false, frameFocused: true }))).toEqual({ kind: 'refused', reason: 'gesture' })
+  })
+
+  it('opens a link only inside a gesture in the frame, at most once a second', () => {
+    const open = (over: Partial<FrameContext>) =>
+      readFrameMessage({ source: frame, data: { tag: MESSAGE_TAG, type: 'open', url: 'https://example.com/?d=1' } }, ctx(over))
+    expect(open({ userActive: false })).toEqual({ kind: 'refused', reason: 'gesture' })
+    expect(open({ frameFocused: false })).toEqual({ kind: 'refused', reason: 'gesture' })
+    expect(open({ lastOpenAt: 10_000 - VIEW_SEND_INTERVAL_MS + 1 })).toEqual({ kind: 'refused', reason: 'rate' })
+    expect(open({ lastOpenAt: 10_000 - VIEW_SEND_INTERVAL_MS }).kind).toBe('open')
   })
 
   it('sends at most once a second', () => {

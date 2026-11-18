@@ -121,7 +121,8 @@ function CodeFrame({ code, children }: { code: string; children: ReactNode }) {
   )
 }
 
-function CodeBlock({ code, lang }: { code: string; lang: string }) {
+/** A block of code, highlighted by shiki once it has loaded, plain until then. */
+export function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<string | null>(null)
 
   useEffect(() => {

@@ -1,12 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { VIEW_HEIGHT, clampViewHeight, type ViewPayload, type ViewResult } from '@orbital/shared/views'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react'
+import {
+  VIEW_HEIGHT,
+  clampViewHeight,
+  viewErrorText,
+  viewMessageText,
+  type ShowViewInput,
+  type ViewPayload,
+  type ViewResult,
+} from '@orbital/shared/views'
+import { api } from '../lib/api'
+import { mediaClock } from '../lib/media'
+import { useTranscriptTextScale } from '../lib/textScale'
+import { VIEW_SLEEP_AFTER_MS, useAwayFromOrbital } from '../lib/views/away'
 import { useViewColours } from '../lib/views/theme'
-import { buildViewDocument, viewThemeVars, type ViewTheme } from '../lib/views/document'
-import { approveViewDomains, currentViewSource, viewDataOf, viewErrorMessage, viewMessage } from '../lib/views/load'
+import { buildViewDocument, viewThemeVars } from '../lib/views/document'
+import { currentViewSource, viewDataOf } from '../lib/views/load'
 import { failureText, readFrameMessage, themeMessage, type ViewError } from '../lib/views/protocol'
 import { loadReactRuntime, loadViewFonts } from '../lib/views/runtime'
 import { useOrbital } from '../store/store'
-import { ViewGlyph, ViewPlaceholder, VIEW_BUTTON_PRIMARY, VIEW_BUTTON_QUIET } from './ViewParts'
+import { Button } from '../ui/Button'
+import { CodeBlock } from './MessageView'
+import { ViewGlyph, ViewPlaceholder } from './ViewParts'
 
 /**
  * A generated view (spec 2026-11-18-generated-views-design; canvas `Feature -
@@ -22,7 +36,7 @@ import { ViewGlyph, ViewPlaceholder, VIEW_BUTTON_PRIMARY, VIEW_BUTTON_QUIET } fr
  * not loaded, loading (also after sleeping), waiting for the user, sent,
  * failed. Its height is the session's, clamped; content taller than that
  * scrolls inside, and the wheel stays with the transcript until a click
- * into the view.
+ * into the view (on the desktop; a touch scrolls inside at once).
  */
 export interface ViewFrameProps {
   sessionId: string
@@ -39,17 +53,20 @@ export interface ViewFrameProps {
   offline?: boolean
   /** `maximised`: the content's height; 69d's viewer draws it at 560. */
   maximisedHeight?: number
+  /**
+   * The call as the transcript holds it, when the caller has it: the source
+   * the agent wrote (shown by `</>`), and whether it named data the Mac may
+   * not have copied yet when the payload was first read.
+   */
+  call?: ShowViewInput | null
 }
 
 /** 69d: the maximised view's content, 560 px under its 34 px header in the 600 px box. */
 export const MAXIMISED_CONTENT_PX = 560
+/** 69b: the header, 34 px over its 1 px hairline (the phone's is 44 px, a touch row). */
+export const VIEW_HEADER_PX = 34 + 1
 /** 69c FAILED: "in place, at a fixed 196 px". */
 const FAILED_PX = 196
-/**
- * 69c ASLEEP: "off screen for a while, the page is unloaded". How long a
- * while is, the canvas does not say: not traced.
- */
-const SLEEP_AFTER_MS = 30_000
 /** How far outside the scroller a view still counts as on screen. Not traced. */
 const SLEEP_MARGIN = '400px 0px'
 
@@ -57,13 +74,6 @@ type Load =
   | { state: 'loading' }
   | { state: 'failed'; message: string }
   | { state: 'loaded'; payload: ViewPayload }
-
-/** The house clock reading, as `MessageView` writes it. */
-function clock(at: string | number | undefined): string {
-  if (at === undefined) return ''
-  const date = new Date(at)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-}
 
 /** What was sent, short enough for the footer: a list of words joined, a string as is, anything else as JSON. */
 export function sentSummary(value: unknown): string {
@@ -74,14 +84,6 @@ export function sentSummary(value: unknown): string {
       : JSON.stringify(value)
   const line = (text ?? 'nothing').replace(/\s+/g, ' ').trim()
   return line.length > 80 ? `${line.slice(0, 79)}…` : line
-}
-
-function textScale(): number {
-  if (typeof getComputedStyle === 'undefined') return 1
-  const style = getComputedStyle(document.documentElement)
-  const raw = style.getPropertyValue('--transcript-text-scale').trim() || style.getPropertyValue('--text-scale').trim()
-  const value = Number(raw)
-  return Number.isFinite(value) && value > 0 ? value : 1
 }
 
 /** The domains of a view that are allowed now: the payload's, and any allowed since. */
@@ -98,6 +100,7 @@ export function ViewFrame({
   resultAt,
   offline = false,
   maximisedHeight = MAXIMISED_CONTENT_PX,
+  call,
 }: ViewFrameProps) {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [reloads, setReloads] = useState(0)
@@ -135,6 +138,19 @@ export function ViewFrame({
     }
   }, [sessionId, toolUseId, reloads, resultSeq])
 
+  // A payload read before the Mac had the call, or before it had copied the
+  // call's data file, is read again once the call settles: its result
+  // arrives, or it starts waiting.
+  const settledKey = resultAt ?? (waitingHere ? 'waiting' : '')
+  const missingData = load.state === 'loaded' && load.payload.data === null && call?.dataFile !== undefined
+  const rereadFor = useRef('')
+  useEffect(() => {
+    if (!settledKey || rereadFor.current === settledKey) return
+    if (load.state !== 'failed' && !missingData) return
+    rereadFor.current = settledKey
+    setResultSeq((n) => n + 1)
+  }, [settledKey, load.state, missingData])
+
   const payload = load.state === 'loaded' ? load.payload : null
   const title = payload?.title ?? ''
   const height =
@@ -148,23 +164,43 @@ export function ViewFrame({
   const needsAllow = asked.some((d) => !allowed.has(d.toLowerCase()))
   const [declined, setDeclined] = useState(false)
   const [allowing, setAllowing] = useState(false)
+  const [allowFailed, setAllowFailed] = useState<string | null>(null)
   const allow = () => {
     if (!payload || allowing) return
     setAllowing(true)
     setDeclined(false)
-    approveViewDomains(sessionId, asked)
-      .then((domains) => setViewDomains(sessionId, domains))
-      .catch(() => setDeclined(false))
+    setAllowFailed(null)
+    api
+      .approveViewDomains(sessionId, asked)
+      .then((answer) => setViewDomains(sessionId, answer.domains))
+      .catch((err: unknown) => setAllowFailed(err instanceof Error ? err.message : String(err)))
       .finally(() => setAllowing(false))
   }
 
   // What was answered: this tab's own answer first, else the call's result.
   const result: ViewResult | null = payload?.result ?? null
   const answered = Boolean(answer) || (payload?.wait === true && result !== null && !waitingHere)
-  const waiting = waitingHere && !answer
+  // Waiting behind another decision: a permission asked while the view waits
+  // stands in front of it, and the view still takes its answer.
+  const waitingBehind = !waitingHere && payload?.waiting === true && result === null
+  const waiting = (waitingHere || waitingBehind) && !answer
+  // A decision coming or going in front of a view that waits behind it: is it still waiting?
+  const pendingId = pending?.id
+  const behindRef = useRef(waitingBehind)
+  behindRef.current = waitingBehind
+  useEffect(() => {
+    if (behindRef.current) setResultSeq((n) => n + 1)
+  }, [pendingId])
+  // This tab's answer taken back (the wait was already over): read what the call came to.
+  const hadAnswer = useRef(Boolean(answer))
+  useEffect(() => {
+    if (hadAnswer.current && !answer) setResultSeq((n) => n + 1)
+    hadAnswer.current = Boolean(answer)
+  }, [answer])
 
-  // Asleep (69c): out of sight for a while, the page is unloaded; a waiting
-  // view never is, nor the maximised one.
+  // Asleep (69c): out of sight for a while — scrolled away, or the user away
+  // from Orbital (the page hidden, the window without focus) — the page is
+  // unloaded; a waiting view never is, nor the maximised one.
   const rootRef = useRef<HTMLDivElement | null>(null)
   const [asleep, setAsleep] = useState(false)
   const canSleep = surface !== 'maximised' && !waiting
@@ -183,7 +219,7 @@ export function ViewFrame({
           timer = null
           setAsleep(false)
         } else if (!timer) {
-          timer = setTimeout(() => setAsleep(true), SLEEP_AFTER_MS)
+          timer = setTimeout(() => setAsleep(true), VIEW_SLEEP_AFTER_MS)
         }
       },
       { rootMargin: SLEEP_MARGIN },
@@ -194,26 +230,33 @@ export function ViewFrame({
       if (timer) clearTimeout(timer)
     }
   }, [canSleep])
+  const away = useAwayFromOrbital()
+  const sleeping = canSleep && (asleep || away)
 
   // The page, built once the payload is in, the domains are settled and the view is awake.
   const colours = useViewColours()
-  const coloursRef = useRef(colours)
-  coloursRef.current = colours
+  const textScale = useTranscriptTextScale()
+  // The theme as it is when the page is built and when it says it is ready,
+  // not when the build started: fonts, the runtime and the data load first.
+  const vars = useMemo(() => viewThemeVars({ colours, textScale }), [colours, textScale])
+  const themeRef = useRef({ colours, textScale, vars })
+  themeRef.current = { colours, textScale, vars }
   const approvedForPage = useMemo(() => asked.filter((d) => allowed.has(d.toLowerCase())), [asked, allowed])
   const approvedKey = approvedForPage.join(' ')
   const [doc, setDoc] = useState<{ srcdoc: string; key: number } | null>(null)
   const [error, setError] = useState<ViewError | null>(null)
   const [ready, setReady] = useState(false)
+  // The content's last measured height stays through sleep, Reload and a
+  // rebuild, so the footer saying how much scrolls inside does not come and go.
   const [contentHeight, setContentHeight] = useState(0)
-  const build = payload !== null && !needsAllow && !asleep
+  useEffect(() => setContentHeight(0), [toolUseId])
+  const build = payload !== null && !needsAllow && !sleeping
   useEffect(() => {
     setDoc(null)
     setReady(false)
     setError(null)
-    setContentHeight(0)
     if (!build || !payload) return
     let live = true
-    const theme: ViewTheme = { colours: coloursRef.current, textScale: textScale() }
     Promise.all([
       loadViewFonts(),
       payload.kind === 'react' ? loadReactRuntime() : Promise.resolve(undefined),
@@ -224,7 +267,7 @@ export function ViewFrame({
         const srcdoc = buildViewDocument({
           payload: { ...payload, approvedDomains: approvedKey ? approvedKey.split(' ') : [] },
           data,
-          theme,
+          theme: { colours: themeRef.current.colours, textScale: themeRef.current.textScale },
           fonts,
           runtime,
         })
@@ -244,9 +287,10 @@ export function ViewFrame({
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const loadsRef = useRef(0)
   const lastSendAt = useRef<number | null>(null)
+  const lastOpenAt = useRef<number | null>(null)
   const [blocked, setBlocked] = useState(false)
-  const latest = useRef({ waiting, answered, pending, offline, payload, onEscape })
-  latest.current = { waiting, answered, pending, offline, payload, onEscape }
+  const latest = useRef({ waiting, waitingBehind, answered, pending, offline, payload, onEscape })
+  latest.current = { waiting, waitingBehind, answered, pending, offline, payload, onEscape }
   useEffect(() => {
     if (!pending) setBlocked(false)
   }, [pending])
@@ -257,8 +301,10 @@ export function ViewFrame({
       const action = readFrameMessage(event, {
         frame: frameRef.current?.contentWindow ?? null,
         userActive: typeof navigator !== 'undefined' && navigator.userActivation ? navigator.userActivation.isActive : false,
+        frameFocused: frameRef.current !== null && document.activeElement === frameRef.current,
         now: Date.now(),
         lastSendAt: lastSendAt.current,
+        lastOpenAt: lastOpenAt.current,
         waiting: now.waiting,
         answered: now.answered,
         otherDecisionPending: now.pending !== undefined && now.pending.id !== toolUseId,
@@ -267,6 +313,8 @@ export function ViewFrame({
       switch (action.kind) {
         case 'ready':
           setReady(true)
+          // The theme may have changed while the page was loading.
+          frameRef.current?.contentWindow?.postMessage(themeMessage(themeRef.current.vars), '*')
           return
         case 'height':
           setContentHeight(action.height)
@@ -275,6 +323,7 @@ export function ViewFrame({
           setError((before) => before ?? action.error)
           return
         case 'open':
+          lastOpenAt.current = Date.now()
           window.open(action.url, '_blank', 'noopener')
           return
         case 'escape':
@@ -282,8 +331,11 @@ export function ViewFrame({
           return
         case 'send':
           lastSendAt.current = Date.now()
-          if (action.as === 'answer') answerView(sessionId, toolUseId, { value: action.value })
-          else if (now.payload) void sendViewMessage(sessionId, viewMessage(now.payload, action.value))
+          if (action.as === 'answer') answerView(sessionId, toolUseId, { value: action.value }, { behind: now.waitingBehind })
+          else if (now.payload) {
+            const { viewId, title } = now.payload
+            void sendViewMessage(sessionId, viewMessageText({ viewId, title, value: action.value }))
+          }
           return
         case 'refused':
           if (action.reason === 'blocked') setBlocked(true)
@@ -296,16 +348,18 @@ export function ViewFrame({
     return () => window.removeEventListener('message', onMessage)
   }, [sessionId, toolUseId, answerView, sendViewMessage])
 
-  // A new colour theme reaches a page that is up without reloading it.
-  const vars = useMemo(() => viewThemeVars({ colours, textScale: textScale() }), [colours])
+  // A new colour theme or text size reaches a page that is up without reloading it.
   useEffect(() => {
     frameRef.current?.contentWindow?.postMessage(themeMessage(vars), '*')
   }, [vars])
 
-  // A second `load` is the page navigating itself away: put it back, as failed.
-  const onFrameLoad = () => {
+  // A second `load` is the page navigating itself away: blank the frame at
+  // once (the desktop's shell refuses the navigation outright; the phone has
+  // no such guard), then show it as failed on every surface.
+  const onFrameLoad = (event: SyntheticEvent<HTMLIFrameElement>) => {
     loadsRef.current += 1
     if (loadsRef.current > 1) {
+      if (loadsRef.current === 2) event.currentTarget.srcdoc = ''
       setError({ kind: 'page', message: 'The page navigated away from itself' })
       setDoc(null)
     }
@@ -324,7 +378,9 @@ export function ViewFrame({
     if (!payload || !error) return
     const { detail } = failureText(error)
     setErrorSent(true)
-    void sendViewMessage(sessionId, viewErrorMessage(payload, detail)).then((ok) => ok || setErrorSent(false))
+    void sendViewMessage(sessionId, viewErrorText({ viewId: payload.viewId, title: payload.title, error: detail })).then(
+      (ok) => ok || setErrorSent(false),
+    )
   }
 
   // The wheel stays with the transcript until a click into a view that scrolls inside.
@@ -339,7 +395,8 @@ export function ViewFrame({
     : load.state === 'failed'
       ? { title: 'This view could not be read', detail: load.message, hint: 'Reload asks the session’s Mac again.' }
       : null
-  const tag = waiting ? 'PENDING' : answered ? `SENT${clock(resultAt ?? answer?.at) ? ` ${clock(resultAt ?? answer?.at)}` : ''}` : 'VIEW'
+  const sentAt = mediaClock(resultAt ?? answer?.at)
+  const tag = waiting ? 'PENDING' : answered ? `SENT${sentAt ? ` ${sentAt}` : ''}` : 'VIEW'
   const tagInk = waiting ? 'text-accent' : 'text-ink-900/60'
   const edge = waiting ? 'border-accent/30' : answered ? 'border-line/12' : 'border-line/16'
 
@@ -349,7 +406,7 @@ export function ViewFrame({
       ? { dot: false, ink: 'text-ink-200/80', text: 'The session is waiting on another answer · answer that first' }
       : answered && !failed
         ? { dot: false, ink: 'text-ink-900/60', text: `Read only · ${answeredText(answer, result)}` }
-        : clipped && !needsAllow && !asleep
+        : clipped && !needsAllow
           ? {
               dot: false,
               ink: 'text-ink-900/60',
@@ -358,6 +415,18 @@ export function ViewFrame({
           : null
 
   const domainChips = asked.length > 0 ? [`↗ ${asked[0]}`, ...(asked.length > 1 ? [`+${asked.length - 1}`] : [])] : []
+  // The phone has no hover: a tap on "+n" lists every domain under the header.
+  const [domainsOpen, setDomainsOpen] = useState(false)
+  const [sourceOpen, setSourceOpen] = useState(false)
+  const buttonSize = phone ? 'view-touch' : 'view'
+
+  // Why Send the error cannot go now, said in words: the phone has no tooltip.
+  const sendErrorHeld =
+    pending !== undefined
+      ? 'The session is waiting on an answer; send the error after it.'
+      : offline
+        ? 'The session’s Mac can’t be reached; send the error when it is back.'
+        : null
 
   let body: ReactNode
   if (failed && failure) {
@@ -379,20 +448,23 @@ export function ViewFrame({
           {failure.detail}
         </div>
         <div className="fs-11.5 leading-[1.45] text-ink-900/60">{failure.hint}</div>
-        <div className="mt-auto flex gap-2">
-          <button type="button" onClick={reload} className={[VIEW_BUTTON_QUIET, phone ? 'min-h-11' : ''].join(' ')}>
+        <div className="mt-auto flex flex-wrap items-center gap-2">
+          <Button variant="outline-quiet" size={buttonSize} onClick={reload}>
             Reload
-          </button>
+          </Button>
           {error && payload && (
-            <button
-              type="button"
+            <Button
+              variant="outline-quiet"
+              size={buttonSize}
               onClick={sendError}
-              disabled={errorSent || pending !== undefined || offline}
-              title={pending !== undefined ? 'The session is waiting on an answer; send it after' : undefined}
-              className={[VIEW_BUTTON_QUIET, phone ? 'min-h-11' : ''].join(' ')}
+              disabled={errorSent || sendErrorHeld !== null}
             >
               {errorSent ? 'Sent to the session' : 'Send the error to the session'}
-            </button>
+            </Button>
+          )}
+          {error && payload && !errorSent && sendErrorHeld && (
+            // Not on the canvas: pending a design pass.
+            <span className="fs-11.5 leading-[1.45] text-ink-900/60">{sendErrorHeld}</span>
           )}
         </div>
       </div>
@@ -425,18 +497,19 @@ export function ViewFrame({
         <div className="fs-11.5 leading-[1.45] text-ink-900/60">
           Nothing loads until you allow it. Allowed for the rest of this session.
         </div>
+        {allowFailed && (
+          // Not on the canvas: pending a design pass.
+          <div role="alert" className="fs-11.5 leading-[1.45] text-danger-soft">
+            Couldn’t allow it: {allowFailed}
+          </div>
+        )}
         <div className="mt-auto flex gap-2">
-          <button
-            type="button"
-            onClick={allow}
-            disabled={allowing}
-            className={[VIEW_BUTTON_PRIMARY, phone ? 'min-h-11' : ''].join(' ')}
-          >
+          <Button variant="primary-plain" size={phone ? 'view-touch' : 'chooser'} onClick={allow} disabled={allowing}>
             Allow
-          </button>
-          <button type="button" onClick={() => setDeclined(true)} className={[VIEW_BUTTON_QUIET, phone ? 'min-h-11' : ''].join(' ')}>
+          </Button>
+          <Button variant="outline-quiet" size={buttonSize} onClick={() => setDeclined(true)}>
             Don’t load
-          </button>
+          </Button>
         </div>
       </div>
     )
@@ -463,8 +536,10 @@ export function ViewFrame({
           // 69b TALLER THAN 480: a fade at the foot over the scrolling page.
           <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-[linear-gradient(180deg,transparent,var(--color-space))]" />
         )}
-        {clipped && ready && !engaged && surface !== 'maximised' && (
-          // The wheel goes to the transcript; a click hands the view the pointer.
+        {clipped && ready && !engaged && surface === 'panel' && (
+          // The wheel goes to the transcript; a click hands the view the
+          // pointer. Not on the phone: a touch scrolls inside the view and
+          // never traps the transcript, and a cover would eat every first tap.
           <div aria-hidden className="absolute inset-0 cursor-pointer" onPointerDown={() => setEngaged(true)} />
         )}
         {answered && (
@@ -475,52 +550,92 @@ export function ViewFrame({
     )
   }
 
+  const headerButton = [
+    'grid flex-none cursor-pointer place-items-center rounded-[6px] border-0 bg-transparent p-0 text-ink-200/80 hover:bg-line/14 hover:text-ink-50',
+    phone ? 'h-11 w-11' : 'h-[26px] w-[26px]',
+  ].join(' ')
+
   return (
     <div
       ref={rootRef}
       data-view-frame
       data-view-id={payload?.viewId}
       onClick={surface === 'maximised' ? (event) => event.stopPropagation() : undefined}
-      onPointerLeave={() => setEngaged(false)}
+      // A finger lifting is a pointerleave too; only the mouse leaving gives the wheel back.
+      onPointerLeave={(event) => event.pointerType === 'mouse' && setEngaged(false)}
       className={[
         'w-full flex-none overflow-hidden rounded-[11px] border bg-panel-solid/96',
         edge,
       ].join(' ')}
     >
-      {/* 69b: the window glyph, the name, the tag, the domains and ⤢, over a hairline. */}
-      <div className={['flex items-center gap-2 border-b border-line/8 pl-[11px] pr-1.5', phone ? 'h-11' : 'h-[35px]'].join(' ')}>
+      {/* 69b: the window glyph, the name, the tag, the domains, </> and ⤢, over a hairline. */}
+      <div
+        className={['flex items-center gap-2 border-b border-line/8 pl-[11px] pr-1.5', phone ? 'h-11' : ''].join(' ')}
+        style={phone ? undefined : { height: VIEW_HEADER_PX }}
+      >
         <span className="flex text-ink-900/60">
           <ViewGlyph />
         </span>
         <span className="min-w-0 flex-[0_1_auto] truncate fs-12.5 font-semibold text-ink-100">{title}</span>
         <span className={['flex-none font-mono fs-9.5 tracking-[0.12em]', tagInk].join(' ')}>{tag}</span>
         <span className="flex-1" />
-        {domainChips.map((chip, i) => (
-          <span
-            key={chip}
-            title={i === 0 ? asked[0] : asked.slice(1).join('\n')}
-            className="flex h-5 flex-none items-center gap-1 whitespace-nowrap rounded-[5px] border border-line/16 px-[7px] font-mono fs-10 text-ink-200/80"
-          >
-            {chip}
-          </span>
-        ))}
-        {onMaximise && surface !== 'maximised' && (
+        {domainChips.map((chip, i) => {
+          const chipClass =
+            'flex h-5 flex-none items-center gap-1 whitespace-nowrap rounded-[5px] border border-line/16 px-[7px] font-mono fs-10 text-ink-200/80'
+          if (phone && i === 1) {
+            return (
+              <button
+                key={chip}
+                type="button"
+                aria-expanded={domainsOpen}
+                aria-label={`${asked.length} domains`}
+                onClick={() => setDomainsOpen((open) => !open)}
+                className="grid h-11 flex-none cursor-pointer place-items-center border-0 bg-transparent p-0"
+              >
+                <span className={chipClass}>{chip}</span>
+              </button>
+            )
+          }
+          return (
+            <span key={chip} title={i === 0 ? asked[0] : asked.slice(1).join('\n')} className={chipClass}>
+              {chip}
+            </span>
+          )
+        })}
+        {payload && (
+          // Not on the canvas: the glyph and its place are pending a design pass.
           <button
             type="button"
-            title="Maximise"
-            aria-label="Maximise"
-            onClick={onMaximise}
-            className={[
-              'grid flex-none cursor-pointer place-items-center rounded-[6px] border-0 bg-transparent p-0 text-ink-200/80 hover:bg-line/14 hover:text-ink-50',
-              phone ? 'h-11 w-11' : 'h-[26px] w-[26px]',
-            ].join(' ')}
+            title={sourceOpen ? 'Show the view' : 'Show the source'}
+            aria-label={sourceOpen ? 'Show the view' : 'Show the source'}
+            aria-pressed={sourceOpen}
+            onClick={() => setSourceOpen((open) => !open)}
+            className={[headerButton, 'font-mono fs-10', sourceOpen ? 'bg-line/14 text-ink-50' : ''].join(' ')}
           >
+            {'</>'}
+          </button>
+        )}
+        {onMaximise && surface !== 'maximised' && (
+          <button type="button" title="Maximise" aria-label="Maximise" onClick={onMaximise} className={headerButton}>
             <MaximiseGlyph />
           </button>
         )}
       </div>
+      {phone && domainsOpen && asked.length > 1 && (
+        // Not on the canvas: pending a design pass.
+        <div data-selectable className="flex flex-col gap-1 border-b border-line/8 px-[11px] py-2 font-mono fs-11 text-ink-200/80">
+          {asked.map((domain) => (
+            <span key={domain}>↗ {domain}</span>
+          ))}
+        </div>
+      )}
       <div className="relative bg-space" style={{ height: failed ? FAILED_PX : height }}>
-        {asleep && payload && !failed ? <ViewPlaceholder>Loading view…</ViewPlaceholder> : body}
+        {sleeping && payload && !failed ? <ViewPlaceholder>Loading view…</ViewPlaceholder> : body}
+        {sourceOpen && payload && (
+          <div className="absolute inset-0">
+            <ViewSource sessionId={sessionId} payload={payload} call={call ?? null} />
+          </div>
+        )}
       </div>
       {footer && (
         <div className={['flex min-h-[30px] items-center gap-2 border-t border-line/8 px-[11px] py-1.5 font-mono fs-10 leading-[1.5]', footer.ink].join(' ')}>
@@ -528,6 +643,73 @@ export function ViewFrame({
           <span>{footer.text}</span>
         </div>
       )}
+    </div>
+  )
+}
+
+/** How many lines of the data the source panel shows. Not traced: pending a design pass. */
+const DATA_PREVIEW_LINES = 8
+
+/** The start of a view's data, as text: JSON indented, a CSV as is. */
+function dataPreview(data: unknown): string {
+  const text = typeof data === 'string' ? data : (JSON.stringify(data, null, 2) ?? 'null')
+  const lines = text.split('\n')
+  return lines.length > DATA_PREVIEW_LINES ? [...lines.slice(0, DATA_PREVIEW_LINES), '…'].join('\n') : text
+}
+
+function bytesText(bytes: number): string {
+  return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/**
+ * `</>`: what the view runs, read-only, in place of its content — the source
+ * the agent wrote (the compiled module when the transcript's call is not at
+ * hand), the domains it may fetch from, and the start of its data. Not on the
+ * canvas: its layout is pending a design pass.
+ */
+function ViewSource({ sessionId, payload, call }: { sessionId: string; payload: ViewPayload; call: ShowViewInput | null }) {
+  const original = call?.component ?? call?.html
+  const code = original ?? payload.script ?? payload.html ?? ''
+  const lang = payload.kind === 'react' ? 'tsx' : 'html'
+  const compiled = original === undefined && payload.kind === 'react'
+  const [data, setData] = useState<{ text: string } | { failed: string } | null>(null)
+  useEffect(() => {
+    if (!payload.data) return
+    let live = true
+    viewDataOf(sessionId, payload)
+      .then((value) => live && setData({ text: dataPreview(value) }))
+      .catch((err: unknown) => live && setData({ failed: err instanceof Error ? err.message : String(err) }))
+    return () => {
+      live = false
+    }
+  }, [sessionId, payload])
+  const label = 'font-mono fs-9.5 tracking-[0.12em] text-ink-900/60'
+  return (
+    <div data-selectable className="flex h-full flex-col gap-3 overflow-auto bg-space px-3 py-3">
+      <div className="flex flex-col gap-1.5">
+        <div className={label}>{compiled ? 'COMPONENT · COMPILED' : payload.kind === 'react' ? 'COMPONENT' : 'HTML'}</div>
+        <CodeBlock code={code} lang={lang} />
+      </div>
+      <div className="flex flex-col gap-1">
+        <div className={label}>FETCHES FROM</div>
+        <div className="font-mono fs-11 text-ink-200/80">
+          {payload.liveDomains.length > 0 ? payload.liveDomains.map((d) => <div key={d}>↗ {d}</div>) : 'nothing'}
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <div className={label}>
+          DATA{payload.data ? ` · ${payload.data.format === 'inline' ? 'JSON, INLINE' : payload.data.format.toUpperCase()} · ${bytesText(payload.data.bytes)}` : ''}
+        </div>
+        {!payload.data ? (
+          <div className="font-mono fs-11 text-ink-200/80">none</div>
+        ) : data === null ? (
+          <div className="font-mono fs-11 text-ink-900/60">Reading…</div>
+        ) : 'failed' in data ? (
+          <div className="font-mono fs-11 text-danger-soft">{data.failed}</div>
+        ) : (
+          <CodeBlock code={data.text} lang={payload.data.format === 'csv' ? 'csv' : 'json'} />
+        )}
+      </div>
     </div>
   )
 }

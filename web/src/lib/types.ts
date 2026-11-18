@@ -1616,6 +1616,7 @@ export type ErrorKind =
   | 'worktree_failed'
   /** The call naming a worktree's branch failed or answered nothing usable; the temporary name stood in. */
   | 'branch_naming_failed'
+  | 'view_files_failed'
 
 export interface ErrorRecord {
   id: number

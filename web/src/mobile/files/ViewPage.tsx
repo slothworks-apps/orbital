@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import type { MediaItem } from '../../lib/types'
 import { ViewFrame } from '../../panels/ViewFrame'
+import { SecondaryButton } from '../ui'
 import { useSwipe } from './MediaFoot'
 
 /**
@@ -57,31 +58,17 @@ export function ViewPage({
         <ViewFrame key={item.view.toolUseId} sessionId={sessionId} toolUseId={item.view.toolUseId} surface="phone" />
       </div>
       <div className="flex shrink-0 items-center gap-2 px-3 py-2.5">
-        <button
-          type="button"
-          aria-label="Previous"
-          disabled={index <= 0}
-          onClick={() => onPage(-1)}
-          className="grid h-11 w-11 place-items-center rounded-[12px] border border-line/16 fs-20 disabled:opacity-40"
-        >
+        <SecondaryButton variant="square" aria-label="Previous" disabled={index <= 0} onClick={() => onPage(-1)}>
           ‹
-        </button>
-        <button
-          type="button"
-          onClick={onShowInChat}
-          className="grid h-11 flex-1 place-items-center rounded-[12px] border border-line/16 font-mono fs-11.5"
-        >
-          ↩ Show in transcript
-        </button>
-        <button
-          type="button"
-          aria-label="Next"
-          disabled={index >= count - 1}
-          onClick={() => onPage(1)}
-          className="grid h-11 w-11 place-items-center rounded-[12px] border border-line/16 fs-20 disabled:opacity-40"
-        >
+        </SecondaryButton>
+        <div className="grid min-w-0 flex-1">
+          <SecondaryButton variant="bar" onClick={onShowInChat}>
+            ↩ Show in transcript
+          </SecondaryButton>
+        </div>
+        <SecondaryButton variant="square" aria-label="Next" disabled={index >= count - 1} onClick={() => onPage(1)}>
           ›
-        </button>
+        </SecondaryButton>
       </div>
     </main>
   )

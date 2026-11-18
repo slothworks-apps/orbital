@@ -22,7 +22,8 @@ import { usePresence } from '../ui/usePresence'
 import { CopyGlyph, FolderGlyph, ImageGlyph } from '../ui/UtilityButton'
 import { GoneMark, MediaPicture, SourcesButton, isGone, pdfKey } from './MediaParts'
 import { PdfPager, usePdfDocument } from './PdfPages'
-import { MAXIMISED_CONTENT_PX, ViewFrame } from './ViewFrame'
+import { VIEW_HEIGHT } from '@orbital/shared/views'
+import { MAXIMISED_CONTENT_PX, VIEW_HEADER_PX, ViewFrame } from './ViewFrame'
 import { ViewGlyph } from './ViewParts'
 
 /**
@@ -77,7 +78,8 @@ export type ViewerTarget =
 
 /** 69d: the maximised view's box, 1040 wide; its header is 34 px over the content. */
 const VIEW_BOX_W = 1040
-const VIEW_HEADER_PX = 36
+/** The box's 1 px edge, above the header and below the content. */
+const VIEW_EDGE_PX = 1
 
 export interface MediaViewerProps {
   open: boolean
@@ -527,7 +529,7 @@ function Stage({
           sessionId={sessionId}
           toolUseId={item.view.toolUseId}
           surface="maximised"
-          maximisedHeight={Math.max(120, Math.min(MAXIMISED_CONTENT_PX, stageHeight - VIEW_HEADER_PX))}
+          maximisedHeight={Math.max(VIEW_HEIGHT.min, Math.min(MAXIMISED_CONTENT_PX, stageHeight - VIEW_HEADER_PX - 2 * VIEW_EDGE_PX))}
           onEscape={onClose}
         />
       </div>

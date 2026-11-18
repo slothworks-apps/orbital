@@ -92,7 +92,6 @@ export async function boot(): Promise<void> {
   // A generated view's payload over REST, its data copy over `file_get` (spec 2026-11-18-generated-views-design § Phone).
   configureViewSource(
     makePhoneViewSource({
-      client: clientRef,
       files: { client: clientRef, cache: fileCache },
       serves: (sessionId) => sessionSupports('views', sessionId),
     }),

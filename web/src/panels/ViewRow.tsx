@@ -39,10 +39,11 @@ export function ViewRow({
 }) {
   const [maximised, setMaximised] = useState(false)
   const toolUseId = toolUse.toolUseId ?? ''
+  const call = readShowView(toolUse.toolInput)
   const view: ViewMaximise = {
     viewId,
     toolUseId,
-    title: readShowView(toolUse.toolInput)?.title ?? '',
+    title: call?.title ?? '',
     messageId: toolUse.id,
   }
   const maximise = onMaximise ? () => onMaximise(view) : surface === 'phone' ? undefined : () => setMaximised(true)
@@ -55,6 +56,7 @@ export function ViewRow({
         onMaximise={maximise}
         resultAt={toolResult?.timestamp}
         offline={offline}
+        call={call}
       />
       {!onMaximise && surface !== 'phone' && (
         <MediaViewer

@@ -279,7 +279,8 @@ export function mediaArrived(arrived: readonly ChatMessage[], messages: readonly
 }
 
 /** The house clock reading (`MessageView`'s `clockTime`), or '' for a stamp `Date` cannot read. */
-export function mediaClock(ts: string): string {
+export function mediaClock(ts: string | number | undefined): string {
+  if (ts === undefined) return ''
   const at = new Date(ts)
   if (Number.isNaN(at.getTime())) return ''
   return at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })

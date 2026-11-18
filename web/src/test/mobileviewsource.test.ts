@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FileResult } from '@orbital/shared/remote/client'
-import type { TunnelClient } from '../mobile/transport/clientRef'
+import type { ViewPayload } from '@orbital/shared/views'
 import type { ResolverDeps } from '../mobile/files/fileResolver'
-import { makePhoneViewSource, viewPayloadPath } from '../mobile/files/viewSource'
+import { makePhoneViewSource } from '../mobile/files/viewSource'
+import { ApiError, api } from '../lib/api'
 import { viewsEnabled } from '../lib/experimental'
 import { takeMacViewsSetting } from '../mobile/questionSetting'
 import { useMobile } from '../mobile/state'
@@ -12,14 +13,15 @@ import { useOrbital } from '../store/store'
 const encode = (text: string) => new TextEncoder().encode(text)
 const answer = (status: number, text = ''): FileResult => ({ status, bytes: encode(text), size: text.length, mediaType: null, w: null, h: null })
 
-type Request = TunnelClient['request']
+type Payload = typeof api.viewPayload
 
-function source(opts: { getFile?: ResolverDeps['client']['getFile']; serves?: boolean; request?: Request }) {
+function source(opts: { getFile?: ResolverDeps['client']['getFile']; serves?: boolean; payload?: Payload }) {
   const stored = new Map<string, Uint8Array>()
   const getFile = vi.fn(opts.getFile ?? (async () => answer(404)))
-  const request = vi.fn<Request>(opts.request ?? (async () => ({ status: 200, body: { viewId: 'v1' } })))
+  const request = vi
+    .spyOn(api, 'viewPayload')
+    .mockImplementation(opts.payload ?? (async () => ({ viewId: 'v1' }) as ViewPayload))
   const view = makePhoneViewSource({
-    client: { request },
     files: {
       client: { getFile, getBlob: vi.fn() },
       cache: {
@@ -38,10 +40,14 @@ function source(opts: { getFile?: ResolverDeps['client']['getFile']; serves?: bo
 }
 
 describe('the phone’s view source', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('reads the payload over REST and the data copy over file_get as view-data', async () => {
     const { view, getFile, request } = source({ getFile: async () => answer(200, '{"a":1}') })
     expect(await view.payload('s1', 'tu1')).toEqual({ viewId: 'v1' })
-    expect(request).toHaveBeenCalledWith('GET', viewPayloadPath('s1', 'tu1'))
+    expect(request).toHaveBeenCalledWith('s1', 'tu1')
     expect(await view.data('s1', 'tu1')).toBe('{"a":1}')
     expect(getFile).toHaveBeenCalledWith('s1', 'tu1', 'view-data', expect.anything())
   })
@@ -65,8 +71,8 @@ describe('the phone’s view source', () => {
   })
 
   it('rejects a refused payload', async () => {
-    const { view } = source({ request: async () => ({ status: 404, body: { error: 'not_found' } }) })
-    await expect(view.payload('s1', 'tu1')).rejects.toThrow('404')
+    const { view } = source({ payload: async () => Promise.reject(new ApiError('not_found', 404)) })
+    await expect(view.payload('s1', 'tu1')).rejects.toBeInstanceOf(ApiError)
   })
 })
 
