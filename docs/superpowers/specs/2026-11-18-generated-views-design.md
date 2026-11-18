@@ -106,21 +106,30 @@ best and Tailwind gives it Orbital's own vocabulary:
 
 ### Choices made while planning
 
-- `dataFile` may be any readable path: the session reads any file anyway.
+- `dataFile` must lie in the session's directory (where it started or is
+  now) or the temp directory. The tool asks no permission, so it may not
+  read what a Read outside the project would have to ask for.
 - The page's CSP allows `'unsafe-eval'`: the frame is isolated, and some
   chart libraries need it.
 - `liveDomains` take https hosts only: no localhost, IP address or local
   name.
 - A subagent cannot show a view; a waiting one could never be answered.
+- A waiting view has its own slot. A question or a permission asked while
+  it waits goes in front of it and does not cancel it; once answered, the
+  view is what the session waits on again.
+- `orbital.send` and links count only when the frame holds the focus and
+  the window has a user gesture: a click elsewhere in Orbital does not let
+  a page send.
 - A view without `wait` cannot send while the session waits on another
   answer (a question, a permission): its message would answer that instead.
 - Allowed domains do not carry over when a session is cleared.
 - The waiting call's decision id is its tool_use id, which the CLI passes
   to the tool as `_meta["claudecode/toolUseId"]`; a PreToolUse hook that
   notes each call's id is the fallback.
-- The Orbital MCP server's own call timeout is set to the CLI's cap, so a
-  user's `MCP_TOOL_TIMEOUT` cannot cancel a view waiting on them; their
-  other MCP servers keep it.
+- The Orbital MCP server's own call timeout is set to the CLI's cap in a
+  session given `show_view`, so a user's `MCP_TOOL_TIMEOUT` cannot cancel
+  a view waiting on them; their other MCP servers, and sessions without
+  Views, keep it.
 - A view's payload fits one relay frame: a page too large for it is refused
   when the call is made, and data that does not fit travels on its own.
 - A page that navigates its own frame away is stopped by the desktop's
