@@ -333,7 +333,7 @@ describe('Runner.parkView', () => {
   it('parks the view as a decision carrying only its id and title, and waits in needs_input', async () => {
     const { runner, id, received } = await parkedView();
     expect(runner.status(id)).toBe('needs_input');
-    const decision = { id: 'toolu_v', kind: 'view', input: { viewId: 'toolu_root', title: 'Pick a colour' }, createdAt: expect.any(Number), toolName: VIEW_TOOL, title: 'Pick a colour is waiting for you' };
+    const decision = { id: 'toolu_v', kind: 'view', input: { viewId: 'toolu_root', title: 'Pick a colour' }, createdAt: expect.any(Number), toolName: VIEW_TOOL, title: 'Pick a colour' };
     expect(runner.pendingDecision(id)).toEqual(decision);
     expect(received).toContainEqual({ topic: 'session:web-1', event: 'decision_pending', decision });
   });

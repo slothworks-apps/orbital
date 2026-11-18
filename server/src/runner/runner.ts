@@ -3155,7 +3155,8 @@ export class Runner {
       input: { viewId: view.viewId, title: view.title },
       createdAt: Date.now(),
       toolName: VIEW_TOOL,
-      title: `${view.title} is waiting for you`,
+      // The view's own name: every client builds its sentence around it.
+      title: view.title,
     };
     return new Promise<ViewResult>((resolve) => {
       if (signal?.aborted) {
