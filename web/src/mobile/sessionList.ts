@@ -178,6 +178,7 @@ export function decisionReason(decision: PendingDecision | null | undefined): st
   if (!decision) return null
   if (decision.kind === 'question') return decision.input.questions[0]?.question ?? 'has a question'
   if (decision.kind === 'plan') return 'plan to approve'
+  if (decision.kind === 'view') return `${decision.title.trim() || 'A view'} is waiting`
   return decision.title ?? `wants to run ${decision.toolName ?? 'a tool'}`
 }
 
