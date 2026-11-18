@@ -18,6 +18,7 @@ import { CARD, MobileScreen, SectionLabel, SheetPresence, Toggle } from '../ui'
 import { AppearanceSection } from './AppearanceSection'
 import { DevicesSection } from './DevicesSection'
 import { FeedbackSheet } from './FeedbackSheet'
+import { LabsSection } from './LabsSection'
 import { isDemo } from '../../lib/demo'
 
 /**
@@ -167,6 +168,9 @@ export function SettingsScreen() {
             ? 'Just for this phone.'
             : 'Just for this phone. All off until you turn one on. The first one asks the phone for permission.'}
         </p>
+
+        {/* Canvas `Feature - Views` 69f: LABS under NOTIFICATIONS. */}
+        <LabsSection />
 
         <SecuritySection />
 

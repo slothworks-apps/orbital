@@ -64,6 +64,13 @@ export const MAC_FEATURES = {
    * left out against one all the same.
    */
   progressList: '0.49.0',
+  /**
+   * Generated views (spec 2026-11-18-generated-views-design § Phone): the view payload route,
+   * `file_get` as `view-data`, view items in the session's media (`?views=1`) and Settings →
+   * Labs → Views with its CDN hosts. The phone draws a view's row whatever the Mac (an older
+   * Mac has no tool, so no views); against one, it asks for none of these.
+   */
+  views: '0.50.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import { harnessEnabled } from '../lib/experimental'
+import { harnessEnabled, viewsEnabled } from '../lib/experimental'
 import { useOrbital } from '../store/store'
 import { channelSettingRead } from './update/channel'
 
@@ -18,6 +18,13 @@ const KEY = 'questions_review_before_send'
 export const useMacHarnessSetting = create<{ on: boolean | null }>(() => ({ on: null }))
 
 /**
+ * Labs → Views as the last answered settings read had it (spec
+ * 2026-11-18-generated-views-design § Phone): the session's media asks for
+ * view items only while it is on. Null while not known, read as off.
+ */
+export const useMacViewsSetting = create<{ on: boolean | null }>(() => ({ on: null }))
+
+/**
  * Reads the Mac's `questions_review_before_send` into the phone's settings.
  * The phone holds no settings of its own otherwise, so only this key is
  * taken. Best-effort: a Mac too old to have the key, or a pairing without
@@ -31,7 +38,8 @@ export const useMacHarnessSetting = create<{ on: boolean | null }>(() => ({ on: 
  * an offline start changes no channel, and a read from a member too old
  * to know the key changes none either. Settings → About says the channel
  * the phone applied, not this value (`useAppliedChannel`). It carries the
- * Harness switch too (`useMacHarnessSetting`).
+ * Harness switch too (`useMacHarnessSetting`), and Labs → Views
+ * (`useMacViewsSetting`).
  */
 export function refreshQuestionSetting(): void {
   api
@@ -40,6 +48,8 @@ export function refreshQuestionSetting(): void {
       channelSettingRead(settings)
       const on = harnessEnabled(settings)
       if (useMacHarnessSetting.getState().on !== on) useMacHarnessSetting.setState({ on })
+      const views = viewsEnabled(settings)
+      if (useMacViewsSetting.getState().on !== views) useMacViewsSetting.setState({ on: views })
       useOrbital.setState((state) => {
         if (state.settings[KEY] === settings[KEY]) return {}
         const next = { ...state.settings }
