@@ -19,6 +19,7 @@ import { EndDialog, type EndOptions } from '../../panels/EndDialog'
 import type { EndAnswer } from '../../lib/worktree'
 import type { CameraState } from '../camera'
 import { useDockClearancePx, useSideSlotWidth } from '../../terminal/useTerminalHost'
+import { TipsButton, columnButtonClass, useColumnDim } from '../../tips/TipsButton'
 
 /** The bottom overlays' inset from the window's edge (artboard 1a). */
 export const MAP_OVERLAY_BOTTOM_PX = 24
@@ -87,6 +88,7 @@ export function MapShell(props: {
   onConfirmEnd?: (id: string, opts: EndOptions) => Promise<EndAnswer>
 }) {
   const errorLogOpen = useOrbital((s) => s.ui.dialog === 'errors')
+  const columnDim = useColumnDim()
   const errorsUnseen = useOrbital((s) => s.errorsUnseen)
   const resizingPanel = useOrbital((s) => s.ui.resizingPanel ?? false)
   const { insets: mapInsets, overlayRightPx } = useMapInsets()
@@ -174,19 +176,18 @@ export function MapShell(props: {
             .join(' ')}
           style={{ bottom: overlayBottomPx, right: overlayRightPx }}
         >
+          {/* Tips sit on top: they matter least (canvas `Feature - Tips` 68b). */}
+          <TipsButton dim={columnDim.tips} />
+
           <button
             type="button"
             aria-label={errorsUnseen > 0 ? `Error log — ${errorsUnseen} unseen` : 'Error log'}
             title={`Error log · ${shortcutLabel('global.errors')}`}
             onClick={props.onErrorsClick}
             className={[
-              'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-panel/92 fs-16 font-bold leading-none transition-colors',
-              errorLogOpen
-                ? 'border-accent/50 text-ink-100 shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-accent)_10%,_transparent)]'
-                : [
-                    'border-line/16 hover:border-line/30 hover:bg-line/10 hover:text-ink-50',
-                    errorsUnseen > 0 ? 'text-ink-100' : 'text-ink-500/60',
-                  ].join(' '),
+              columnButtonClass(errorLogOpen, errorsUnseen > 0),
+              'fs-16 font-bold leading-none',
+              columnDim.errors ? 'opacity-50' : '',
             ].join(' ')}
           >
             <span aria-hidden>!</span>
@@ -204,7 +205,12 @@ export function MapShell(props: {
           </button>
 
           {showZoomColumn && (
-            <div className="flex flex-col overflow-hidden rounded-[9px] border border-line/16 bg-panel/92">
+            <div
+              className={[
+                'flex flex-col overflow-hidden rounded-[9px] border border-line/16 bg-panel/92',
+                columnDim.zoom ? 'opacity-50' : '',
+              ].join(' ')}
+            >
               <button
                 type="button"
                 aria-label="Zoom in"

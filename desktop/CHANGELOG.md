@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- A tips button on the map, above the error log, shows short hints about what Orbital can do, one at a time or all together. A quiet dot on it means there is a tip you have not seen yet.
 
 ## [0.49.2] — 2026-11-16
 ### Changed

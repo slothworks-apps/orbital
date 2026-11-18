@@ -260,7 +260,8 @@ export interface OrbitalUiState {
    */
   hiddenDeviceIds?: string[]
   wsStatus: string
-  dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'take-over' | 'remove-worktree' | 'settings' | 'errors'
+  /** `tips`: All tips (spec 2026-11-16-tips-design); the one-tip card is not a dialog. */
+  dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'take-over' | 'remove-worktree' | 'settings' | 'errors' | 'tips'
   /**
    * The session Clear, End or Take over is open for when it is not the
    * selected one — the context menu opens them over the map without
