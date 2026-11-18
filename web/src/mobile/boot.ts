@@ -7,6 +7,7 @@ import { configureImages } from '../lib/images'
 import { isPdfPath } from '../lib/pathLinks'
 import { configurePdf } from '../lib/pdf'
 import { configureSocket, getSocket } from '../lib/socket'
+import { configureViewSource } from '../lib/views/source'
 import { configureTranscriptPages, useOrbital, type ErrorsEvent, type SessionsEvent } from '../store/store'
 import { connect, recheckOnForeground } from './connect'
 import { wireCache } from './cacheWriter'
@@ -17,6 +18,7 @@ import { fileCache } from './files/fileCache'
 import { readPath } from './files/fileResolver'
 import { makeNamedFileResolver, makePdfLoader, type ReadNamed } from './files/namedFiles'
 import { installFileOpen } from './files/open'
+import { makePhoneViewSource } from './files/viewSource'
 import { forgetEverything } from './forget'
 import { lockAtStart } from './lock'
 import { recheckScreenLock } from './lockFlow'
@@ -87,6 +89,14 @@ export async function boot(): Promise<void> {
     canShowPath: (path) => !isPdfPath(path) || servesPdf(useOrbital.getState().ui.selectedId ?? useMobile.getState().sessionId),
   })
   configurePdf({ load: makePdfLoader(readNamed, undefined, servesPdf) })
+  // A generated view's payload over REST, its data copy over `file_get` (spec 2026-11-18-generated-views-design § Phone).
+  configureViewSource(
+    makePhoneViewSource({
+      client: clientRef,
+      files: { client: clientRef, cache: fileCache },
+      serves: (sessionId) => sessionSupports('views', sessionId),
+    }),
+  )
   installFileOpen()
   clientRef.on(onClientEvent)
   wireSocket()
