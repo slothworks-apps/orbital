@@ -6,6 +6,7 @@ import {
   parseSidebarWidth,
   resolvePanelPairWidths,
   PANEL_GUTTER_PX,
+  openSettingsSection,
 } from './store/store'
 import type { ErrorsEvent, RemoteEvent, SessionEvent, SessionsEvent, SettingsEvent } from './store/store'
 import { SETTINGS_TOPIC } from '@orbital/shared/sharedSettings'
@@ -49,7 +50,6 @@ import { useWhatsNewNotice } from './panels/WhatsNew'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
 import {
-  openSettingsSection,
   readNewSessionParam,
   readSettingsParam,
   useSessionUrl,

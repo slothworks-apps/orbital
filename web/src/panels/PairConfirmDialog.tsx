@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { osName } from '@orbital/shared/remote/device'
-import { useOrbital } from '../store/store'
+import { openSettingsSection, useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { codeLeft } from '../lib/remote'
-import { openSettingsSection } from '../lib/sessionUrl'
 import { kindTile, whereLine } from '../lib/joinRequest'
 import {
   CODE_REJECTED, GROUP_FULL, JOIN_REACH, REQUEST_REJECTED, attemptsLine, groupFullBody, joinSentence, managerWords, osLabel,
