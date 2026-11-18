@@ -2,12 +2,13 @@
 id: 2026-11-16-tips-design
 title: Tips — short hints on the map about what Orbital can do
 type: spec
-status: active
+status: done
 domain: desktop
 related:
   - why-orbital
   - 2026-10-19-whats-new-design
   - an-orbital-session-drives-orbital-through-a-catalog
+  - the-tips-button-is-on-and-cannot-be-hidden
 tags:
   - tips
   - map
@@ -37,7 +38,8 @@ there until you look.
   button in the map's corner column, above the error log's `!`, with a quiet
   dot on it until they have seen every tip.
 - **What can be set:** nothing. The button cannot be hidden, like the error
-  log's.
+  log's. Why this is an exception to "An update changes nothing you did not
+  choose": [[the-tips-button-is-on-and-cannot-be-hidden]].
 
 ## Behaviour
 
@@ -102,7 +104,7 @@ Keyboard and input (`ide-selection`, `shortcuts`), Elsewhere (`phone`,
 | `spawn-session` | A session can start another Orbital session by itself. Ask it to hand a side task to a new session, in a worktree of its own when it touches the same repo. | — |
 | `orchestrate` | One session can run several: it splits the work, starts a session for each part, sends them messages and reads their results. | New session with a prompt to split a task across sessions |
 | `worktree` | New session can create a git worktree and name its branch, so sessions working in one repo do not step on each other. | Open New session |
-| `harness` | A harness gives a session a checklist to follow: it ticks each step and can stop for your review. A session can write the template for you. | Open Settings → Harness |
+| `harness` | A harness gives a session a checklist to follow: it ticks each step and can stop for your review. Turn it on in Settings → Harness; a session can write the template for you. | Open Settings → Harness |
 | `drive-orbital` | A session can change Orbital for you: settings, tags and tag rules. Ask it instead of clicking through Settings. | — |
 | `take-over` | A session running in a terminal can be taken over: Orbital quits the CLI there and the conversation goes on here. | — |
 | `phone` | Pair your phone to answer a waiting session when you are away from the Mac. | Open Settings → Devices |
