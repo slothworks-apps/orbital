@@ -80,25 +80,45 @@ export function GoneMark({ size }: { size: GoneSize }) {
   )
 }
 
-/**
- * What fills a tile: the image cropped square, or a PDF's first page. Reports
- * a file that would not load, which the tile then draws as gone — a reply's
- * path that was never listed is checked no other way.
- */
-export function MediaPicture({
-  sessionId,
-  item,
-  onPages,
-  onGone,
-  fit = 'cover',
-}: {
+interface MediaPictureProps {
   sessionId: string
   item: MediaItem
   onPages?: (pages: number) => void
   onGone: () => void
   /** `contain` shows the whole image, letterboxed — a wide screenshot read whole rather than cropped to its middle. */
   fit?: 'cover' | 'contain'
-}) {
+}
+
+/**
+ * What fills a tile: the image cropped square, a PDF's first page, or a
+ * generated view's glyph and name (`ViewTileFace`). Reports a file that would
+ * not load, which the tile then draws as gone — a reply's path that was never
+ * listed is checked no other way.
+ */
+export function MediaPicture(props: MediaPictureProps) {
+  if (props.item.kind === 'view') return <ViewTileFace title={props.item.view?.title} named />
+  return <FilePicture {...props} />
+}
+
+/**
+ * A generated view on a tile (canvas `Feature - Views` 69d): no live page and
+ * no preview — it would run a page for every tile — the window glyph and,
+ * `named`, the view's name on the tile's floor.
+ */
+export function ViewTileFace({ title, named }: { title?: string; named: boolean }) {
+  return (
+    <span className="grid h-full w-full place-items-center">
+      <span className="flex min-w-0 flex-col items-center gap-2 p-2.5 text-ink-200/80">
+        <ViewGlyph scale={2.2} />
+        {named && (
+          <span className="line-clamp-3 text-center fs-11.5 font-semibold leading-[1.3] text-ink-100">{title || 'View'}</span>
+        )}
+      </span>
+    </span>
+  )
+}
+
+function FilePicture({ sessionId, item, onPages, onGone, fit = 'cover' }: MediaPictureProps) {
   const { url } = useMediaSourceUrl(sessionId, item, { thumb: true })
   const pdf = usePdfThumbnail(item.kind === 'pdf' ? url : null, url ? pdfKey(url, item) : '')
   const latest = useRef({ onGone, onPages })
@@ -170,12 +190,7 @@ function ViewTileButton({ item, variant, onOpen }: { item: MediaItem; variant: T
           HOVER_HALO,
         ].join(' ')}
       >
-        <span className="flex min-w-0 flex-col items-center gap-2 p-2.5 text-ink-200/80">
-          <ViewGlyph scale={2.2} />
-          {gallery && (
-            <span className="line-clamp-3 text-center fs-11.5 font-semibold leading-[1.3] text-ink-100">{title}</span>
-          )}
-        </span>
+        <ViewTileFace title={title} named={gallery} />
         <span className="absolute left-[5px] top-[5px] rounded-[3px] border border-line/16 bg-panel-solid/96 px-[5px] py-px font-mono fs-8.5 tracking-[0.08em] text-ink-200/80">
           VIEW
         </span>
@@ -265,6 +280,7 @@ function PictureTileButton({
 
 /** ⚙ on the parent's own tool frames, ⚙ ×n on a stack of them; PDF · pages on a PDF that is there. */
 export function tileTag(cover: MediaItem, count: number, gone: boolean, pages: number | null): string | null {
+  if (cover.kind === 'view') return 'VIEW'
   if (isToolFrame(cover)) return count > 1 ? `⚙ ×${count}` : '⚙'
   if (count > 1) return `×${count}`
   if (cover.kind === 'pdf' && !gone) return pages ? `PDF · ${pages}` : 'PDF'
@@ -274,6 +290,7 @@ export function tileTag(cover: MediaItem, count: number, gone: boolean, pages: n
 /** 26d A: the full name, the source and the time — what the caption had to cut. */
 export function tileTitle(tile: MediaTile): string {
   const { cover, count } = tile
+  if (cover.kind === 'view') return [cover.view?.title || 'View', [mediaSourceLabel(cover), mediaClock(cover.ts)].filter(Boolean).join(' · ')].join(' — ')
   const what = count > 1 ? `${count} tool images` : (cover.path ?? (cover.kind === 'pdf' ? 'PDF' : 'Image'))
   return [what, [mediaSourceLabel(cover), mediaClock(cover.ts)].filter(Boolean).join(' · ')].join(' — ')
 }
@@ -428,7 +445,7 @@ function SourcesList({
       onClick={(event) => event.stopPropagation()}
       className={['orbital-no-drag orbital-popover-in fixed z-[70] w-[264px] overflow-hidden font-mono', POPUP_SHELL].join(' ')}
     >
-      <div className="px-3 pb-1.5 pt-[9px] fs-9.5 tracking-[0.14em] text-ink-900/55">SHOW IMAGES FROM</div>
+      <div className="px-3 pb-1.5 pt-[9px] fs-9.5 tracking-[0.14em] text-ink-900/55">SHOW MEDIA FROM</div>
       {listedSources(items).map((key) => {
         const count = counts[key]
         const on = sourceShown(key, hidden, counts)

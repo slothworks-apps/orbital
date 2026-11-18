@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import { createPortal } from 'react-dom'
 import type { MediaItem } from '../lib/types'
+import { viewMediaId } from '@orbital/shared/media'
 import type { MediaTarget } from '../lib/media'
 import { isToolFrame, matchMediaItem, mediaClock, mediaSourceKey, mediaSourceLabel, positionIn, stepIndex } from '../lib/media'
 import { api } from '../lib/api'
@@ -103,7 +104,7 @@ function targetItemId(items: readonly MediaItem[] | undefined, target: ViewerTar
   if (!items || !target) return null
   if (target.kind === 'item') return items.some((item) => item.id === target.id) ? target.id : null
   if (target.kind === 'view') {
-    const id = `view:${target.viewId}`
+    const id = viewMediaId(target.viewId)
     return items.some((item) => item.id === id) ? id : null
   }
   return matchMediaItem(items, target)?.id ?? null
