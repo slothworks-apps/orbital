@@ -663,12 +663,13 @@ function bytesText(bytes: number): string {
 
 /**
  * `</>`: what the view runs, read-only, in place of its content — the source
- * the agent wrote (the compiled module when the transcript's call is not at
- * hand), the domains it may fetch from, and the start of its data. Not on the
- * canvas: its layout is pending a design pass.
+ * the agent wrote (from the transcript's call, else from the payload; the
+ * compiled module when neither has it), the domains it may fetch from, and
+ * the start of its data. Not on the canvas: its layout is pending a design
+ * pass.
  */
 function ViewSource({ sessionId, payload, call }: { sessionId: string; payload: ViewPayload; call: ShowViewInput | null }) {
-  const original = call?.component ?? call?.html
+  const original = call?.component ?? call?.html ?? payload.source
   const code = original ?? payload.script ?? payload.html ?? ''
   const lang = payload.kind === 'react' ? 'tsx' : 'html'
   const compiled = original === undefined && payload.kind === 'react'
