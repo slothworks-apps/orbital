@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useOrbital } from '../store/store'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { Button } from '../ui/Button'
+import { CloseGlyph } from '../ui/UtilityButton'
 import { isTypingTarget } from '../lib/keymap'
-import { nextTipIndex, previousTipIndex, tipOrder, tipPosition, type Tip } from '../lib/tips'
+import { tipOrder, tipPosition, type Tip } from '../lib/tips'
+import { wrapIndex } from '../lib/wrapIndex'
 import { TIPS } from './tipList'
 import { markTipsSeen, runTipAction, useSeenTips } from './useTips'
 
@@ -43,9 +45,14 @@ export function columnButtonClass(pressed: boolean, lit: boolean): string {
  * THE ERROR LOG): at half strength, all but the button that opened it.
  */
 export function useColumnDim(): { tips: boolean; errors: boolean; zoom: boolean } {
-  const dialog = useOrbital((s) => s.ui.dialog)
-  const open = dialog === 'errors' || dialog === 'tips'
-  return { tips: open && dialog !== 'tips', errors: open && dialog !== 'errors', zoom: open }
+  // Only these two dialogs, so the map does not re-render for every other one.
+  const open = useOrbital((s) => (s.ui.dialog === 'errors' ? 'errors' : s.ui.dialog === 'tips' ? 'tips' : null))
+  return { tips: open === 'errors', errors: open === 'tips', zoom: open !== null }
+}
+
+/** How a part of the column dims (68b WITH THE ERROR LOG): to half, with a fade. */
+export function columnDimClass(dim: boolean): string {
+  return dim ? 'transition-opacity opacity-50' : 'transition-opacity'
 }
 
 /** One open of the card: the order it offers and which of them were new when it opened. */
@@ -101,13 +108,13 @@ export function TipsButton({ dim }: { dim: boolean }) {
   useEffect(() => {
     if (!run) return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
       e.preventDefault()
       setRun((r) =>
         r && {
           ...r,
-          index: e.key === 'ArrowRight' ? nextTipIndex(r.index, r.order.length) : previousTipIndex(r.index, r.order.length),
+          index: wrapIndex(r.index, e.key === 'ArrowRight' ? 1 : -1, r.order.length),
         },
       )
     }
@@ -128,7 +135,7 @@ export function TipsButton({ dim }: { dim: boolean }) {
   const pressed = run !== null || dialog === 'tips'
 
   return (
-    <div ref={wrapRef} className={['relative transition-opacity', dim ? 'opacity-50' : ''].join(' ')}>
+    <div ref={wrapRef} className={['relative', columnDimClass(dim)].join(' ')}>
       <button
         type="button"
         aria-label={dot ? 'Tips — new tips' : 'Tips'}
@@ -153,7 +160,7 @@ export function TipsButton({ dim }: { dim: boolean }) {
           isNew={run.fresh.has(shown.id)}
           position={tipPosition(run.index, run.order.length)}
           onClose={close}
-          onNext={() => setRun((r) => r && { ...r, index: nextTipIndex(r.index, r.order.length) })}
+          onNext={() => setRun((r) => r && { ...r, index: wrapIndex(r.index, 1, r.order.length) })}
           onAll={() => setDialog('tips')}
           onAction={() => {
             close()
@@ -207,10 +214,7 @@ function TipCard(props: {
           onClick={props.onClose}
           className="ml-0.5 grid h-6 w-6 place-items-center rounded-md text-ink-500/70 hover:bg-line/9 hover:text-ink-100"
         >
-          <span aria-hidden className="relative block h-[9px] w-[9px]">
-            <span className="absolute left-1/2 top-0 -ml-[0.7px] h-full w-[1.4px] rotate-45 rounded-[1px] bg-current" />
-            <span className="absolute left-1/2 top-0 -ml-[0.7px] h-full w-[1.4px] -rotate-45 rounded-[1px] bg-current" />
-          </span>
+          <CloseGlyph />
         </button>
       </div>
       <p className="m-0 px-4 pt-2 fs-14 leading-[1.55] text-pretty text-ink-100/95">

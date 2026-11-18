@@ -5,9 +5,7 @@ import {
   groupTips,
   hasUnseenTips,
   markedSeen,
-  nextTipIndex,
   parseSeenTips,
-  previousTipIndex,
   tipOrder,
   tipPosition,
   type Tip,
@@ -68,10 +66,7 @@ describe('tipOrder', () => {
 })
 
 describe('the card', () => {
-  it('starts over after the last tip and says so on it', () => {
-    expect(nextTipIndex(2, 4)).toBe(3)
-    expect(nextTipIndex(3, 4)).toBe(0)
-    expect(previousTipIndex(0, 4)).toBe(3)
+  it('says on the last tip that Next starts over', () => {
     expect(tipPosition(0, 4)).toBe('1 of 4')
     expect(tipPosition(3, 4)).toBe('4 of 4 · Next starts over')
   })

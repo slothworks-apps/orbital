@@ -93,7 +93,7 @@ import {
 } from './camera'
 import { useDockClearancePx, useSideSlotWidth } from '../terminal/useTerminalHost'
 import { MAP_OVERLAY_BOTTOM_PX } from './shell/MapShell'
-import { TipsButton, columnButtonClass, useColumnDim } from '../tips/TipsButton'
+import { TipsButton, columnButtonClass, columnDimClass, useColumnDim } from '../tips/TipsButton'
 
 /**
  * Top-down space map scene: a `Canvas` (WebGL, untestable in jsdom) driven
@@ -529,7 +529,11 @@ function SpaceBackdrop() {
   )
 }
 
-export function SpaceMap() {
+/**
+ * `showTips` false leaves the tips button out of the zoom column: the
+ * website's demo draws this map without the server or All tips behind it.
+ */
+export function SpaceMap({ showTips = true }: { showTips?: boolean } = {}) {
   const model = useSceneModel()
   const select = useOrbital((s) => s.select)
   const setDialog = useOrbital((s) => s.setDialog)
@@ -1464,38 +1468,39 @@ export function SpaceMap() {
               oklch(60% .2 25), precomputed to #de3b3d, and is the only red
               on the map. */}
           {/* Tips sit on top: they matter least (canvas `Feature - Tips` 68b). */}
-          <TipsButton dim={columnDim.tips} />
+          {showTips && <TipsButton dim={columnDim.tips} />}
 
-          <button
-            type="button"
-            aria-label={errorsUnseen > 0 ? `Error log — ${errorsUnseen} unseen` : 'Error log'}
-            title={`Error log · ${shortcutLabel('global.errors')}`}
-            onClick={() => setDialog('errors')}
-            className={[
-              columnButtonClass(errorLogOpen, errorsUnseen > 0),
-              'fs-16 font-bold leading-none',
-              columnDim.errors ? 'opacity-50' : '',
-            ].join(' ')}
-          >
-            <span aria-hidden>!</span>
-            {errorsUnseen > 0 && (
-              <span
-                aria-hidden
-                className={[
-                  'absolute -top-1.5 grid h-4 min-w-[16px] place-items-center rounded-full border border-space/80 bg-danger font-mono fs-9.5 font-medium tracking-[0.02em] text-white',
-                  // The wider 99+ badge hangs 4px further out (5c).
-                  errorsUnseen > 99 ? '-right-2.5 px-[5px]' : '-right-1.5 px-1',
-                ].join(' ')}
-              >
-                {errorsUnseen > 99 ? '99+' : errorsUnseen}
-              </span>
-            )}
-          </button>
+          <div className={columnDimClass(columnDim.errors)}>
+            <button
+              type="button"
+              aria-label={errorsUnseen > 0 ? `Error log — ${errorsUnseen} unseen` : 'Error log'}
+              title={`Error log · ${shortcutLabel('global.errors')}`}
+              onClick={() => setDialog('errors')}
+              className={[
+                columnButtonClass(errorLogOpen, errorsUnseen > 0),
+                'fs-16 font-bold leading-none',
+              ].join(' ')}
+            >
+              <span aria-hidden>!</span>
+              {errorsUnseen > 0 && (
+                <span
+                  aria-hidden
+                  className={[
+                    'absolute -top-1.5 grid h-4 min-w-[16px] place-items-center rounded-full border border-space/80 bg-danger font-mono fs-9.5 font-medium tracking-[0.02em] text-white',
+                    // The wider 99+ badge hangs 4px further out (5c).
+                    errorsUnseen > 99 ? '-right-2.5 px-[5px]' : '-right-1.5 px-1',
+                  ].join(' ')}
+                >
+                  {errorsUnseen > 99 ? '99+' : errorsUnseen}
+                </span>
+              )}
+            </button>
+          </div>
 
           <div
               className={[
                 'flex flex-col overflow-hidden rounded-[9px] border border-line/16 bg-panel/92',
-                columnDim.zoom ? 'opacity-50' : '',
+                columnDimClass(columnDim.zoom),
               ].join(' ')}
             >
             <button

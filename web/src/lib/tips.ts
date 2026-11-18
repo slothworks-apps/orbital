@@ -68,16 +68,6 @@ export function tipOrder(tips: readonly Tip[], seen: ReadonlySet<string>): Tip[]
   return [...tips.filter((tip) => !seen.has(tip.id)), ...tips.filter((tip) => seen.has(tip.id))]
 }
 
-/** The card's place after `index` in a list of `count`: Next after the last starts over. */
-export function nextTipIndex(index: number, count: number): number {
-  return count === 0 ? 0 : (index + 1) % count
-}
-
-/** The card's place before `index`: back from the first goes to the last. */
-export function previousTipIndex(index: number, count: number): number {
-  return count === 0 ? 0 : (index - 1 + count) % count
-}
-
 /** The card's counter (canvas 68c): `3 of 11`, and on the last one, that Next starts over. */
 export function tipPosition(index: number, count: number): string {
   const at = `${index + 1} of ${count}`

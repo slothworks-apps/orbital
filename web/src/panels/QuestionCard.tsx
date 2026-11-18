@@ -14,7 +14,6 @@ import {
   cursorRight,
   joinSelection,
   selectionCount,
-  moveFocus,
   notTakenLine,
   optionIndexForDigit,
   parseResultAnswers,
@@ -26,6 +25,7 @@ import {
   type QuestionCursor,
   type ReadAnswer,
 } from '../lib/questionCard'
+import { wrapIndex } from '../lib/wrapIndex'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { command, isTypingTarget, matches } from '../lib/keymap'
 // Every value below was transcribed from canvas 9b/9d and now lives beside
@@ -1173,7 +1173,7 @@ function LiveBody({
     // `dialogs.move` wants the bare arrow: ⌘↑ is somebody else's chord.
     if (command('dialogs.move').chords.some((chord) => matches(chord, e))) {
       e.preventDefault()
-      focusRow(moveFocus(focus, e.key === 'ArrowDown' ? 1 : -1, rows))
+      focusRow(wrapIndex(focus, e.key === 'ArrowDown' ? 1 : -1, rows))
       return
     }
     if (e.key === ' ' && !question.multiSelect) {
