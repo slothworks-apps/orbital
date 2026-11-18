@@ -4,7 +4,7 @@ import { CDN_HOST_EXAMPLE, cdnHostField, cdnHostRows, withCdnHost, withoutCdnHos
 import { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY, viewsEnabled } from '../../lib/experimental'
 import { ViewGlyph } from '../../panels/ViewParts'
 import { LockGlyph } from '../../panels/ViewsGlyphs'
-import { useMacViewsSetting } from '../questionSetting'
+import { takeMacViewsSetting } from '../questionSetting'
 import { UNNAMED_MAC } from '../composer'
 import { useMobile } from '../state'
 import { CARD, SectionLabel, Toggle } from '../ui'
@@ -36,7 +36,7 @@ export function LabsSection() {
       .then((read) => {
         if (!live) return
         setSettings(read)
-        useMacViewsSetting.setState({ on: viewsEnabled(read) })
+        takeMacViewsSetting(viewsEnabled(read))
       })
       .catch(() => {
         // No settings grant, or the Mac went away: the group stays out.
@@ -55,7 +55,7 @@ export function LabsSection() {
       await api.patchSettings(patch)
       const next = { ...settings, ...patch }
       setSettings(next)
-      useMacViewsSetting.setState({ on: viewsEnabled(next) })
+      takeMacViewsSetting(viewsEnabled(next))
       return true
     } catch {
       return false

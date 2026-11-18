@@ -3,6 +3,11 @@ import type { FileResult } from '@orbital/shared/remote/client'
 import type { TunnelClient } from '../mobile/transport/clientRef'
 import type { ResolverDeps } from '../mobile/files/fileResolver'
 import { makePhoneViewSource, viewPayloadPath } from '../mobile/files/viewSource'
+import { viewsEnabled } from '../lib/experimental'
+import { takeMacViewsSetting } from '../mobile/questionSetting'
+import { useMobile } from '../mobile/state'
+import { MAC_FEATURES } from '../mobile/version'
+import { useOrbital } from '../store/store'
 
 const encode = (text: string) => new TextEncoder().encode(text)
 const answer = (status: number, text = ''): FileResult => ({ status, bytes: encode(text), size: text.length, mediaType: null, w: null, h: null })
@@ -62,5 +67,21 @@ describe('the phone’s view source', () => {
   it('rejects a refused payload', async () => {
     const { view } = source({ request: async () => ({ status: 404, body: { error: 'not_found' } }) })
     await expect(view.payload('s1', 'tu1')).rejects.toThrow('404')
+  })
+})
+
+describe('Labs → Views on the phone', () => {
+  it('lists view items only from a Mac that serves views, and only while it is on', () => {
+    const on = () => viewsEnabled(useOrbital.getState().settings)
+
+    useMobile.setState({ macVersion: '0.1.0' })
+    takeMacViewsSetting(true)
+    expect(on()).toBe(false)
+
+    useMobile.setState({ macVersion: MAC_FEATURES.views })
+    takeMacViewsSetting(true)
+    expect(on()).toBe(true)
+    takeMacViewsSetting(false)
+    expect(on()).toBe(false)
   })
 })
