@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { mediaArrived, parseHiddenSources, type MediaSourceKey } from '../lib/media'
 import type { ChatMessage, MediaItem } from '../lib/types'
 import { useOrbital } from './store'
+import { viewsEnabled } from '../lib/experimental'
 
 /**
  * A session's media on this client (spec 2026-10-09-session-media-design):
@@ -83,7 +84,8 @@ export const useMedia = create<MediaState>((set, get) => ({
         do {
           entry.again = false
           try {
-            const items = await api.sessionMedia(sessionId)
+            // View items only while Labs → Views is on (spec 2026-11-18-generated-views-design § Media).
+            const items = await api.sessionMedia(sessionId, { views: viewsEnabled(useOrbital.getState().settings) })
             set((s) => ({ lists: { ...s.lists, [sessionId]: items } }))
           } catch {
             // The last answer stands; the next open or message asks again.

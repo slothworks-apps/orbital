@@ -1103,6 +1103,13 @@ function DecisionBlock({
         <div className="font-mono fs-10.5 text-ink-900/65">
           Answer it in the terminal.
         </div>
+      ) : decision.kind === 'view' ? (
+        // A waiting view is answered in the view: the chip opens the session to it.
+        <div className="flex gap-1.5">
+          <ChipButton primary onClick={() => onSelect(sessionId)}>
+            Open
+          </ChipButton>
+        </div>
       ) : decision.kind !== 'question' ? (
         <div className="flex gap-1.5">
           <ChipButton primary onClick={() => resolveDecision(sessionId, { approved: true })}>

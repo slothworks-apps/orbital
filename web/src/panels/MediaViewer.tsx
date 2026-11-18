@@ -21,6 +21,8 @@ import { usePresence } from '../ui/usePresence'
 import { CopyGlyph, FolderGlyph, ImageGlyph } from '../ui/UtilityButton'
 import { GoneMark, MediaPicture, SourcesButton, isGone, pdfKey } from './MediaParts'
 import { PdfPager, usePdfDocument } from './PdfPages'
+import { MAXIMISED_CONTENT_PX, ViewFrame } from './ViewFrame'
+import { ViewGlyph } from './ViewParts'
 
 /**
  * The maximised view (canvas `Feature - Media` 24e): the 7c lightbox grown
@@ -66,7 +68,15 @@ const PDF_SIDE_PX = 190
 /** 24e: a gone item without known dimensions keeps the canvas's footprint. */
 const GONE_BOX = { w: 1440, h: 900 }
 
-export type ViewerTarget = MediaTarget | { kind: 'item'; id: string }
+export type ViewerTarget =
+  | MediaTarget
+  | { kind: 'item'; id: string }
+  /** A generated view's ⤢ in the transcript: its media item when listed, else the view on its own. */
+  | { kind: 'view'; viewId: string; toolUseId: string; title: string; messageId: string }
+
+/** 69d: the maximised view's box, 1040 wide; its header is 34 px over the content. */
+const VIEW_BOX_W = 1040
+const VIEW_HEADER_PX = 36
 
 export interface MediaViewerProps {
   open: boolean
@@ -92,12 +102,26 @@ function useViewportHeight(): number {
 function targetItemId(items: readonly MediaItem[] | undefined, target: ViewerTarget | null): string | null {
   if (!items || !target) return null
   if (target.kind === 'item') return items.some((item) => item.id === target.id) ? target.id : null
+  if (target.kind === 'view') {
+    const id = `view:${target.viewId}`
+    return items.some((item) => item.id === id) ? id : null
+  }
   return matchMediaItem(items, target)?.id ?? null
 }
 
 /** What the box draws when the list holds no item for the press. */
 function standIn(target: ViewerTarget | null): MediaItem | null {
   if (!target || target.kind === 'item') return null
+  if (target.kind === 'view') {
+    return {
+      id: '',
+      kind: 'view',
+      source: 'view',
+      messageId: target.messageId,
+      ts: '',
+      view: { id: target.viewId, toolUseId: target.toolUseId, title: target.title },
+    }
+  }
   const common = { id: '', source: 'agent' as const, messageId: target.messageId ?? '', ts: '' }
   return target.kind === 'ref'
     ? { ...common, kind: 'image', source: 'you', ref: target.ref }
@@ -250,7 +274,7 @@ function ViewerBody({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={shown?.kind === 'pdf' ? 'PDF preview' : 'Image preview'}
+      aria-label={shown?.kind === 'pdf' ? 'PDF preview' : shown?.kind === 'view' ? 'View' : 'Image preview'}
       data-state={entered ? 'entered' : exiting ? 'exiting' : 'entering'}
       inert={exiting || undefined}
       onClick={() => {
@@ -279,6 +303,7 @@ function ViewerBody({
             onPage={setPage}
             onPages={setPages}
             menuOpen={menuOpen}
+            onClose={onClose}
           />
         )}
       </div>
@@ -296,7 +321,17 @@ function ViewerBody({
                 ⚙ TOOL
               </span>
             )}
-            {current ? mediaSourceLabel(current) : (fallbackCaption ?? null)}
+            {shown.kind === 'view' && (
+              // 69a/69d: VIEW · written by the session · the title.
+              <span className="rounded-[3px] border border-line/16 px-1.5 py-px fs-10 text-ink-200/80">VIEW</span>
+            )}
+            {current || shown.kind === 'view' ? mediaSourceLabel(current ?? shown) : (fallbackCaption ?? null)}
+            {shown.kind === 'view' && shown.view?.title && (
+              <>
+                <span className="text-line/28">·</span>
+                <span className="text-ink-50">{shown.view.title}</span>
+              </>
+            )}
             {shotPage?.title && (
               <>
                 <span className="text-line/28">·</span>
@@ -453,6 +488,7 @@ function Stage({
   onPage,
   onPages,
   menuOpen,
+  onClose,
 }: {
   sessionId: string
   item: MediaItem
@@ -461,6 +497,7 @@ function Stage({
   onPage: (page: number) => void
   onPages: (pages: number | null) => void
   menuOpen: { current: boolean }
+  onClose: () => void
 }) {
   const [failed, setFailed] = useState(false)
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
@@ -480,6 +517,21 @@ function Stage({
   useEffect(() => {
     onPages(pageCount)
   }, [pageCount, onPages])
+
+  if (item.kind === 'view' && item.view) {
+    // 69d: the live view in 24e's box, as interactive as in the transcript.
+    return (
+      <div style={{ width: Math.min(VIEW_BOX_W, maxWidth) }} className="shadow-[0_40px_120px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)] rounded-[12px]">
+        <ViewFrame
+          sessionId={sessionId}
+          toolUseId={item.view.toolUseId}
+          surface="maximised"
+          maximisedHeight={Math.max(120, Math.min(MAXIMISED_CONTENT_PX, stageHeight - VIEW_HEADER_PX))}
+          onEscape={onClose}
+        />
+      </div>
+    )
+  }
 
   if (isGone(item) || failed || pdf.failed) {
     const w = item.w ?? GONE_BOX.w
@@ -664,7 +716,7 @@ function FilmFrame({
     <button
       ref={ref}
       type="button"
-      title={item.path ?? mediaSourceLabel(item)}
+      title={item.path ?? item.view?.title ?? mediaSourceLabel(item)}
       aria-current={current || undefined}
       onClick={onPick}
       className={[
@@ -674,7 +726,14 @@ function FilmFrame({
           : 'border-line/14',
       ].join(' ')}
     >
-      {!isGone(item) && !gone && <MediaPicture sessionId={sessionId} item={item} fit="contain" onGone={() => setGone(true)} />}
+      {item.kind === 'view' ? (
+        // 69a: a view's frame is the window glyph on the dimmed floor.
+        <span className="grid h-full w-full place-items-center bg-space/60 text-ink-200/80">
+          <ViewGlyph />
+        </span>
+      ) : (
+        !isGone(item) && !gone && <MediaPicture sessionId={sessionId} item={item} fit="contain" onGone={() => setGone(true)} />
+      )}
       {isToolFrame(item) && (
         <span className="absolute bottom-px left-0.5 font-mono fs-8 text-ink-500/80">⚙</span>
       )}

@@ -104,8 +104,9 @@ export function declineVerdict(text: string): { approved: false; message?: strin
  * refusal with a reason in it, never an approval (spec § Answering), and the
  * hint has to say so before someone presses ⏎ expecting the opposite.
  */
-export function composerHintFor(kind: 'permission' | 'plan' | 'view'): string {
-  if (kind === 'view') return '⏎ sends this as your answer · ⇧⏎ newline'
+export function composerHintFor(kind: 'permission' | 'plan' | 'view', viewTitle?: string): string {
+  // `Feature - Views` 69a: the view's name, then what ⏎ does.
+  if (kind === 'view') return `${viewTitle?.trim() || 'The view'} is waiting for you · ⏎ sends this as your answer`
   return kind === 'plan'
     ? '⏎ sends this back as plan feedback · ⇧⏎ newline'
     : '⏎ declines with your reason · ⇧⏎ newline'

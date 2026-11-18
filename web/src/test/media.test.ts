@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { MediaItem } from '../lib/types'
 import type { ChatMessage } from '../lib/types'
 import {
+  listedSources,
   matchMediaItem,
   mediaArrived,
   mediaCountLine,
@@ -296,5 +297,31 @@ describe('mediaArrived', () => {
   it('counts a reply naming an image, and an attached one', () => {
     expect(mediaArrived([{ id: 'a', role: 'assistant', text: 'Saved out/a.png' }], [])).toBe(true)
     expect(mediaArrived([{ id: 'u', role: 'user', images: [{ ref: 'r', w: 1, h: 1, bytes: 1 }] }], [])).toBe(true)
+  })
+})
+
+describe('generated views in the media list', () => {
+  const view = (id: string): MediaItem => ({
+    id: `view:${id}`,
+    kind: 'view',
+    source: 'view',
+    messageId: `m-${id}`,
+    ts: '2026-11-18T14:40:00Z',
+    view: { id, toolUseId: id, title: 'Release latency' },
+  })
+
+  it('files a view under Views', () => {
+    expect(mediaSourceKey(view('a'))).toBe('view')
+  })
+
+  it('lists the Views row only for a session that has views', () => {
+    expect(listedSources([you('a')])).not.toContain('view')
+    expect(listedSources([you('a'), view('v')])).toContain('view')
+    expect(sourcesSummary([you('a'), tool('t', 'r')], ['tool']).label).toBe('Sources: 4 of 5')
+    expect(sourcesSummary([you('a'), tool('t', 'r'), view('v')], ['tool']).label).toBe('Sources: 5 of 6')
+  })
+
+  it('never pages onto a view while Views is hidden', () => {
+    expect(pagingOrder([you('a'), view('v'), you('b')], ['view']).map((i) => i.id)).toEqual(['a', 'b'])
   })
 })
