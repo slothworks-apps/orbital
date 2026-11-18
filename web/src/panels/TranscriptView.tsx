@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { runToolName, userTurnImageCounts } from '../lib/browserBridge'
 import type { BackgroundTask, ChatMessage, OrbitalModel, Subagent } from '../lib/types'
 import { modelNameForId } from '../lib/models'
-import { formatToolDuration } from '../lib/format'
+import { formatToolDuration, stampTime } from '../lib/format'
 import { usePresence } from '../ui/usePresence'
 import {
   compensatePrepend,
@@ -1213,7 +1213,7 @@ export function TranscriptView({
               {modelNameForId(group.from, models).toUpperCase()} →{' '}
               {modelNameForId(group.to, models).toUpperCase()}
               {group.timestamp
-                ? ` · ${new Date(group.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+                ? ` · ${stampTime(Date.parse(group.timestamp))}`
                 : ''}
             </span>
             <span aria-hidden className="h-px flex-1 bg-line/12" />

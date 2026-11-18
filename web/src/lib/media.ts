@@ -1,6 +1,7 @@
 import type { ChatMessage, MediaItem } from './types'
 import { mediaPathsInReply } from './pathLinks'
 import { isScreenshotTool, writtenImagePaths } from '@orbital/shared/paths'
+import { stampTime } from './format'
 
 /**
  * The pure half of a session's media (spec 2026-10-09-session-media-design;
@@ -259,11 +260,11 @@ export function mediaArrived(arrived: readonly ChatMessage[], messages: readonly
   })
 }
 
-/** The house clock reading (`MessageView`'s `clockTime`), or '' for a stamp `Date` cannot read. */
+/** `stampTime`'s reading (`MessageView`'s `clockTime`), or '' for a stamp `Date` cannot read. */
 export function mediaClock(ts: string): string {
   const at = new Date(ts)
   if (Number.isNaN(at.getTime())) return ''
-  return at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return stampTime(at.getTime())
 }
 
 /**

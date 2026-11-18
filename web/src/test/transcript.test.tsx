@@ -9,6 +9,7 @@ import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/sto
 // ---------------------------------------------------------------------------
 
 import { highlightCode, ansiToHtml } from '../lib/highlight'
+import { stampTime } from '../lib/format'
 
 describe('ansiToHtml', () => {
   it('colorizes ANSI SGR codes into styled spans', () => {
@@ -154,9 +155,7 @@ describe('MessageView', () => {
 
     expect(screen.queryByText(timestamp)).not.toBeInTheDocument()
     expect(
-      screen.getByText(
-        new Date(timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-      )
+      screen.getByText(stampTime(Date.parse(timestamp)))
     ).toBeInTheDocument()
   })
 

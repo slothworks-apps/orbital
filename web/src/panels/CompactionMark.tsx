@@ -10,9 +10,9 @@ import {
   formatCompactTokens,
   formatElapsed,
   formatMarkDuration,
-  formatMarkTime,
 } from '../lib/compaction'
 import { useNow } from '../lib/useNow'
+import { stampTime } from '../lib/format'
 
 /**
  * Context compaction in the transcript (spec
@@ -56,7 +56,7 @@ function metaLine(mark: Mark, timestamp: string | undefined, terminal: boolean, 
   }
   if (timestamp) {
     const at = Date.parse(timestamp)
-    if (!Number.isNaN(at)) parts.push(formatMarkTime(at, now))
+    if (!Number.isNaN(at)) parts.push(stampTime(at, now))
   }
   return parts.join(' · ')
 }

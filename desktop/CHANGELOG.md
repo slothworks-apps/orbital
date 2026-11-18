@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- Times in a transcript show the date when they are not from today (`Sep 12, 09:05`); today's stay `14:32`. The same goes for the media viewer.
 
 ## [0.49.2] — 2026-11-16
 ### Changed
