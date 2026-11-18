@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import type { ChatMessage, NoticeLevel } from '../lib/types'
 import { ansiToHtml } from '../lib/highlight'
+import { stampTime } from '../lib/format'
 
 /**
  * Canvas 20c F's ramp: glyph and ink rise with urgency, and accent appears
@@ -119,10 +120,7 @@ export function NoticeRow({ message, action }: NoticeRowProps) {
   // over a body.
   const inline = !command && lines === 1
   const time = message.timestamp
-    ? new Date(message.timestamp).toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
+    ? stampTime(Date.parse(message.timestamp))
     : null
 
   const identity = command ? (

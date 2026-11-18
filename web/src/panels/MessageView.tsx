@@ -3,7 +3,7 @@ import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../lib/types'
-import { formatBytes } from '../lib/format'
+import { formatBytes, stampTime } from '../lib/format'
 import { highlightCode } from '../lib/highlight'
 import { FileCwdContext, FileMessageContext, MessageIdContext, fileOpenHandlers, messageImages } from '../lib/fileOpen'
 import { rehypePathLinks } from '../lib/pathLinks'
@@ -46,7 +46,7 @@ const TWO_UP_WIDTH_PX = 171
 function clockTime(timestamp: string): string | undefined {
   const at = new Date(timestamp)
   if (Number.isNaN(at.getTime())) return undefined
-  return at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return stampTime(at.getTime())
 }
 
 /** Matches remark/rehype's `language-xxx` class, which is only ever applied

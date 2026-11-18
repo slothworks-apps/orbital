@@ -246,3 +246,15 @@ export function formatToolDuration(ms: number | undefined): string | undefined {
   const totalMinutes = Math.round(ms / MINUTE_MS)
   return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`
 }
+
+/**
+ * A moment in a transcript: the time of day for today, the date before it
+ * for anything older (`14:32`, `Sep 12, 09:05`) — a transcript reopened the
+ * next day must not read as if it all happened today.
+ */
+export function stampTime(at: number, now: number = Date.now()): string {
+  const date = new Date(at)
+  const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  if (date.toDateString() === new Date(now).toDateString()) return time
+  return `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${time}`
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { endedFootnote, formatDuration, formatToolDuration } from '../lib/format'
+import { endedFootnote, formatDuration, formatToolDuration, stampTime } from '../lib/format'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -93,5 +93,18 @@ describe('endedFootnote', () => {
 
   it('has nothing to say about a session with no end time', () => {
     expect(endedFootnote({ pinned: false, endedAt: null, now })).toBeNull()
+  })
+})
+
+describe('stampTime', () => {
+  const now = new Date(2026, 10, 18, 9, 0).getTime()
+
+  it('reads the time alone for a moment earlier today', () => {
+    expect(stampTime(new Date(2026, 10, 18, 0, 5).getTime(), now)).not.toMatch(/Nov/)
+  })
+
+  it('puts the date before the time from yesterday back', () => {
+    const yesterday = new Date(2026, 10, 17, 23, 55).getTime()
+    expect(stampTime(yesterday, now)).toMatch(/Nov.*17|17.*Nov/)
   })
 })
