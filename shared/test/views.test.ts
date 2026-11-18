@@ -138,19 +138,19 @@ describe('normaliseLiveDomain', () => {
 
 describe('checkCdnHost', () => {
   it('takes a host, in lower case', () => {
-    expect(checkCdnHost(' ESM.sh ', [])).toEqual({ host: 'esm.sh' });
+    expect(checkCdnHost(' GA.jspm.io ', [])).toEqual({ host: 'ga.jspm.io' });
   });
 
   it('says what to type instead of a URL', () => {
-    expect(checkCdnHost('https://esm.sh/react@18', [])).toEqual({ error: 'bad', suggestion: 'esm.sh' });
-    expect(checkCdnHost('esm.sh:443', [])).toEqual({ error: 'bad', suggestion: 'esm.sh' });
+    expect(checkCdnHost('https://ga.jspm.io/react@18', [])).toEqual({ error: 'bad', suggestion: 'ga.jspm.io' });
+    expect(checkCdnHost('ga.jspm.io:443', [])).toEqual({ error: 'bad', suggestion: 'ga.jspm.io' });
     expect(checkCdnHost('es m.sh', [])).toEqual({ error: 'bad' });
     expect(checkCdnHost('http://localhost:3000', [])).toEqual({ error: 'bad' });
   });
 
   it('refuses a host already listed, built in or added', () => {
     expect(checkCdnHost('unpkg.com', [])).toEqual({ error: 'dup' });
-    expect(checkCdnHost('ESM.SH', [{ host: 'esm.sh', addedAt: 1 }])).toEqual({ error: 'dup' });
+    expect(checkCdnHost('GA.JSPM.IO', [{ host: 'ga.jspm.io', addedAt: 1 }])).toEqual({ error: 'dup' });
     expect(checkCdnHost('https://unpkg.com/x', [])).toEqual({ error: 'bad' });
   });
 });
@@ -158,10 +158,10 @@ describe('checkCdnHost', () => {
 describe('readCdnHosts', () => {
   it('keeps only valid entries, each once, none built in', () => {
     const stored = JSON.stringify([
-      { host: 'esm.sh', addedAt: 1 }, { host: 'ESM.sh', addedAt: 2 }, { host: 'unpkg.com', addedAt: 3 },
+      { host: 'skypack.dev', addedAt: 1 }, { host: 'SKYPACK.dev', addedAt: 2 }, { host: 'esm.sh', addedAt: 3 },
       { host: 'bad host', addedAt: 4 }, { host: 'x.com' }, 'y.com', null, { host: 'ga.jspm.io', addedAt: 5 },
     ]);
-    expect(readCdnHosts(stored)).toEqual([{ host: 'esm.sh', addedAt: 1 }, { host: 'ga.jspm.io', addedAt: 5 }]);
+    expect(readCdnHosts(stored)).toEqual([{ host: 'skypack.dev', addedAt: 1 }, { host: 'ga.jspm.io', addedAt: 5 }]);
     for (const bad of [undefined, '', 'not json', '{}']) expect(readCdnHosts(bad)).toEqual([]);
   });
 });
@@ -170,16 +170,16 @@ describe('viewCsp', () => {
   it('lets nothing fetch without approved domains', () => {
     const csp = viewCsp({ cdnHosts: [], connect: [] });
     expect(csp).toContain(`connect-src 'none'`);
-    expect(csp).toContain(`script-src 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com;`);
+    expect(csp).toContain(`script-src 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://esm.sh;`);
     expect(csp.startsWith(`default-src 'none'; `)).toBe(true);
   });
 
   it('drops a host that tries to add a directive', () => {
     const csp = viewCsp({
-      cdnHosts: ['esm.sh', "evil.com; script-src *", 'x.com https://*'],
+      cdnHosts: ['ga.jspm.io', "evil.com; script-src *", 'x.com https://*'],
       connect: ['api.github.com', "a.com; connect-src *", 'http://plain.com'],
     });
-    expect(csp).toContain('https://esm.sh');
+    expect(csp).toContain('https://ga.jspm.io');
     expect(csp).toContain('connect-src https://api.github.com;');
     expect(csp).not.toContain('evil');
     expect(csp).not.toContain('*');
@@ -214,7 +214,9 @@ describe('showViewRefusal', () => {
 
   it('refuses a blank title or page, a height that is no number, and bad or too many domains', () => {
     expect(showViewRefusal({ ...ok, title: ' ' })).toContain('title');
-    expect(showViewRefusal({ ...ok, html: '' })).toContain('html');
+    expect(showViewRefusal({ ...ok, html: '' })).toContain('component');
+    expect(showViewRefusal({ title: 'Chart', component: 'export default () => null' })).toBeNull();
+    expect(showViewRefusal({ ...ok, component: 'export default () => null' })).toContain('not both');
     expect(showViewRefusal({ ...ok, height: Number.NaN })).toContain('height');
     expect(showViewRefusal({ ...ok, liveDomains: ['http://x.com', 'api.github.com'] })).toContain('"http://x.com"');
     const many = Array.from({ length: VIEW_LIVE_DOMAINS_MAX + 1 }, (_, i) => `d${i}.com`);

@@ -22,7 +22,7 @@ export const VIEWS_ENABLED_KEY = 'views_enabled';
 /** The CDN hosts the user added beside the built-in ones: a JSON `CdnHost[]`, kept on the Mac. */
 export const VIEWS_CDN_HOSTS_KEY = 'views_cdn_hosts';
 /** Where a view's scripts and stylesheets may always load from (69f: listed first, locked). */
-export const VIEW_BUILTIN_CDN_HOSTS: readonly string[] = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'unpkg.com'];
+export const VIEW_BUILTIN_CDN_HOSTS: readonly string[] = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'unpkg.com', 'esm.sh'];
 
 /** A view's height in the transcript, px: what a call may ask for is clamped to `min`–`max`, `phoneMax` on the phone. */
 export const VIEW_HEIGHT = { min: 120, max: 480, phoneMax: 420, default: 320 } as const;
@@ -34,7 +34,7 @@ export function clampViewHeight(height: number | null | undefined, phone = false
   return Math.min(max, Math.max(VIEW_HEIGHT.min, asked));
 }
 
-/** The page's html plus its inline `data`, serialised: what one call may write into the transcript. */
+/** The page's source (`component` or `html`) plus its inline `data`, serialised: what one call may write into the transcript. */
 export const VIEW_PAGE_MAX_CHARS = 150_000;
 /** The largest `dataFile` the server copies. */
 export const VIEW_DATA_FILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -57,7 +57,10 @@ export const VIEW_TITLE_MAX_CHARS = 200;
 /** One call of the tool, as its input carries it. */
 export interface ShowViewInput {
   title: string;
-  html: string;
+  /** A React component in TSX; the usual way. Exactly one of `component` and `html`. */
+  component?: string;
+  /** A plain page; for what needs no React. */
+  html?: string;
   data?: unknown;
   dataFile?: string;
   height?: number;
@@ -74,10 +77,19 @@ export interface ShowViewInput {
  */
 export const showViewShape = {
   title: z.string().describe('One line naming the view, shown on it and in the session\'s media. Keep it the same when you update the view.'),
+  component: z
+    .string()
+    .optional()
+    .describe(
+      'The view as a React component in TSX, the usual way: a module whose default export is the component; it receives the data as the `data` prop. ' +
+        'Style it with Tailwind classes, which use Orbital\'s own tokens (bg-panel, text-ink-300, border-line, text-accent…). ' +
+        'React is provided; other packages are imported by name (import { LineChart } from \'recharts\') and load from esm.sh. Read the data from the prop, never fetch it.',
+    ),
   html: z
     .string()
+    .optional()
     .describe(
-      'The page: HTML with its CSS and JS inline. Orbital already styles the background, text, tables, buttons and inputs in the user\'s colours; use the --color-* variables for anything else. ' +
+      'Instead of component, for what needs no React: a plain page with its CSS and JS inline. Orbital already styles the background, text, tables, buttons and inputs in the user\'s colours; use the --color-* variables for anything else. ' +
         'Scripts and stylesheets may load from the CDNs listed in the tool\'s description, nothing else. Read the data from orbital.data, never fetch it.',
     ),
   data: z
@@ -150,17 +162,20 @@ export function showViewRefusal(input: ShowViewInput, check: ShowViewCheck = {})
   const title = typeof input.title === 'string' ? input.title.trim() : '';
   if (title === '') return `Give the view a \`title\`: one line the user reads. ${RETRY}`;
   if (title.length > VIEW_TITLE_MAX_CHARS) return `Keep \`title\` to one short line, at most ${VIEW_TITLE_MAX_CHARS} characters. ${RETRY}`;
-  if (typeof input.html !== 'string' || input.html.trim() === '') return `\`html\` is empty: send the page. ${RETRY}`;
+  const hasComponent = typeof input.component === 'string' && input.component.trim() !== '';
+  const hasHtml = typeof input.html === 'string' && input.html.trim() !== '';
+  if (hasComponent && hasHtml) return `Send either \`component\` or \`html\`, not both. ${RETRY}`;
+  if (!hasComponent && !hasHtml) return `Send the view: a React \`component\` in TSX, or a plain \`html\` page. ${RETRY}`;
   if (input.height !== undefined && (typeof input.height !== 'number' || !Number.isFinite(input.height))) {
     return `\`height\` is a number of px, or left out. ${RETRY}`;
   }
 
   const hasFile = typeof input.dataFile === 'string' && input.dataFile.trim() !== '';
   if (hasFile && input.data !== undefined) return `Pass the data either inline as \`data\` or as \`dataFile\`, not both. ${RETRY}`;
-  const chars = input.html.length + inlineDataChars(input.data);
+  const chars = (hasComponent ? input.component! : input.html!).length + inlineDataChars(input.data);
   if (chars > VIEW_PAGE_MAX_CHARS) {
     return (
-      `The html and its inline data come to ${chars} characters; the most is ${VIEW_PAGE_MAX_CHARS}. ` +
+      `The view's source and its inline data come to ${chars} characters; the most is ${VIEW_PAGE_MAX_CHARS}. ` +
       `Write the data to a .json or .csv file with a script and pass its path as \`dataFile\`, and keep the page small. ${RETRY}`
     );
   }
@@ -196,18 +211,20 @@ function text(value: unknown): string | undefined {
 
 /**
  * A `tool_use` input read as a call, or null when it is not one: a title and
- * html are needed. Tolerant, because a transcript is written by whatever CLI
+ * a component or html are needed. Tolerant, because a transcript is written by whatever CLI
  * ran: a field of the wrong type is left out.
  */
 export function readShowView(input: unknown): ShowViewInput | null {
   if (!input || typeof input !== 'object') return null;
   const raw = input as Record<string, unknown>;
-  if (typeof raw.title !== 'string' || typeof raw.html !== 'string') return null;
+  const component = typeof raw.component === 'string' ? raw.component : undefined;
+  const html = typeof raw.html === 'string' ? raw.html : undefined;
+  if (typeof raw.title !== 'string' || (component === undefined && html === undefined)) return null;
   const dataFile = text(raw.dataFile);
   const replaces = text(raw.replaces);
   return {
     title: raw.title,
-    html: raw.html,
+    ...(component !== undefined ? { component } : { html }),
     ...(raw.data !== undefined ? { data: raw.data } : {}),
     ...(dataFile !== undefined ? { dataFile } : {}),
     ...(typeof raw.height === 'number' && Number.isFinite(raw.height) ? { height: raw.height } : {}),
@@ -535,7 +552,13 @@ export interface ViewPayload {
   /** The call drawn: the view's newest. */
   toolUseId: string;
   title: string;
-  html: string;
+  /**
+   * `react`: `script` is the component compiled by the Mac to an ES module
+   * (JSX and types gone, imports left as written); `html`: `html` is the page.
+   */
+  kind: 'react' | 'html';
+  script?: string;
+  html?: string;
   /** Clamped for the desktop; the phone clamps `VIEW_HEIGHT.phoneMax` on top. */
   height: number;
   wait: boolean;

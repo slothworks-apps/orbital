@@ -58,7 +58,8 @@ tool row.
 | field | meaning |
 |---|---|
 | `title` | one line, shown on the view and in media |
-| `html` | the page: any HTML, CSS and JS |
+| `component` | the view as a React component in TSX; the usual way |
+| `html` | instead of `component`: a plain page, any HTML, CSS and JS |
 | `data` | optional JSON, inline, for small data |
 | `dataFile` | optional path to a JSON or CSV file, for large data |
 | `height` | optional height in px; Orbital clamps it (see In the transcript) |
@@ -74,6 +75,24 @@ that data for the page should be passed, not fetched, unless it must be
 live, and that while it iterates on a view it updates that view with
 `replaces`, and makes a new one only when the user asks for one.
 
+### React and Tailwind
+
+The usual view is a React component, because that is what the agent writes
+best and Tailwind gives it Orbital's own vocabulary:
+
+- `component` is a TSX module whose default export is the view; it gets the
+  data as its `data` prop. The Mac compiles it (JSX and types out, imports
+  kept) when the call is made, so a syntax error comes back to the agent as
+  a refusal, and no client needs a compiler.
+- React and the Tailwind runtime ship with Orbital and are put into the
+  page, so a view without imports works offline. Tailwind's theme maps
+  Orbital's tokens, so `bg-panel`, `text-ink-300` or `border-line` mean in
+  a view what they mean in Orbital.
+- Any other import (`import { LineChart } from 'recharts'`) resolves
+  through an import map to esm.sh, built against the page's own React.
+  No library is bundled for it.
+- `html` stays for what needs no React: a plain SVG, a canvas.
+
 ### Data
 
 - Small data goes inline in `data`. Everything the agent writes into the
@@ -85,13 +104,25 @@ live, and that while it iterates on a view it updates that view with
 - The page reads the data through the bridge (`orbital.data`), not over
   the network.
 
+### Choices made while planning
+
+- `dataFile` may be any readable path: the session reads any file anyway.
+- The page's CSP allows `'unsafe-eval'`: the frame is isolated, and some
+  chart libraries need it.
+- `liveDomains` take https hosts only: no localhost, IP address or local
+  name.
+- A subagent cannot show a view; a waiting one could never be answered.
+- A view without `wait` cannot send while the session waits on another
+  answer (a question, a permission): its message would answer that instead.
+- Allowed domains do not carry over when a session is cleared.
+
 ### Isolation and network
 
 - The page runs in an `<iframe sandbox="allow-scripts">` without
   `allow-same-origin`: an opaque origin with no access to Orbital's API,
   its token, its storage or the parent page.
 - A CSP in the page allows scripts and styles from a fixed list of CDNs
-  (cdnjs, jsDelivr, unpkg) plus the hosts the user added in Settings, and
+  (cdnjs, jsDelivr, unpkg, esm.sh) plus the hosts the user added in Settings, and
   `connect-src 'none'`.
 - With `liveDomains`, the view first shows the domains in place of its
   content, at its height, with Allow and Don't load. Nothing loads before
@@ -107,7 +138,7 @@ live, and that while it iterates on a view it updates that view with
 ### CDN hosts
 
 Settings → Labs → Views, under the Views switch and shown only while it is
-on (69f). cdnjs, jsDelivr and unpkg are listed first, locked, with no
+on (69f). cdnjs, jsDelivr, unpkg and esm.sh are listed first, locked, with no
 Remove. The user adds a host only (no scheme, no path; a bad entry says what
 to type instead) and removes it without a confirm. There is one list for
 the Mac's sessions: it is stored on the Mac, and the phone edits the same
