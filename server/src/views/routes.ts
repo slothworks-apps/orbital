@@ -4,7 +4,6 @@
  * and the domains the session allowed its views to fetch from.
  */
 
-import { readFileSync } from 'node:fs';
 import { asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import {
@@ -13,7 +12,7 @@ import {
 import type { Hub } from '../api/hub.js';
 import type { OrbitalDb } from '../db/database.js';
 import { sessions, viewDomainApprovals } from '../db/schema.js';
-import { VIEW_DATA_MEDIA_TYPES, type ViewsService } from './service.js';
+import type { ViewsService } from './service.js';
 
 /** The most domains one request may allow. */
 export const VIEW_DOMAINS_PER_REQUEST_MAX = 16;
@@ -69,21 +68,9 @@ export function registerViewRoutes(app: FastifyInstance, ctx: ViewRoutesContext)
   app.get('/api/sessions/:id/views/:toolUseId/data', (req, reply) => {
     const { id, toolUseId } = req.params as { id: string; toolUseId: string };
     if (!sessionExists(id)) return reply.code(404).send({ error: 'not found' });
-    const copy = ctx.views.dataCopy(id, toolUseId);
-    if (!copy) return reply.code(404).send({ error: 'not found' });
-    let bytes: Buffer;
-    try {
-      bytes = readFileSync(copy.path);
-    } catch {
-      return reply.code(404).send({ error: 'not found' });
-    }
-    return reply.type(VIEW_DATA_MEDIA_TYPES[copy.format]).send(bytes);
-  });
-
-  app.get('/api/sessions/:id/view-domains', (req, reply) => {
-    const { id } = req.params as { id: string };
-    if (!sessionExists(id)) return reply.code(404).send({ error: 'not found' });
-    return { domains: approvedViewDomains(db, id) };
+    const data = ctx.views.data(id, toolUseId);
+    if (!data) return reply.code(404).send({ error: 'not found' });
+    return reply.type(data.mediaType).send(data.bytes);
   });
 
   /**

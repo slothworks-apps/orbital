@@ -5,7 +5,6 @@
  * § 2, which bounds it as 2026-10-03-api-token-and-named-files-design § 2
  * does). Reading only: nothing here opens or runs a file.
  */
-import { readFileSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import type { FileAs } from '@orbital/shared/remote/messages';
 import type { OrbitalDb } from '../db/database.js';
@@ -13,7 +12,7 @@ import { sessions } from '../db/schema.js';
 import { NamedPathCache, PDF_CONTENT_TYPE, readImageFile, readInSandboxes, readTextFile } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { sniffDims } from '../images/store.js';
-import { VIEW_DATA_MEDIA_TYPES, viewDataCopy } from '../views/service.js';
+import { readViewData } from '../views/service.js';
 
 /** The largest text file the phone previews; past it the phone says the file can't be shown there. */
 export const PHONE_TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
@@ -121,12 +120,7 @@ export function createPhoneFileReader(
 
 /** A view's data copy for `file_get` as `view-data`: 404 for an id outside the safe alphabet or no copy. */
 function readViewDataCopy(dataDir: string, session: string, toolUseId: string): PhoneFileAnswer {
-  const copy = viewDataCopy(dataDir, session, toolUseId);
-  if (!copy) return { status: 404 };
-  try {
-    const bytes = readFileSync(copy.path);
-    return { status: 200, bytes: new Uint8Array(bytes), mediaType: VIEW_DATA_MEDIA_TYPES[copy.format], size: bytes.length };
-  } catch {
-    return { status: 404 };
-  }
+  const data = readViewData(dataDir, session, toolUseId);
+  if (!data) return { status: 404 };
+  return { status: 200, bytes: new Uint8Array(data.bytes), mediaType: data.mediaType, size: data.bytes.length };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   VIEW_DATA_FILE_MAX_BYTES, VIEW_DATA_INLINE_REST_MAX, VIEW_PAYLOAD_MAX_BYTES, VIEW_RESULT_ECHO_MAX_BYTES, VIEW_TOOL, readViewResult, viewMessageText, type ViewPayload,
@@ -11,7 +11,7 @@ import { Runner, type PendingDecision } from '../src/runner/runner.js';
 import { ORBITAL_TOOL_TIMEOUT_MS, orbitalMcpServer } from '../src/runner/spawnTool.js';
 import { cleanTitle, entriesToMessages, parseTranscript } from '../src/transcript/parser.js';
 import {
-  SUBAGENT_REFUSAL, VIEWS_OFF_REFUSAL, ViewsService, compileViewComponent, viewMediaItems,
+  SUBAGENT_REFUSAL, VIEWS_OFF_REFUSAL, ViewsService, compileViewComponent, removeViewFiles, viewMediaItems,
 } from '../src/views/service.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
 
@@ -30,10 +30,14 @@ function makeService(opts: { enabled?: boolean; transcript?: string } = {}) {
   const service = new ViewsService({
     isEnabled: () => enabled,
     dataDir,
-    transcriptPathOf: () => opts.transcript ?? null,
     cwdOf: () => cwd,
-    runner: () => ({ parkView, pendingDecision: () => pending }),
+    tmpDirs: [],
+    runner: () => ({ parkView, waitingView: () => pending }),
   });
+  if (opts.transcript) {
+    const path = opts.transcript;
+    service.readMessagesWith(() => entriesToMessages(parseTranscript(readFileSync(path, 'utf8'))));
+  }
   const call = (toolUseId: string | null, input: Record<string, unknown>, session = 's1') =>
     service.show(session, input, toolUseId ? { _meta: { 'claudecode/toolUseId': toolUseId } } : {});
   return {
@@ -102,6 +106,24 @@ describe('show_view', () => {
     expect(textOf(await call('toolu_5', { title: 'T', html: HTML, dataFile: 'dir.json' }))).toMatch(/cannot be read/);
   });
 
+  it('reads a data file only inside the project or a temporary directory', async () => {
+    const { call, dataDir } = makeService();
+    // The data directory stands in for anywhere else on the Mac: outside the session's cwd, and no temporary directory here.
+    writeFileSync(join(dataDir, 'secret.json'), '{"a":1}');
+    const res = await call('toolu_1', { title: 'T', html: HTML, dataFile: join(dataDir, 'secret.json') });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toMatch(/outside the project/);
+    expect(textOf(await call('toolu_2', { title: 'T', html: HTML, dataFile: '../secret.json' }))).toMatch(/outside the project|cannot be read/);
+
+    const tmp = makeService();
+    const allowed = new ViewsService({
+      isEnabled: () => true, dataDir: tmp.dataDir, cwdOf: () => tmp.cwd, tmpDirs: [dataDir],
+      runner: () => ({ parkView: tmp.parkView, waitingView: () => null }),
+    });
+    const ok = await allowed.show('s1', { title: 'T', html: HTML, dataFile: join(dataDir, 'secret.json') }, { _meta: { 'claudecode/toolUseId': 'toolu_3' } });
+    expect(ok.isError).toBeUndefined();
+  });
+
   it('copies the data file, so the view keeps it when the file changes; small copies ride inline', async () => {
     const { call, cwd, service } = makeService();
     writeFileSync(join(cwd, 'rows.csv'), 'a,b\n1,2\n');
@@ -113,7 +135,7 @@ describe('show_view', () => {
     await call('toolu_2', { title: 'T', html: HTML, dataFile: join(cwd, 'big.json') });
     expect(service.payload('s1', 'toolu_2', extras)?.data).toMatchObject({ format: 'json', inline: false });
     expect(service.payload('s1', 'toolu_2', extras)?.data?.value).toBeUndefined();
-    expect(service.dataCopy('s1', 'toolu_2')?.format).toBe('json');
+    expect(service.data('s1', 'toolu_2')?.mediaType).toMatch(/^application\/json/);
   });
 
   it('keeps every payload within one relay frame: a data copy rides outside past it, a page too large is refused', async () => {
@@ -145,6 +167,15 @@ describe('show_view', () => {
     const third = await call('toolu_3', { title: 'T', html: HTML, replaces: 'toolu_2' });
     expect(readViewResult(textOf(third))?.viewId).toBe('toolu_1');
     expect(service.payload('s1', 'toolu_3', extras)?.viewId).toBe('toolu_1');
+
+    // Only the newest call of a view keeps its files.
+    const { call: callF, cwd, dataDir } = makeService();
+    writeFileSync(join(cwd, 'rows.csv'), 'a\n1\n');
+    await callF('toolu_a', { title: 'T', component: COMPONENT, dataFile: 'rows.csv' });
+    await callF('toolu_b', { title: 'T', component: COMPONENT, dataFile: 'rows.csv', replaces: 'toolu_a' });
+    const files = join(dataDir, 'views', 's1');
+    expect(existsSync(join(files, 'toolu_a.js')) || existsSync(join(files, 'toolu_a.csv'))).toBe(false);
+    expect(existsSync(join(files, 'toolu_b.js')) && existsSync(join(files, 'toolu_b.csv'))).toBe(true);
 
     const unknown = await call('toolu_4', { title: 'T', html: HTML, replaces: 'toolu_nope' });
     expect(unknown.isError).toBe(true);
@@ -203,6 +234,60 @@ describe('show_view', () => {
     expect(readViewResult(textOf(res))?.viewId).toBe('toolu_m');
     // Taken once: the same input again without an id cannot be told apart.
     expect((await call(null, input)).isError).toBe(true);
+
+    // Compared on the schema's keys only; two notes of one input are refused, not guessed between.
+    const signal = new AbortController().signal;
+    await hook({ ...base, tool_input: { ...input, extra: 1 }, tool_use_id: 'toolu_x1' }, 'toolu_x1', { signal });
+    expect(readViewResult(textOf(await call(null, input)))?.viewId).toBe('toolu_x1');
+    await hook({ ...base, tool_input: input, tool_use_id: 'toolu_y1' }, 'toolu_y1', { signal });
+    await hook({ ...base, tool_input: input, tool_use_id: 'toolu_y2' }, 'toolu_y2', { signal });
+    expect(textOf(await call(null, input))).toMatch(/could not tell which is which/);
+
+    // A note older than the window is of a call that never came.
+    vi.useFakeTimers();
+    try {
+      await hook({ ...base, tool_input: { title: 'Old', html: HTML }, tool_use_id: 'toolu_old' }, 'toolu_old', { signal });
+      vi.advanceTimersByTime(60_000);
+      expect(textOf(await call(null, { title: 'Old', html: HTML }))).toMatch(/could not tell this call apart/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets go of a call once the transcript holds it with its result, and of a session it is told to forget', async () => {
+    const { service, call } = makeService();
+    let messages: any[] = [];
+    service.readMessagesWith(() => messages);
+    await call('toolu_1', { title: 'T', html: HTML });
+    await call('toolu_2', { title: 'T', html: HTML });
+    const memory = (service as any).memory as Map<string, Map<string, unknown>>;
+    expect(memory.get('s1')?.size).toBe(2);
+    messages = [
+      { id: 'a:0', role: 'tool_use', toolName: VIEW_TOOL, toolUseId: 'toolu_1', toolInput: { title: 'T', html: HTML } },
+      { id: 'u:0', role: 'tool_result', toolUseId: 'toolu_1', text: 'View toolu_1: shown.' },
+    ];
+    expect(service.calls('s1').map((c) => c.toolUseId)).toEqual(['toolu_1', 'toolu_2']);
+    expect([...memory.get('s1')!.keys()]).toEqual(['toolu_2']);
+    service.forget(['s1']);
+    expect(memory.has('s1')).toBe(false);
+  });
+
+  it('removes view files per session and reports, never throws, what it could not remove', () => {
+    const dataDir = makeTmpDir('views-remove');
+    mkdirSync(join(dataDir, 'views', 'ok'), { recursive: true });
+    // A directory whose entries cannot be unlinked: its session's removal fails.
+    const locked = join(dataDir, 'views', 'locked');
+    mkdirSync(join(locked, 'inner'), { recursive: true });
+    writeFileSync(join(locked, 'inner.js'), '');
+    chmodSync(locked, 0o500);
+    const failures: string[] = [];
+    try {
+      expect(() => removeViewFiles(dataDir, ['locked', 'ok'], (id) => failures.push(id))).not.toThrow();
+    } finally {
+      chmodSync(locked, 0o700);
+    }
+    expect(failures).toEqual(['locked']);
+    expect(existsSync(join(dataDir, 'views', 'ok'))).toBe(false);
   });
 
   it('reads calls and results from the transcript, and refuses to draw a refused call', async () => {
@@ -357,7 +442,7 @@ describe('Runner.parkView', () => {
     expect(await result).toEqual({ viewId: 'toolu_root', outcome: 'answered', text: 'blue, please' });
   });
 
-  it('is cancelled by a refusal, an interrupt, the end, an abort and a newer ask', async () => {
+  it('is cancelled by a refusal, an interrupt, the end, an abort and a newer waiting view', async () => {
     const closed = await parkedView();
     expect(closed.runner.answerDecision(closed.id, 'toolu_v', { approved: false })).toBe(true);
     expect(await closed.result).toMatchObject({ outcome: 'cancelled' });
@@ -376,9 +461,75 @@ describe('Runner.parkView', () => {
     expect(await aborted.result).toMatchObject({ outcome: 'cancelled', reason: 'The request was aborted.' });
 
     const superseded = await parkedView();
-    void superseded.ask({ command: 'ls' }, 'toolu_bash', 'Bash');
+    void superseded.runner.parkView(superseded.id, 'toolu_v2', { viewId: 'toolu_v2', title: 'Another' });
     expect(await superseded.result).toMatchObject({ outcome: 'cancelled', reason: 'Superseded by a newer request.' });
-    expect(superseded.runner.pendingDecision(superseded.id)).toMatchObject({ id: 'toolu_bash', kind: 'permission' });
+    expect(superseded.runner.pendingDecision(superseded.id)).toMatchObject({ id: 'toolu_v2', kind: 'view' });
+  });
+
+  it('survives a permission asked while it waits: the ask is shown first, the view again once it is answered', async () => {
+    const { runner, id, received, result, ask } = await parkedView();
+    const bash = ask({ command: 'ls' }, 'toolu_bash', 'Bash');
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'toolu_bash', kind: 'permission' });
+    expect(runner.waitingView(id)).toMatchObject({ id: 'toolu_v' });
+    received.length = 0;
+    expect(runner.answerDecision(id, 'toolu_bash', { approved: true })).toBe(true);
+    expect(await bash).toMatchObject({ behavior: 'allow' });
+    // Resolved, then the view shown again: a client holding one decision per session switches back.
+    expect(received.map((e) => [e.event, e.decisionId ?? e.decision?.id])).toEqual([
+      ['decision_resolved', 'toolu_bash'], ['decision_pending', 'toolu_v'],
+    ]);
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'toolu_v', kind: 'view' });
+    expect(runner.status(id)).toBe('needs_input');
+    expect(runner.answerDecision(id, 'toolu_v', { value: 'red' })).toBe(true);
+    expect(await result).toEqual({ viewId: 'toolu_root', outcome: 'sent', value: 'red' });
+    expect(runner.status(id)).toBe('working');
+  });
+
+  it('waits behind a permission asked before it, and is answered once that one is', async () => {
+    const hub = new Hub();
+    const { fn, ask } = fakeQueryFnAsking();
+    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1' });
+    const received = subscribed(hub, 'session:web-1');
+    const id = await runner.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+    const bash = ask({ command: 'ls' }, 'toolu_bash', 'Bash');
+    const result = runner.parkView(id, 'toolu_v', { viewId: 'toolu_v', title: 'Pick' });
+    // Nothing announced for the view while the ask is in front of it.
+    expect(received.filter((e) => e.event === 'decision_pending').map((e) => e.decision.id)).toEqual(['toolu_bash']);
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'toolu_bash' });
+    // Typed text answers the ask in front, as a refusal with a reason.
+    expect(runner.send(id, 'not now')).toBeNull();
+    expect(await bash).toMatchObject({ behavior: 'deny', message: 'not now' });
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'toolu_v', kind: 'view' });
+    expect(received.at(-1)).toMatchObject({ event: 'decision_pending', decision: { id: 'toolu_v' } });
+    expect(runner.send(id, 'blue')).toBeNull();
+    expect(await result).toEqual({ viewId: 'toolu_v', outcome: 'answered', text: 'blue' });
+  });
+
+  it('is answered by its own id even while a permission is shown in front of it, and both end with the session', async () => {
+    const { runner, id, result, ask } = await parkedView();
+    const bash = ask({ command: 'ls' }, 'toolu_bash', 'Bash');
+    expect(runner.answerDecision(id, 'toolu_v', { value: 1 })).toBe(true);
+    expect(await result).toMatchObject({ outcome: 'sent', value: 1 });
+    expect(runner.pendingDecision(id)).toMatchObject({ id: 'toolu_bash' });
+    expect(runner.status(id)).toBe('working');
+
+    const both = await parkedView();
+    const ask2 = both.ask({ command: 'ls' }, 'toolu_bash', 'Bash');
+    await both.runner.interrupt(both.id);
+    expect(await both.result).toMatchObject({ outcome: 'cancelled', reason: 'The user interrupted.' });
+    expect(await ask2).toMatchObject({ behavior: 'deny' });
+    expect(both.runner.pendingDecision(both.id)).toBeNull();
+    void bash;
+  });
+
+  it("takes a shipped phone's refusal with words as the answer, and a bare one as closing the view", async () => {
+    const worded = await parkedView();
+    expect(worded.runner.answerDecision(worded.id, 'toolu_v', { approved: false, message: 'the blue one' })).toBe(true);
+    expect(await worded.result).toEqual({ viewId: 'toolu_root', outcome: 'answered', text: 'the blue one' });
+
+    const blank = await parkedView();
+    expect(blank.runner.answerDecision(blank.id, 'toolu_v', { approved: false, message: '  ' })).toBe(true);
+    expect(await blank.result).toMatchObject({ outcome: 'cancelled' });
   });
 
   it('answers cancelled at once for a session it does not run', async () => {
@@ -388,7 +539,9 @@ describe('Runner.parkView', () => {
 });
 
 describe("Orbital's MCP server", () => {
-  it("carries its own tool-call timeout, so the user's MCP_TOOL_TIMEOUT cannot cut a waiting view", () => {
-    expect(orbitalMcpServer('s1', {})).toMatchObject({ type: 'sdk', timeout: ORBITAL_TOOL_TIMEOUT_MS });
+  it("carries its own tool-call timeout only with show_view, so the user's MCP_TOOL_TIMEOUT cannot cut a waiting view", () => {
+    const { service } = makeService();
+    expect(orbitalMcpServer('s1', {}, { tools: service.sessionTools('s1')!.tools })).toMatchObject({ type: 'sdk', timeout: ORBITAL_TOOL_TIMEOUT_MS });
+    expect(orbitalMcpServer('s1', {})).not.toHaveProperty('timeout');
   });
 });

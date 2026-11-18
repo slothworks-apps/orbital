@@ -220,6 +220,7 @@ function makeApp(opts: {
     // Nothing parked on a question by default — the state of every session
     // that is not waiting on one. Tests that want a decision replace both.
     pendingDecision: (_id: string): any => null,
+    waitingView: (_id: string): any => null,
     answerDecision: (_id: string, _decisionId: string, _answers: Record<string, string>) => false,
     interrupt: async () => {}, stop: async () => {}, hasRun: (_id: string) => false,
     stopAndWait: async (_id: string): Promise<void> => {},
@@ -275,10 +276,6 @@ function makeApp(opts: {
     ? new ViewsService({
         isEnabled: () => settings.get(VIEWS_ENABLED_KEY) === 'true',
         dataDir: viewsDataDir,
-        transcriptPathOf: (id) => {
-          const row = db.select({ projectDir: sessions.projectDir }).from(sessions).where(eq(sessions.id, id)).get();
-          return row ? join(opts.projectsDir ?? '/nonexistent', row.projectDir, `${id}.jsonl`) : null;
-        },
         cwdOf: () => null,
         runner: () => runner as any,
       })
@@ -5448,8 +5445,6 @@ describe('generated views', () => {
     expect((await post(Array.from({ length: 17 }, (_, i) => `a${i}.example.com`))).statusCode).toBe(400);
     expect(res200(await post(['https://API.github.com/', 'api.github.com']))).toEqual({ domains: ['api.github.com'] });
     expect(received).toContainEqual({ topic: 'session:sv', event: 'view_domains', domains: ['api.github.com'] });
-    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/sv/view-domains' }))).toEqual({ domains: ['api.github.com'] });
-    expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/s1/view-domains' }))).toEqual({ domains: [] });
     expect(res200(await app.inject({ method: 'GET', url: '/api/sessions/sv/views/toolu_v1' })).approvedDomains).toEqual(['api.github.com']);
   });
 
@@ -5479,12 +5474,32 @@ describe('generated views', () => {
     expect(res200(await post({ value: null }))).toEqual({ ok: true });
     expect(res200(await post({ approved: false, message: 'Closed' }))).toEqual({ ok: true });
     expect(answered).toEqual([{ value: { colour: 'red' } }, { value: null }, { approved: false, message: 'Closed' }]);
-    expect((await post({ approved: true })).json()).toEqual({ error: 'view_needs_value' });
+    // A phone from before views approves it as a permission card: refused in words it shows.
+    expect((await post({ approved: true })).json().error).toMatch(/waiting for an answer from its page/);
     expect((await post({})).statusCode).toBe(400);
     expect((await post({ value: 'x'.repeat(VIEW_SEND_MAX_BYTES) })).json()).toEqual({ error: 'value_too_large' });
     // Measured in UTF-8 bytes: fewer characters than the bound, more bytes.
     expect((await post({ value: 'é'.repeat(VIEW_SEND_MAX_BYTES / 2) })).json()).toEqual({ error: 'value_too_large' });
     expect(answered).toHaveLength(3);
+  });
+
+  it('answers a waiting view by its own id while a permission is shown in front of it', async () => {
+    const { app, runner } = makeApp();
+    const answered: any[] = [];
+    runner.pendingDecision = (id: string) =>
+      id === 's1' ? { id: 'toolu_bash', kind: 'permission', input: {}, createdAt: 2 } : null;
+    runner.waitingView = (id: string) =>
+      id === 's1' ? { id: 'toolu_w', kind: 'view', input: { viewId: 'toolu_w', title: 'Pick' }, createdAt: 1 } : null;
+    runner.answerDecision = ((_id: string, decisionId: string, answer: unknown) => {
+      answered.push([decisionId, answer]);
+      return true;
+    });
+    const post = (decisionId: string, payload: unknown) =>
+      app.inject({ method: 'POST', url: `/api/sessions/s1/decision/${decisionId}`, payload: payload as any });
+    expect(res200(await post('toolu_w', { value: 'red' }))).toEqual({ ok: true });
+    expect(res200(await post('toolu_bash', { approved: true }))).toEqual({ ok: true });
+    expect((await post('toolu_nope', { approved: true })).statusCode).toBe(404);
+    expect(answered).toEqual([['toolu_w', { value: 'red' }], ['toolu_bash', { approved: true }]]);
   });
 
   it('saves only a CDN host list that reads back as it was written', async () => {

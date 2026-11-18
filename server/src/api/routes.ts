@@ -719,6 +719,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     ctx.harness.sessionEnded(id);
     ctx.limits?.drop(id);
     ctx.logins?.forget(id);
+    ctx.views?.forget([id]);
     ctx.terminals.closeSession(id);
     // The setup's row stays while its rollback runs: `discard` deletes it after.
     deleteSessions(db, [id], { keepSetup: true });
@@ -851,6 +852,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (!Number.isNaN(cut)) failures = failures.filter((f) => f.at < cut);
     return failures.length ? mergeCompactionFailures(messages, failures) : messages;
   }
+
+  // A view's calls are read off the same parsed transcript.
+  ctx.views?.readMessagesWith((id) => readBranchOf(id)?.messages ?? null);
 
   function readTranscriptMessages(id: string): ChatMessage[] | null {
     const read = readBranchOf(id);
@@ -2595,7 +2599,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // The lookup comes first now: which body is valid depends on the kind, so
     // there is nothing to check a payload against until the decision is known.
     // A session with nothing parked is still the same 404 it always was.
-    const pending = ctx.runner.pendingDecision(id);
+    let pending = ctx.runner.pendingDecision(id);
+    // A waiting view is answered by its own id while a decision is shown in front of it.
+    if (pending && pending.id !== decisionId) pending = ctx.runner.waitingView(id);
     if (!pending || pending.id !== decisionId) return reply.code(404).send({ error: 'not found' });
     const body = (req.body ?? {}) as { answers?: unknown; approved?: unknown; message?: unknown; value?: unknown };
 
@@ -2603,6 +2609,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (pending.kind === 'view') {
       // A waiting view (spec 2026-11-18-generated-views-design § The bridge):
       // `{value}`, what the page sent, or `{approved: false}`, closed unsent.
+      // A phone from before views (0.26.1 and older) draws it as a permission
+      // card: its refusal with a reason answers the view in words
+      // (`Runner.answerDecision`), and its approval, which carries nothing to
+      // answer with, is refused in words the phone shows.
       if (body.approved === false) {
         if (body.message !== undefined && typeof body.message !== 'string') {
           return reply.code(400).send({ error: 'message must be a string' });
@@ -2610,7 +2620,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         answer = { approved: false, ...(typeof body.message === 'string' ? { message: body.message } : {}) };
       } else {
         if (!Object.prototype.hasOwnProperty.call(body, 'value') || body.value === undefined) {
-          return reply.code(400).send({ error: 'view_needs_value' });
+          return reply.code(400).send({
+            error: body.approved === true
+              ? 'This is a view waiting for an answer from its page. Type the answer instead, or update Orbital on this phone to use the view.'
+              : 'view_needs_value',
+          });
         }
         const bytes = viewValueBytes(body.value);
         if (bytes === null || bytes > VIEW_SEND_MAX_BYTES) {

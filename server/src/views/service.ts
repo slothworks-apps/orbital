@@ -10,21 +10,19 @@
  * memory and under `<dataDir>/views/<sessionId>/`.
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 import { tool, type HookInput, type HookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
 import { transform } from 'sucrase';
 import { TOKENS } from '@orbital/shared/colourTokens';
 import { viewMediaId, type MediaItem } from '@orbital/shared/media';
 import {
-  VIEW_BUILTIN_CDN_HOSTS, VIEW_DATA_INLINE_REST_MAX, VIEW_PAYLOAD_MAX_BYTES, VIEW_RESULT_ECHO_MAX_BYTES, VIEW_TOOL, VIEW_TOOL_NAME, clampViewHeight, echoViewResult, foldViews,
+  RETRY, VIEW_BUILTIN_CDN_HOSTS, VIEW_DATA_INLINE_REST_MAX, VIEW_PAYLOAD_MAX_BYTES, VIEW_RESULT_ECHO_MAX_BYTES, VIEW_TOOL, VIEW_TOOL_NAME, clampViewHeight, echoViewResult, foldViews,
   normaliseLiveDomain, readShowView, readViewResult, showViewRefusal, showViewShape, viewDataFormat, viewIdOf,
   viewResultText, type ShowViewCheck, type ShowViewInput, type ViewCall, type ViewPayload, type ViewResult,
 } from '@orbital/shared/views';
 import type { PendingDecision, Runner, SessionTools } from '../runner/runner.js';
-import { liveBranch } from '../transcript/liveBranch.js';
-import { parseTranscript, type TranscriptEntry } from '../transcript/parser.js';
-import { StampedCache, fileStamp } from '../transcript/stampedCache.js';
 import { expandHome } from '../paths.js';
 import type { ChatMessage } from '../types.js';
 
@@ -70,12 +68,17 @@ export function viewPageTooLarge(page: { script?: string; html?: string; data?: 
   );
 }
 
-/** Transcripts whose calls are kept read, by path and stamp. */
-const TRANSCRIPT_ENTRIES = 64;
 /** Calls kept in memory per session; past it the oldest go — the transcript holds them by then. */
 const MEMORY_CALLS = 32;
-
-const RETRY = `Nothing was shown; fix it and call ${VIEW_TOOL_NAME} again.`;
+/**
+ * How long the `PreToolUse` hook's note of a call stands: the CLI makes the
+ * call right after the hook, so an older note is of a call that never came.
+ */
+const SEEN_NOTE_MS = 30_000;
+/** `toolUseIdOf`'s answer for two standing notes of the same input. */
+const AMBIGUOUS = Symbol('ambiguous');
+/** The input keys the tool's schema takes: what a hook's note and a call's arguments are compared on. */
+const SHOW_VIEW_KEYS = Object.keys(showViewShape);
 
 /** Answered to every call once the Labs switch is off. */
 export const VIEWS_OFF_REFUSAL = 'Views are turned off in Orbital (Settings → Labs). Show the result another way.';
@@ -109,48 +112,13 @@ export interface ViewCallRecord extends ViewCall {
   resultText?: string;
 }
 
-/** A tool_result's content as text. */
-function resultTextOf(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((part: unknown) => {
-      const { type, text } = (part ?? {}) as { type?: unknown; text?: unknown };
-      return type === 'text' && typeof text === 'string' ? text : '';
-    })
-    .join('');
-}
-
 /**
- * The tool's calls in a transcript's live branch, in order, each with its
- * result once written. A subagent's entries do not count: it is refused the
- * tool.
+ * The tool's calls among the messages the transcript panel shows
+ * (`ChatMessage`, the live branch), in order, each with the message it was
+ * made in and its result once written. One way to read calls, for the media
+ * list and the payload alike.
  */
-export function viewCallsOf(entries: readonly TranscriptEntry[]): ViewCallRecord[] {
-  const calls: ViewCallRecord[] = [];
-  const byId = new Map<string, ViewCallRecord>();
-  for (const entry of liveBranch(entries)) {
-    if (entry.isSidechain === true) continue;
-    const content = entry.message?.content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content) {
-      if (entry.type === 'assistant' && block.type === 'tool_use' && block.name === VIEW_TOOL && typeof block.id === 'string') {
-        const call: ViewCallRecord = { toolUseId: block.id, input: block.input };
-        calls.push(call);
-        byId.set(block.id, call);
-      } else if (entry.type === 'user' && block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
-        const call = byId.get(block.tool_use_id);
-        if (!call) continue;
-        call.resultText = resultTextOf(block.content);
-        if (block.is_error === true) call.isError = true;
-      }
-    }
-  }
-  return calls;
-}
-
-/** The same calls, out of the messages the transcript panel shows (`ChatMessage`), with the message each was made in. */
-function viewCallsOfMessages(messages: readonly ChatMessage[]): Array<ViewCallRecord & { message: ChatMessage }> {
+export function viewCallsOf(messages: readonly ChatMessage[]): Array<ViewCallRecord & { message: ChatMessage }> {
   const calls: Array<ViewCallRecord & { message: ChatMessage }> = [];
   const byId = new Map<string, ViewCallRecord>();
   for (const m of messages) {
@@ -160,7 +128,9 @@ function viewCallsOfMessages(messages: readonly ChatMessage[]): Array<ViewCallRe
       byId.set(m.toolUseId, call);
     } else if (m.role === 'tool_result' && m.toolUseId) {
       const call = byId.get(m.toolUseId);
-      if (call && m.isError === true) call.isError = true;
+      if (!call) continue;
+      call.resultText = m.text ?? '';
+      if (m.isError === true) call.isError = true;
     }
   }
   return calls;
@@ -172,7 +142,7 @@ function viewCallsOfMessages(messages: readonly ChatMessage[]): Array<ViewCallRe
  * for a client that says it reads them (`?views=1`).
  */
 export function viewMediaItems(messages: readonly ChatMessage[]): MediaItem[] {
-  const calls = viewCallsOfMessages(messages);
+  const calls = viewCallsOf(messages);
   if (calls.length === 0) return [];
   const fold = foldViews(calls);
   const byId = new Map(calls.map((c) => [c.toolUseId, c]));
@@ -193,6 +163,19 @@ export function viewMediaItems(messages: readonly ChatMessage[]): MediaItem[] {
   // In the order their newest calls were made, as every other list is.
   const order = new Map(calls.map((c, i) => [c.toolUseId, i]));
   return items.sort((a, b) => (order.get(a.view!.toolUseId) ?? 0) - (order.get(b.view!.toolUseId) ?? 0));
+}
+
+/**
+ * A call's input as the hook's note and the call's arguments are compared:
+ * the schema's keys only, as JSON with its object keys sorted, so two
+ * spellings of one input compare equal and a key the schema drops does not
+ * tell them apart.
+ */
+function canonicalInput(input: unknown): string {
+  const record = (input ?? {}) as Record<string, unknown>;
+  const picked: Record<string, unknown> = {};
+  for (const key of SHOW_VIEW_KEYS) if (record[key] !== undefined) picked[key] = record[key];
+  return canonical(picked);
 }
 
 /** JSON with its object keys sorted, so two spellings of one input compare equal. */
@@ -254,12 +237,48 @@ export function viewDataCopy(dataDir: string, sessionId: string, toolUseId: stri
 /** Media types of a data copy, by its format. */
 export const VIEW_DATA_MEDIA_TYPES = { json: 'application/json; charset=utf-8', csv: 'text/csv; charset=utf-8' } as const;
 
-/** Every view file of these sessions removed: the retention sweep took their rows. */
-export function removeViewFiles(dataDir: string, sessionIds: readonly string[]): void {
+/** A call's data copy as it was copied, with its media type, or null for none (or an id that names no file). */
+export function readViewData(dataDir: string, sessionId: string, toolUseId: string): { bytes: Buffer; mediaType: string } | null {
+  const copy = viewDataCopy(dataDir, sessionId, toolUseId);
+  if (!copy) return null;
+  try {
+    return { bytes: readFileSync(copy.path), mediaType: VIEW_DATA_MEDIA_TYPES[copy.format] };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every view file of these sessions removed: the retention sweep took their
+ * rows. One that cannot be removed is reported and left; the rest still go,
+ * and nothing is thrown.
+ */
+export function removeViewFiles(
+  dataDir: string, sessionIds: readonly string[], onFailure: (sessionId: string, err: unknown) => void,
+): void {
   for (const id of sessionIds) {
     const dir = viewSessionDir(dataDir, id);
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (!dir) continue;
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch (err) {
+      onFailure(id, err);
+    }
   }
+}
+
+/** A path with its links resolved, or null when it does not exist. */
+function realPath(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** `path` is `dir` or lies below it. */
+function inside(path: string, dir: string): boolean {
+  return path === dir || path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
 }
 
 /** A call this process accepted, kept until the transcript holds it. */
@@ -273,12 +292,18 @@ export interface ViewsDeps {
   /** The `VIEWS_ENABLED_KEY` setting, read at the point of use. */
   isEnabled(): boolean;
   dataDir: string;
-  /** The session's main transcript, or null without a row. */
-  transcriptPathOf(sessionId: string): string | null;
   /** The directory a relative `dataFile` resolves against: where the session works now. */
   cwdOf(sessionId: string): string | null;
+  /**
+   * The session's own directories beside `cwdOf` — the one it was started
+   * in, when it has since moved to a worktree. A `dataFile` is read only
+   * inside these, `cwdOf` and `tmpDirs`.
+   */
+  projectDirsOf?(sessionId: string): readonly string[];
+  /** The temporary directories a `dataFile` may also be read from; the system's by default. */
+  tmpDirs?: readonly string[];
   /** The runner that parks a waiting view; late-bound, built after this. */
-  runner(): Pick<Runner, 'parkView' | 'pendingDecision'>;
+  runner(): Pick<Runner, 'parkView' | 'waitingView'>;
 }
 
 /** What the payload adds from outside the call: the session's approvals and the Mac's CDN list. */
@@ -291,10 +316,28 @@ export class ViewsService {
   /** Calls accepted here, per session, by tool_use id, in the order they were made. */
   private memory = new Map<string, Map<string, MemoryCall>>();
   /** Calls the `PreToolUse` hook saw, by their input, for a CLI that sends no tool_use id with the call. */
-  private seen = new Map<string, Array<{ key: string; toolUseId: string }>>();
-  private transcripts = new StampedCache<ViewCallRecord[]>(TRANSCRIPT_ENTRIES);
+  private seen = new Map<string, Array<{ key: string; toolUseId: string; at: number }>>();
+  /**
+   * The session's transcript as the transcript panel reads it — the routes'
+   * parsed and cached messages, bound when they are registered — so a view
+   * is not read out of the file a second time.
+   */
+  private messagesOf: (sessionId: string) => readonly ChatMessage[] | null = () => null;
 
   constructor(private readonly deps: ViewsDeps) {}
+
+  /** Reads the transcript through this from now on (`registerRoutes` binds its cache). */
+  readMessagesWith(read: (sessionId: string) => readonly ChatMessage[] | null): void {
+    this.messagesOf = read;
+  }
+
+  /** What this process holds for these sessions let go: their rows are gone, swept or discarded. */
+  forget(sessionIds: readonly string[]): void {
+    for (const id of sessionIds) {
+      this.memory.delete(id);
+      this.seen.delete(id);
+    }
+  }
 
   /**
    * What a starting session gets while the Labs switch is on: the tool, its
@@ -322,27 +365,42 @@ export class ViewsService {
         hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: SUBAGENT_REFUSAL },
       });
     }
-    const list = this.seen.get(sessionId) ?? [];
-    list.push({ key: canonical(input.tool_input), toolUseId: input.tool_use_id });
+    const list = this.freshNotes(sessionId);
+    list.push({ key: canonicalInput(input.tool_input), toolUseId: input.tool_use_id, at: Date.now() });
     if (list.length > MEMORY_CALLS) list.shift();
     this.seen.set(sessionId, list);
     return Promise.resolve({});
   }
 
-  /** The call's tool_use id: from the request's `_meta`, else the hook's note of the same input. */
-  private toolUseIdOf(sessionId: string, args: unknown, extra: unknown): string | null {
+  /** The hook's notes of this session still standing (`SEEN_NOTE_MS`), older ones dropped. */
+  private freshNotes(sessionId: string): Array<{ key: string; toolUseId: string; at: number }> {
+    const since = Date.now() - SEEN_NOTE_MS;
+    const list = (this.seen.get(sessionId) ?? []).filter((n) => n.at >= since);
+    if (list.length > 0) this.seen.set(sessionId, list);
+    else this.seen.delete(sessionId);
+    return list;
+  }
+
+  /**
+   * The call's tool_use id: from the request's `_meta`, else the hook's one
+   * standing note of the same input. Two notes of the same input are two
+   * calls nothing tells apart: `AMBIGUOUS`, never a guess.
+   */
+  private toolUseIdOf(sessionId: string, args: unknown, extra: unknown): string | typeof AMBIGUOUS | null {
     const meta = (extra as { _meta?: Record<string, unknown> } | undefined)?._meta;
     const fromMeta = meta?.[TOOL_USE_ID_META];
-    const list = this.seen.get(sessionId);
+    const list = this.freshNotes(sessionId);
     if (typeof fromMeta === 'string' && fromMeta !== '') {
-      const at = list?.findIndex((s) => s.toolUseId === fromMeta) ?? -1;
-      if (at >= 0) list!.splice(at, 1);
+      const at = list.findIndex((s) => s.toolUseId === fromMeta);
+      if (at >= 0) list.splice(at, 1);
       return fromMeta;
     }
-    const key = canonical(args);
-    const at = list?.findIndex((s) => s.key === key) ?? -1;
-    if (at < 0) return null;
-    return list!.splice(at, 1)[0].toolUseId;
+    const key = canonicalInput(args);
+    const matches = list.filter((s) => s.key === key);
+    if (matches.length === 0) return null;
+    if (matches.length > 1) return AMBIGUOUS;
+    list.splice(list.indexOf(matches[0]), 1);
+    return matches[0].toolUseId;
   }
 
   private showTool(sessionId: string) {
@@ -356,24 +414,22 @@ export class ViewsService {
     );
   }
 
-  /** The session's calls as the transcript has them, then the ones it has not written yet. */
+  /**
+   * The session's calls as the transcript has them, then the ones it has not
+   * written yet. A call the transcript holds with its result is let go of
+   * here: the transcript answers for it from now on.
+   */
   calls(sessionId: string): ViewCallRecord[] {
-    const path = this.deps.transcriptPathOf(sessionId);
-    const stamp = path ? fileStamp(path) : null;
-    const written = path && stamp
-      ? this.transcripts.get(path, stamp, () => {
-          let text: string;
-          try {
-            text = readFileSync(path, 'utf8');
-          } catch {
-            return [];
-          }
-          return text.includes(VIEW_TOOL) ? viewCallsOf(parseTranscript(text)) : [];
-        })
-      : [];
+    const messages = this.messagesOf(sessionId);
+    const written: ViewCallRecord[] = messages ? viewCallsOf(messages) : [];
     const memory = this.memory.get(sessionId);
     if (!memory || memory.size === 0) return written;
-    const known = new Set(written.map((c) => c.toolUseId));
+    const known = new Set<string>();
+    for (const c of written) {
+      known.add(c.toolUseId);
+      if (c.resultText !== undefined && memory.get(c.toolUseId)?.result) memory.delete(c.toolUseId);
+    }
+    if (memory.size === 0) this.memory.delete(sessionId);
     const pending: ViewCallRecord[] = [];
     for (const [toolUseId, call] of memory) if (!known.has(toolUseId)) pending.push({ toolUseId, input: call.input });
     return pending.length > 0 ? [...written, ...pending] : written;
@@ -388,8 +444,22 @@ export class ViewsService {
 
   /** The waiting view's decision on this session, or null. */
   private waitingDecision(sessionId: string): PendingDecision | null {
-    const pending = this.deps.runner().pendingDecision(sessionId);
-    return pending?.kind === 'view' ? pending : null;
+    return this.deps.runner().waitingView(sessionId);
+  }
+
+  /** Where a `dataFile` may be read from: the session's own directories and the temporary ones. */
+  private dataRoots(sessionId: string): string[] {
+    const dirs = [
+      this.deps.cwdOf(sessionId),
+      ...(this.deps.projectDirsOf?.(sessionId) ?? []),
+      ...(this.deps.tmpDirs ?? [tmpdir(), '/tmp']),
+    ];
+    const roots = new Set<string>();
+    for (const dir of dirs) {
+      const real = dir ? realPath(dir) : null;
+      if (real) roots.add(real);
+    }
+    return [...roots];
   }
 
   /** One call, from refusal to result. */
@@ -397,6 +467,9 @@ export class ViewsService {
     const refuse = (text: string): CallToolResult => ({ content: [{ type: 'text', text }], isError: true });
     const toolUseId = this.toolUseIdOf(sessionId, args, extra);
     if (!this.deps.isEnabled()) return refuse(VIEWS_OFF_REFUSAL);
+    if (toolUseId === AMBIGUOUS) {
+      return refuse(`Two calls with the same input arrived at once, and Orbital could not tell which is which. Call ${VIEW_TOOL_NAME} once at a time. ${RETRY}`);
+    }
     if (!toolUseId || !SAFE_ID.test(toolUseId)) return refuse(`Orbital could not tell this call apart. ${RETRY}`);
     const raw = (args ?? {}) as ShowViewInput;
 
@@ -408,6 +481,16 @@ export class ViewsService {
       const cwd = this.deps.cwdOf(sessionId);
       dataPath = isAbsolute(named) ? named : cwd ? resolve(cwd, named) : null;
       check.dataFileBytes = null;
+      // Read only inside the session's own directories or a temporary one:
+      // the tool runs without a card, so it must not reach what a card would ask about.
+      const real = dataPath ? realPath(dataPath) : null;
+      if (real && !this.dataRoots(sessionId).some((root) => inside(real, root))) {
+        return refuse(
+          `\`dataFile\` ${raw.dataFile} is outside the project. Write the data into the project's directory or a temporary directory (${tmpdir()}), and pass that path. ${RETRY}`,
+        );
+      }
+      // Read where it was checked: a link swapped afterwards leads nowhere new.
+      if (real) dataPath = real;
       if (dataPath) {
         try {
           const st = statSync(dataPath);
@@ -451,7 +534,7 @@ export class ViewsService {
     const tooLarge = viewPageTooLarge({ ...(script !== null ? { script } : { html: input.html }), data: input.data });
     if (tooLarge) return refuse(tooLarge);
     let dataText: string | null = null;
-    const format = dataPath ? viewDataFormat(dataPath) : null;
+    const format = dataPath && input.dataFile !== undefined ? viewDataFormat(input.dataFile) : null;
     if (dataPath && format === 'json') {
       try {
         dataText = readFileSync(dataPath, 'utf8');
@@ -474,6 +557,11 @@ export class ViewsService {
       return refuse(`Orbital could not store this view: ${err instanceof Error ? err.message : String(err)}. ${RETRY}`);
     }
 
+    // An update leaves the view's earlier calls without files of their own:
+    // only the newest call is drawn, and a script is compiled again from its
+    // call if one is ever asked for.
+    if (input.replaces !== undefined && dir) this.removeSuperseded(dir, sessionId, viewId, toolUseId);
+
     const call: MemoryCall = { input, result: null };
     this.remember(sessionId, toolUseId, call);
     if (input.wait !== true) {
@@ -483,6 +571,20 @@ export class ViewsService {
     const signal = (extra as { signal?: AbortSignal } | undefined)?.signal;
     call.result = await this.deps.runner().parkView(sessionId, toolUseId, { viewId, title: input.title.trim() }, signal);
     return { content: [{ type: 'text', text: viewResultText(call.result) }] };
+  }
+
+  /** The compiled scripts and data copies of the view's calls before `newest`, removed. */
+  private removeSuperseded(dir: string, sessionId: string, viewId: string, newest: string): void {
+    for (const [toolUseId, of] of foldViews(this.calls(sessionId)).viewOf) {
+      if (of !== viewId || toolUseId === newest || !SAFE_ID.test(toolUseId)) continue;
+      for (const ext of ['js', 'json', 'csv']) {
+        try {
+          rmSync(join(dir, `${toolUseId}.${ext}`), { force: true });
+        } catch {
+          // Left behind: the session's directory goes with the session.
+        }
+      }
+    }
   }
 
   /** A compiled script: kept on disk, compiled again from the call when the file is gone. */
@@ -588,10 +690,10 @@ export class ViewsService {
     }
   }
 
-  /** The data copy of a shown call of this session, or null. */
-  dataCopy(sessionId: string, toolUseId: string): { path: string; format: 'json' | 'csv' } | null {
+  /** The data copy of a shown call of this session, as it was copied, or null. */
+  data(sessionId: string, toolUseId: string): { bytes: Buffer; mediaType: string } | null {
     const record = this.calls(sessionId).find((c) => c.toolUseId === toolUseId);
     if (!record || record.isError === true) return null;
-    return viewDataCopy(this.deps.dataDir, sessionId, toolUseId);
+    return readViewData(this.deps.dataDir, sessionId, toolUseId);
   }
 }

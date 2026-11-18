@@ -146,7 +146,8 @@ export const showViewShape = {
     ),
 };
 
-const RETRY = `Nothing was shown; fix it and call ${VIEW_TOOL_NAME} again.`;
+/** Ends every refusal of a call: nothing was shown, and the agent may try again. */
+export const RETRY = `Nothing was shown; fix it and call ${VIEW_TOOL_NAME} again.`;
 
 /** What the server knows of the call beyond its input. */
 export interface ShowViewCheck {

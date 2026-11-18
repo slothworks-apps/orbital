@@ -692,6 +692,14 @@ interface ManagedSession {
     review: AbortController | null;
   } | null;
   /**
+   * A generated view waiting on the user (`parkView`), in a slot of its own:
+   * it may wait for hours, and a question, a plan or a subagent's permission
+   * ask arriving meanwhile takes `decision` without cancelling it. The
+   * snapshot and the hub show `decision` first, and the view again once that
+   * settles.
+   */
+  viewWait: ManagedSession['decision'];
+  /**
    * The live query handle — the object `queryFn` returned. It is both the
    * message stream `pump()` drains and the control channel `interrupt`,
    * `setModel` and `supportedCommands` travel on, which is why it is kept per
@@ -1465,7 +1473,7 @@ export class Runner {
    */
   private settleStatus(sessionId: string): void {
     const s = this.sessions.get(sessionId);
-    if (!s || s.decision) return;
+    if (!s || s.decision || s.viewWait) return;
     const busy = !s.turnEnded || s.cliState === 'running' || this.hasLiveBackgroundWork?.(sessionId) === true;
     // A session waiting for a usage limit to reset is `idle`: nothing will
     // move before the reset, and nobody is being asked anything.
@@ -1563,7 +1571,7 @@ export class Runner {
     // The backstop for the paths that do not go through stop(): a generator
     // that completed or threw while a decision was parked. No promise may
     // outlive its session.
-    this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
+    this.settleParked(sessionId, { behavior: 'deny', message: 'The session ended.' });
     if (state.sleepTimer) clearTimeout(state.sleepTimer);
     state.sleepTimer = null;
     // A mark still waiting for its summary goes out as it is, while the
@@ -1657,7 +1665,7 @@ export class Runner {
       launchingCalls: new Map(), agentCalls: new Map(), agentParents: new Map(),
       lastCall: null, turnEnded: false, cliState: null,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
-      commands: null, decision: null,
+      commands: null, decision: null, viewWait: null,
       compacting: null, measuredCompactionMs: null, heldCompaction: null, lastCompacted: null,
       turnPrompt: opts.prompt,
       rewind: opts.rewind ?? null, rewindRefused: false,
@@ -2473,7 +2481,7 @@ export class Runner {
    */
   private onlyStopHooksRun(s: ManagedSession): boolean {
     return (
-      s.stopHooks.size > 0 && !s.turnEnded && s.openToolUses.size === 0 && s.decision === null &&
+      s.stopHooks.size > 0 && !s.turnEnded && s.openToolUses.size === 0 && s.decision === null && s.viewWait === null &&
       !(s.stream && !s.stream.stopped) && s.compacting === null
     );
   }
@@ -2908,8 +2916,9 @@ export class Runner {
     }
     // Defensive: the model is blocked on the first ask, so a second cannot
     // normally arrive. If one does, the older promise is settled rather than
-    // dropped — an overwritten resolver is a permanently blocked tool.
-    this.settleDecision(sessionId, {
+    // dropped — an overwritten resolver is a permanently blocked tool. A
+    // waiting view is not superseded: it keeps its own slot behind this ask.
+    this.settleSlot(sessionId, 'decision', {
       behavior: 'deny',
       message: 'Superseded by a newer request.',
     });
@@ -3048,7 +3057,7 @@ export class Runner {
         decisionClassification: 'user_temporary',
       });
     }
-    this.setStatus(sessionId, 'working');
+    this.resumeAfterAnswer(sessionId);
     return true;
   }
 
@@ -3093,12 +3102,32 @@ export class Runner {
    * is what makes calling this from every exit path harmless.
    */
   private settleDecision(sessionId: string, result: PermissionResult): boolean {
+    if (!this.settleSlot(sessionId, 'decision', result)) return false;
+    // A view still waiting behind it is what every client shows again.
+    const view = this.sessions.get(sessionId)?.viewWait;
+    if (view) this.hub.publish(`session:${sessionId}`, { event: 'decision_pending', decision: view.pending });
+    return true;
+  }
+
+  /** Settles this session's waiting view, if it has one, as `settleDecision` does a decision. */
+  private settleView(sessionId: string, result: PermissionResult): boolean {
+    return this.settleSlot(sessionId, 'viewWait', result);
+  }
+
+  /** Settles both: what an interrupt, a stop or the session's end does to whatever is parked. */
+  private settleParked(sessionId: string, result: PermissionResult): void {
+    // The view first, so the decision's settle finds no view to show again.
+    this.settleView(sessionId, result);
+    this.settleDecision(sessionId, result);
+  }
+
+  private settleSlot(sessionId: string, slot: 'decision' | 'viewWait', result: PermissionResult): boolean {
     const s = this.sessions.get(sessionId);
-    const parked = s?.decision;
+    const parked = s?.[slot];
     if (!s || !parked) return false;
     // Cleared before the resolve, so a settle path that re-enters here
     // (abort racing an answer) finds nothing left to settle.
-    s.decision = null;
+    s[slot] = null;
     // The editor's copy of this ask goes with it, whichever route won. The
     // abort drops the diff tab as well, so no editor is left holding a
     // review of something already decided — and the abandoned `openDiff`
@@ -3127,17 +3156,28 @@ export class Runner {
   }
 
   /**
+   * The status once an answer has freed the CLI: `working`, unless a view
+   * still waits on the user behind the decision just answered.
+   */
+  private resumeAfterAnswer(sessionId: string): void {
+    this.setStatus(sessionId, this.sessions.get(sessionId)?.viewWait ? 'needs_input' : 'working');
+  }
+
+  /**
    * Parks a generated view that waits on the user (spec
-   * 2026-11-18-generated-views-design § The bridge): the same parking as
-   * `decide()` — one decision at a time, `decision_pending` on the hub,
-   * `needs_input`, no deadline — so the map, the snapshot and the
-   * notification treat it as a question. Its id is the call's tool_use id.
+   * 2026-11-18-generated-views-design § The bridge): parked as `decide()`
+   * parks — `decision_pending` on the hub, `needs_input`, no deadline — so
+   * the map, the snapshot and the notification treat it as a question, but
+   * in its own slot (`viewWait`): a decision parked before or after it is
+   * shown first, and neither cancels the other. Its id is the call's
+   * tool_use id.
    * The decision carries the view's id and title only, never its page: the
    * snapshot carries `input`.
    *
    * Settles with what the page sent (`answerDecision` with `{value}`), with
-   * the composer's text (`send`), or cancelled — interrupted, ended,
-   * superseded, `signal` aborted, or the session not running here at all.
+   * the composer's text (`send`, once no decision is parked in front of it),
+   * or cancelled — interrupted, ended, a newer waiting view, `signal`
+   * aborted, or the session not running here at all.
    */
   parkView(
     sessionId: string,
@@ -3147,8 +3187,9 @@ export class Runner {
   ): Promise<ViewResult> {
     const s = this.sessions.get(sessionId);
     if (!s) return Promise.resolve({ viewId: view.viewId, outcome: 'cancelled', reason: 'The session is not running.' });
-    // As in `decide()`: an older ask still parked is settled, never dropped.
-    this.settleDecision(sessionId, { behavior: 'deny', message: 'Superseded by a newer request.' });
+    // An older waiting view is settled, never dropped (the tool refuses a
+    // second one before it gets here). A decision parked meanwhile stays.
+    this.settleView(sessionId, { behavior: 'deny', message: 'Superseded by a newer request.' });
     const pending: PendingDecision = {
       id: toolUseId,
       kind: 'view',
@@ -3163,9 +3204,9 @@ export class Runner {
         resolve({ viewId: view.viewId, outcome: 'cancelled', reason: 'The request was aborted.' });
         return;
       }
-      const onAbort = () => this.settleDecision(sessionId, { behavior: 'deny', message: 'The request was aborted.' });
+      const onAbort = () => this.settleView(sessionId, { behavior: 'deny', message: 'The request was aborted.' });
       signal?.addEventListener('abort', onAbort, { once: true });
-      s.decision = {
+      s.viewWait = {
         pending,
         settle: (result) => {
           signal?.removeEventListener('abort', onAbort);
@@ -3173,7 +3214,8 @@ export class Runner {
         },
         review: null,
       };
-      this.hub.publish(`session:${sessionId}`, { event: 'decision_pending', decision: pending });
+      // Behind a decision already parked, it is shown once that settles.
+      if (!s.decision) this.hub.publish(`session:${sessionId}`, { event: 'decision_pending', decision: pending });
       this.onDecision?.(sessionId);
       this.setStatus(sessionId, 'needs_input');
     });
@@ -3182,10 +3224,17 @@ export class Runner {
   /**
    * The decision this session is blocked on, or `null` — including for every
    * session this process does not run, whose questions died with it. It is on
-   * the session snapshot so a page reload recovers the question.
+   * the session snapshot so a page reload recovers the question. A parked
+   * decision comes before a waiting view, which is shown once it settles.
    */
   pendingDecision(sessionId: string): PendingDecision | null {
-    return this.sessions.get(sessionId)?.decision?.pending ?? null;
+    const s = this.sessions.get(sessionId);
+    return s?.decision?.pending ?? s?.viewWait?.pending ?? null;
+  }
+
+  /** The generated view this session waits on, or `null`, whether or not a decision is parked in front of it. */
+  waitingView(sessionId: string): PendingDecision | null {
+    return this.sessions.get(sessionId)?.viewWait?.pending ?? null;
   }
 
   /**
@@ -3202,23 +3251,15 @@ export class Runner {
    */
   answerDecision(sessionId: string, decisionId: string, answer: DecisionAnswer): boolean {
     const s = this.sessions.get(sessionId);
-    const parked = s?.decision;
-    if (!s || !parked || parked.pending.id !== decisionId) return false;
-    const { kind, input } = parked.pending;
-
-    // A waiting view: what the page sent becomes the tool's result; a refusal
-    // (the view closed, the legacy `{approved: false}`) cancels the wait.
-    if (kind === 'view') {
-      if (isViewValue(answer)) {
-        this.settleDecision(sessionId, { behavior: 'allow', updatedInput: { [VIEW_VALUE_KEY]: answer.value } });
-      } else if (isDecisionVerdict(answer) && !answer.approved) {
-        this.settleDecision(sessionId, { behavior: 'deny', message: answer.message?.trim() || 'The user closed the view without sending anything.' });
-      } else {
-        return false;
-      }
-      this.setStatus(sessionId, 'working');
-      return true;
+    if (!s) return false;
+    // A waiting view is answered by its own id even while a decision is
+    // parked in front of it.
+    if (s.viewWait?.pending.id === decisionId && s.decision?.pending.id !== decisionId) {
+      return this.answerView(sessionId, answer);
     }
+    const parked = s.decision;
+    if (!parked || parked.pending.id !== decisionId) return false;
+    const { kind, input } = parked.pending;
 
     if (kind === 'question') {
       if (isDecisionVerdict(answer)) return false;
@@ -3227,7 +3268,7 @@ export class Runner {
         // A map that happens to hold one `value` key is still a map of answers here.
         updatedInput: { ...input, answers: answer },
       });
-      this.setStatus(sessionId, 'working');
+      this.resumeAfterAnswer(sessionId);
       return true;
     }
 
@@ -3242,7 +3283,7 @@ export class Runner {
       });
       // A refused tool does not end the turn: the model reads the refusal as
       // this tool's result and carries on with whatever it does instead.
-      this.setStatus(sessionId, 'working');
+      this.resumeAfterAnswer(sessionId);
       return true;
     }
     // Before the settle, deliberately. Both the control request and the
@@ -3255,7 +3296,32 @@ export class Runner {
       behavior: 'allow',
       decisionClassification: 'user_temporary',
     });
-    this.setStatus(sessionId, 'working');
+    this.resumeAfterAnswer(sessionId);
+    return true;
+  }
+
+  /**
+   * Answers the waiting view: what the page sent becomes the tool's result.
+   * A refusal with words in it is a phone from before views (0.26.1 and
+   * older) that drew the view as a permission card: its reason, typed or
+   * picked, answers the view in words, as the composer's text does. A bare
+   * refusal (the view closed) cancels the wait.
+   */
+  private answerView(sessionId: string, answer: DecisionAnswer): boolean {
+    if (isViewValue(answer)) {
+      this.settleView(sessionId, { behavior: 'allow', updatedInput: { [VIEW_VALUE_KEY]: answer.value } });
+    } else if (isDecisionVerdict(answer) && !answer.approved) {
+      const words = answer.message?.trim();
+      this.settleView(
+        sessionId,
+        words
+          ? { behavior: 'allow', updatedInput: { [VIEW_TYPED_KEY]: answer.message } }
+          : { behavior: 'deny', message: 'The user closed the view without sending anything.' },
+      );
+    } else {
+      return false;
+    }
+    this.resumeAfterAnswer(sessionId);
     return true;
   }
 
@@ -3301,8 +3367,9 @@ export class Runner {
     // input, and merging an `answers` key into a Bash call would both corrupt
     // the command and approve it.
     //
-    // Attachments have nowhere to go on either path.
-    const parked = s.decision;
+    // Attachments have nowhere to go on either path. A decision parked in
+    // front of a waiting view takes the text first.
+    const parked = s.decision ?? s.viewWait;
     if (parked && text) {
       if (parked.pending.kind === 'question') {
         // Every question gets the same text — the web client routes per
@@ -3318,7 +3385,7 @@ export class Runner {
         // A waiting view is answered in words as a question is: the text
         // becomes the tool's result (spec 2026-11-18-generated-views-design
         // § The bridge).
-        this.settleDecision(sessionId, { behavior: 'allow', updatedInput: { [VIEW_TYPED_KEY]: text } });
+        this.settleView(sessionId, { behavior: 'allow', updatedInput: { [VIEW_TYPED_KEY]: text } });
       } else {
         // The CLI's own "No, and tell Claude what to do differently". Typing
         // instead of clicking approve is a refusal with a reason in it, never
@@ -3333,7 +3400,7 @@ export class Runner {
       // The settle resumes the turn the ask paused — same mark as the send
       // below.
       s.turnEnded = false;
-      this.setStatus(sessionId, 'working');
+      this.resumeAfterAnswer(sessionId);
       return null;
     }
     const uuid = randomUUID();
@@ -3474,7 +3541,7 @@ export class Runner {
     }
     // Nothing is auto-answered on the user's behalf: an interrupted ask
     // is a denied one, and its card locks unanswered.
-    this.settleDecision(sessionId, { behavior: 'deny', message: 'The user interrupted.' });
+    this.settleParked(sessionId, { behavior: 'deny', message: 'The user interrupted.' });
     const s = this.sessions.get(sessionId);
     if (s) {
       // A Stop hook the user stopped reads as one (`stopHookCancelled`).
@@ -3655,7 +3722,7 @@ export class Runner {
     if (!s) return;
     // Before the input stream closes, so the CLI is unblocked while it can
     // still read the answer to the question it is parked on.
-    this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
+    this.settleParked(sessionId, { behavior: 'deny', message: 'The session ended.' });
     this.enqueue(sessionId, null); // close the input stream
     this.release(sessionId, s);
   }

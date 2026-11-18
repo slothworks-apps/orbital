@@ -37,7 +37,6 @@ describe('remote allowlist', () => {
   });
   it("allows a view's payload and its session's domains, but not its data route, which travels as file_get", () => {
     expect(isAllowed('GET', '/api/sessions/abc/views/toolu_01Ab-x')).toBe(true);
-    expect(isAllowed('GET', '/api/sessions/abc/view-domains')).toBe(true);
     expect(isAllowed('POST', '/api/sessions/abc/view-domains')).toBe(true);
     expect(isAllowed('GET', '/api/sessions/abc/views/toolu_1/data')).toBe(false);
     expect(isAllowed('GET', '/api/sessions/abc/views/..%2Fx')).toBe(false);

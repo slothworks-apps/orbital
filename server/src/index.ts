@@ -1180,8 +1180,12 @@ export async function buildServer(overrides: {
   const views: ViewsService = new ViewsService({
     isEnabled: () => settingsStore.get(VIEWS_ENABLED_KEY) === 'true',
     dataDir,
-    transcriptPathOf,
     cwdOf: (sessionId) => workingDirOf(sessionId) ?? null,
+    // The directory it was started in, when it has moved to a worktree since.
+    projectDirsOf: (sessionId) => {
+      const cwd = rowOf(sessionId)?.cwd;
+      return cwd ? [cwd] : [];
+    },
     runner: () => runner,
   });
 
@@ -1201,8 +1205,18 @@ export async function buildServer(overrides: {
     const now = Date.now();
     const cutoff = retentionCutoff(parseRetentionDays(settingsStore.get(RETENTION_KEY)), now);
     const swept = sweepSessions(db, cutoff, now);
-    // Their views' scripts and data copies go with them.
-    removeViewFiles(dataDir, swept);
+    // Their views' scripts and data copies go with them. One that cannot be
+    // removed is logged and left: the sweep itself never fails for it.
+    removeViewFiles(dataDir, swept, (sessionId, err) => {
+      errors.record({
+        source: 'server',
+        kind: 'view_files_failed',
+        message: `A swept session's view files could not be removed: ${err instanceof Error ? err.message : String(err)}`,
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        sessionId,
+      });
+    });
+    views.forget(swept);
     // Their setup rows went with them; a queue still being handed over stops.
     setups.forget(swept);
     for (const id of swept) hub.publish('sessions', { event: 'remove', sessionId: id });
