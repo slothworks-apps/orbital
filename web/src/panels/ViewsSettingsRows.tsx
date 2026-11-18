@@ -4,7 +4,8 @@ import { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY, viewsEnabled } from '../lib/exp
 import { Button } from '../ui/Button'
 import { Toggle } from '../ui/Checkbox'
 import { Input } from '../ui/Input'
-import { LockGlyph, ViewsGlyph } from './ViewsGlyphs'
+import { LockGlyph } from './ViewsGlyphs'
+import { ViewGlyph } from './ViewParts'
 
 /**
  * Settings → Labs → Views (canvas `Feature - Views` 69f; spec
@@ -33,7 +34,7 @@ export function ViewsSettingsRows({
         <div>
           <div className="flex items-center gap-2 fs-13.5 font-semibold text-ink-100">
             <span className="flex text-ink-200/80">
-              <ViewsGlyph />
+              <ViewGlyph />
             </span>
             Views
           </div>

@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import { CDN_HOST_EXAMPLE, cdnHostField, cdnHostRows, withCdnHost, withoutCdnHost } from '../../lib/cdnHosts'
 import { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY, viewsEnabled } from '../../lib/experimental'
-import { LockGlyph, ViewsGlyph } from '../../panels/ViewsGlyphs'
+import { ViewGlyph } from '../../panels/ViewParts'
+import { LockGlyph } from '../../panels/ViewsGlyphs'
 import { useMacViewsSetting } from '../questionSetting'
 import { UNNAMED_MAC } from '../composer'
 import { useMobile } from '../state'
@@ -70,7 +71,7 @@ export function LabsSection() {
       <div className={CARD}>
         <div className="flex min-h-16 items-center gap-2.5 py-2 pl-3.5 pr-1.5">
           <span className="flex text-ink-200/80">
-            <ViewsGlyph />
+            <ViewGlyph />
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="fs-14 font-semibold">Views</span>
