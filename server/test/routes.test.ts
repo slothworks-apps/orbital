@@ -5398,8 +5398,8 @@ describe('GET /api/sessions/:id/context-report', () => {
 
   it('answers the kept report for a session that is not running, or held by a terminal', async () => {
     const { app, db, contextReport } = withLive({ report: report(1000) });
-    keepContextReport(db, 's1', { report: report(7), takenAt: Date.parse('2026-11-19T10:00:00Z') });
-    keepContextReport(db, 's2', { report: report(8), takenAt: Date.parse('2026-11-19T11:00:00Z') });
+    keepContextReport(db, 's1', { report: report(7), takenAt: Date.parse('2026-11-19T10:00:00Z'), origin: { kind: 'readout' } });
+    keepContextReport(db, 's2', { report: report(8), takenAt: Date.parse('2026-11-19T11:00:00Z'), origin: { kind: 'readout' } });
     // s1 is held by a terminal; s2 has a row and no process.
     expect(res200(await app.inject({ url: '/api/sessions/s1/context-report' })))
       .toEqual({ report: report(7), takenAt: '2026-11-19T10:00:00.000Z', fresh: false });
@@ -5420,12 +5420,47 @@ describe('GET /api/sessions/:id/context-report', () => {
 
   it('passes a failed taking on with its own status, and the kept report as earlier', async () => {
     for (const [error, code] of [['unsupported', 409], ['timeout', 504], ['failed', 502]] as const) {
-      const { app, db } = withLive({ error });
+      const { app, db } = withLive(error === 'failed' ? { error, message: 'unreadable', detail: null } : { error });
       const bare = await app.inject({ url: '/api/sessions/w1/context-report' });
       expect([bare.statusCode, bare.json()]).toEqual([code, { error }]);
-      keepContextReport(db, 'w1', { report: report(5), takenAt: Date.parse('2026-11-19T09:00:00Z') });
+      keepContextReport(db, 'w1', { report: report(5), takenAt: Date.parse('2026-11-19T09:00:00Z'), origin: { kind: 'readout' } });
       const withEarlier = await app.inject({ url: '/api/sessions/w1/context-report' });
       expect(withEarlier.json()).toEqual({ error, earlier: { report: report(5), takenAt: '2026-11-19T09:00:00.000Z' } });
     }
+  });
+
+  it('records a failed taking in the error log, with what the CLI said', async () => {
+    const { app, errors } = withLive({ error: 'failed', message: 'The CLI refused the context report request: boom', detail: 'stack' });
+    expect((await app.inject({ url: '/api/sessions/w1/context-report' })).statusCode).toBe(502);
+    expect(errors.list().errors).toMatchObject([
+      { kind: 'context_report_failed', sessionId: 'w1', message: 'The CLI refused the context report request: boom', detail: 'stack' },
+    ]);
+  });
+
+  it('answers the kept report when the session stopped while it counted', async () => {
+    const made = withLive(null);
+    const { app, db, runner, errors } = made;
+    keepContextReport(db, 'w1', { report: report(5), takenAt: Date.parse('2026-11-19T09:00:00Z'), origin: { kind: 'readout' } });
+    made.contextReport.mockImplementation(async () => {
+      (runner as any).status = () => undefined;
+      return { error: 'failed', message: 'query closed', detail: null };
+    });
+    expect(res200(await app.inject({ url: '/api/sessions/w1/context-report' })))
+      .toEqual({ report: report(5), takenAt: '2026-11-19T09:00:00.000Z', fresh: false });
+    expect(errors.list().errors).toEqual([]);
+  });
+
+  it('keeps nothing for a session the sweep deleted while it counted', async () => {
+    const made = withLive(null);
+    const { app, db, hub } = made;
+    made.contextReport.mockImplementation(async () => {
+      db.delete(sessions).where(eq(sessions.id, 'w1')).run();
+      return { report: report(1000) };
+    });
+    const list = subscribeFake(hub, 'sessions');
+    const res = await app.inject({ url: '/api/sessions/w1/context-report' });
+    expect([res.statusCode, res.json().error]).toEqual([404, 'not_found']);
+    expect(keptContextReport(db, 'w1')).toBeNull();
+    expect(list).toEqual([]);
   });
 });

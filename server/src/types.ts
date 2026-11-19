@@ -357,7 +357,9 @@ export type ErrorKind =
   /** Git refused to remove a session's worktree, or a failed worktree launch could not be fully undone. */
   | 'worktree_failed'
   /** The call naming a worktree's branch failed, timed out or answered nothing usable; the temporary name stood in. */
-  | 'branch_naming_failed';
+  | 'branch_naming_failed'
+  /** A live session refused the context report request from the read-out, or answered it with nothing readable. */
+  | 'context_report_failed';
 
 export interface ErrorRecord {
   id: number;

@@ -1,9 +1,9 @@
+import type { ContextReportAnswer } from '@orbital/shared/contextReport'
 import type { McpjsonDecisions, McpjsonServer } from './mcpjson'
 import { NOT_A_NAME, type FindFilesAnswer, type FoundFile } from './findByName'
 import type {
   ApiSession,
   AttachmentUpload,
-  ContextReport,
   LimitsSnapshot,
   ClaudeDirInfo,
   LoginKind,
@@ -1932,11 +1932,6 @@ async function remoteCall<T, E extends string>(
   throw new ApiError(text || response.statusText, response.status, url)
 }
 
-/** `GET /api/sessions/:id/context-report`'s answer (`server/src/api/routes.ts`); `takenAt` is ISO. */
-export type ContextReportAnswer =
-  | { report: ContextReport; takenAt: string; fresh: boolean }
-  | { error: 'not_found' | 'no_report' | 'unsupported' | 'failed' | 'timeout'; earlier?: { report: ContextReport; takenAt: string } }
-
 export type ServerHealth = {
   app?: string
   billing?: 'subscription' | 'api-key'
@@ -1949,6 +1944,9 @@ export interface SessionTip {
   title: string
   text: string
 }
+
+/** `GET /api/sessions/:id/context-report`'s answer, declared once in `shared/` for the route and the web. */
+export type { ContextReportAnswer }
 
 // Export types for convenience
 export type {

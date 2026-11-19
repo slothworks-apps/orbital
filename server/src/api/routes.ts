@@ -1,4 +1,5 @@
 import { TAGS_TOPIC, type TagsChangedFrame } from '@orbital/shared/tags';
+import type { ContextReportAnswer } from '@orbital/shared/contextReport';
 import { isSharedSetting } from '@orbital/shared/sharedSettings';
 import { UPDATE_CHANNEL_KEY } from '@orbital/shared/updateChannel';
 import { PROGRESS_TOOL } from '@orbital/shared/progress';
@@ -1068,30 +1069,50 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * kept. Taking a fresh one can fail with 504 `timeout`, 502 `failed` (the
    * CLI refused or answered with nothing readable) or 409 `unsupported` (a
    * query without the control request); those carry the kept report as
-   * `earlier` when there is one.
+   * `earlier` when there is one. A session that stopped or ended while it
+   * counted answers its kept report instead, and a `failed` is recorded in
+   * the error log. The answer's type is `ContextReportAnswer` (`shared/`).
    */
   app.get('/api/sessions/:id/context-report', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
-    if (!row) return reply.code(404).send({ error: 'not_found' });
+    const known = () => db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get() !== undefined;
+    if (!known()) return reply.code(404).send({ error: 'not_found' } satisfies ContextReportAnswer);
     const kept = () => {
       const k = keptContextReport(db, id);
       return k ? { report: k.report, takenAt: new Date(k.takenAt).toISOString() } : null;
     };
-    const answer = !ctx.registry.get(id) && ctx.runner.status(id) ? await ctx.runner.contextReport(id) : null;
+    const keptAnswer = () => {
+      const earlier = kept();
+      return earlier
+        ? ({ ...earlier, fresh: false } satisfies ContextReportAnswer)
+        : reply.code(404).send({ error: 'no_report' } satisfies ContextReportAnswer);
+    };
+    const running = () => !ctx.registry.get(id) && ctx.runner.status(id) !== undefined;
+    const answer = running() ? await ctx.runner.contextReport(id) : null;
     if (answer && 'report' in answer) {
       const takenAt = Date.now();
-      if (keepContextReport(db, id, { report: answer.report, takenAt })) publishSession(id);
-      return { report: answer.report, takenAt: new Date(takenAt).toISOString(), fresh: true };
+      // The retention sweep may have deleted the session while it counted: a
+      // row kept for it now would never be deleted, and there is nothing to
+      // publish.
+      if (!known()) return reply.code(404).send({ error: 'not_found' } satisfies ContextReportAnswer);
+      if (keepContextReport(db, id, { report: answer.report, takenAt, origin: { kind: 'readout' } })) publishSession(id);
+      return { report: answer.report, takenAt: new Date(takenAt).toISOString(), fresh: true } satisfies ContextReportAnswer;
     }
-    // Not running, or no live query after all (still starting, just stopped): the kept one.
-    if (!answer || answer.error === 'not_running') {
-      const earlier = kept();
-      return earlier ? { ...earlier, fresh: false } : reply.code(404).send({ error: 'no_report' });
+    // Not running, no live query after all (still starting, just stopped), or
+    // a session that stopped or ended while it counted: the kept one.
+    if (!answer || answer.error === 'not_running' || !running()) return keptAnswer();
+    if (answer.error === 'failed') {
+      // The control answer is the CLI's undocumented format: a refusal or an
+      // answer this reader cannot read is kept (adr errors-are-recorded-not-announced).
+      console.warn(`orbital: context report for ${id} failed: ${answer.message}`);
+      ctx.errors.record({
+        source: 'server', kind: 'context_report_failed', sessionId: id,
+        message: answer.message, detail: answer.detail,
+      });
     }
     const code = answer.error === 'timeout' ? 504 : answer.error === 'failed' ? 502 : 409;
     const earlier = kept();
-    return reply.code(code).send({ error: answer.error, ...(earlier ? { earlier } : {}) });
+    return reply.code(code).send({ error: answer.error, ...(earlier ? { earlier } : {}) } satisfies ContextReportAnswer);
   });
 
   // Transcript images, served straight from the content-addressed store.

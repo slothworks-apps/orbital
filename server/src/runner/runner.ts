@@ -50,16 +50,23 @@ import { shellIntentHooks } from './shellIntentHook.js';
 const CONTEXT_USAGE_TIMEOUT_MS = 2_000;
 
 /**
- * The report opened from the context read-out, or why there is none
- * (spec 2026-11-19-context-report-dialog-design § Opening it from the context
- * read-out): `not_running` — no live query to ask (ended, asleep, still
- * starting); `unsupported` — a query without the control request;
- * `timeout` — no answer in time; `failed` — the CLI refused, or answered
- * with nothing `contextReportFromControl` could read.
+ * The report a live query was asked for from the context read-out, or why
+ * there is none (spec 2026-11-19-context-report-dialog-design § Opening it
+ * from the context read-out): `not_running` — no live query to ask (ended,
+ * asleep, still starting); `unsupported` — a query without the control
+ * request; `timeout` — no answer in time; `failed` — the CLI refused, or
+ * answered with nothing `contextReportFromControl` could read. A `failed`
+ * carries what went wrong, for the error log: the CLI's own words as
+ * `message`, and the refusal's stack or the unreadable answer as `detail`.
+ * The route's wire answer is `ContextReportAnswer` in `shared/`.
  */
-export type ContextReportAnswer =
+export type TakenContextReport =
   | { report: ContextReport }
-  | { error: 'not_running' | 'unsupported' | 'timeout' | 'failed' };
+  | { error: 'not_running' | 'unsupported' | 'timeout' }
+  | { error: 'failed'; message: string; detail: string | null };
+
+/** At most this much of an unreadable answer goes into the error log. */
+const UNREADABLE_ANSWER_CHARS = 4_000;
 
 /**
  * Asks one live query for the full context breakdown, bounded by `timeoutMs`.
@@ -70,7 +77,7 @@ export type ContextReportAnswer =
 export async function askContextReport(
   generator: { getContextUsage?: (opts?: { detail?: 'summary' | 'full' }) => Promise<unknown> },
   timeoutMs: number,
-): Promise<ContextReportAnswer> {
+): Promise<TakenContextReport> {
   const ask = generator.getContextUsage;
   if (!ask) return { error: 'unsupported' };
   const TIMED_OUT = Symbol('timeout');
@@ -85,9 +92,26 @@ export async function askContextReport(
     ]);
     if (answer === TIMED_OUT) return { error: 'timeout' };
     const report = contextReportFromControl(answer);
-    return report ? { report } : { error: 'failed' };
-  } catch {
-    return { error: 'failed' };
+    if (report) return { report };
+    // The control answer's shape is the CLI's and undocumented: one this
+    // reader no longer understands is a format break, kept for reading.
+    let shown: string;
+    try {
+      shown = JSON.stringify(answer) ?? String(answer);
+    } catch {
+      shown = String(answer);
+    }
+    return {
+      error: 'failed',
+      message: 'The CLI answered the context report request with nothing readable',
+      detail: shown.slice(0, UNREADABLE_ANSWER_CHARS),
+    };
+  } catch (err) {
+    return {
+      error: 'failed',
+      message: `The CLI refused the context report request: ${err instanceof Error ? err.message : String(err)}`,
+      detail: err instanceof Error ? (err.stack ?? null) : null,
+    };
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -3465,7 +3489,7 @@ export class Runner {
    * for, asked on the side (`askContextReport`): no turn, no message, nothing
    * in the transcript.
    */
-  async contextReport(sessionId: string): Promise<ContextReportAnswer> {
+  async contextReport(sessionId: string): Promise<TakenContextReport> {
     const generator = this.sessions.get(sessionId)?.generator;
     if (!generator) return { error: 'not_running' };
     return askContextReport(generator, CONTEXT_REPORT_TIMEOUT_MS);

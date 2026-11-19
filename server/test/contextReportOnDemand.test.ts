@@ -27,8 +27,9 @@ describe('askContextReport', () => {
 
   it('fails when the CLI refuses or answers with nothing readable', async () => {
     expect(await askContextReport({ getContextUsage: async () => { throw new Error('unknown subtype'); } }, 1000))
-      .toEqual({ error: 'failed' });
-    expect(await askContextReport({ getContextUsage: async () => ({ totalTokens: 5 }) }, 1000)).toEqual({ error: 'failed' });
+      .toMatchObject({ error: 'failed', message: expect.stringContaining('unknown subtype') });
+    expect(await askContextReport({ getContextUsage: async () => ({ totalTokens: 5 }) }, 1000))
+      .toMatchObject({ error: 'failed', detail: '{"totalTokens":5}' });
   });
 
   it('times out on a CLI that does not answer', async () => {

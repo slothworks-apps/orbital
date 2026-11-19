@@ -31,3 +31,13 @@ export interface ContextReport {
  * so a slow CLI answers the phone with a timeout rather than with silence.
  */
 export const CONTEXT_REPORT_TIMEOUT_MS = 10_000;
+
+/**
+ * `GET /api/sessions/:id/context-report`'s answer (`server/src/api/routes.ts`),
+ * as the web reads it: the report with when it was taken (ISO) and whether it
+ * was taken now (`fresh`), or a named refusal — a failed taking carries the
+ * kept report as `earlier` when there is one.
+ */
+export type ContextReportAnswer =
+  | { report: ContextReport; takenAt: string; fresh: boolean }
+  | { error: 'not_found' | 'no_report' | 'unsupported' | 'failed' | 'timeout'; earlier?: { report: ContextReport; takenAt: string } };
