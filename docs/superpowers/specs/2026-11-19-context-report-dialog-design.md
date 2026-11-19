@@ -126,18 +126,43 @@ the chart and its colours, **70f** the phone row and sheet.
 ### Opening it from the context read-out
 
 The report also opens from where Orbital shows how full the window is: the
-Mac detail panel's context bar and the phone's session header read-out.
+Mac detail panel's context line and the phone's session header read-out.
 Like session stats, this opens the report without running `/context` and
 adds nothing to the transcript. A typed `/context` keeps its row as above.
+The design is canvas `Feature - Context report from the read-out`:
+**71a** in situ, **71b** the read-out as a button, **71c** loading, arrival
+and failure, **71d** sessions that cannot count, **71e** the phone.
 
-- **A session Orbital runs right now** (its own, `working` or
-  `needs_input`) is asked for a fresh report on the side:
-  `GET /api/sessions/:id/context-report` sends the live query's
-  `get_context_usage` control request with `detail: 'full'` and maps the
-  answer into the same `ContextReport` (`contextReportFromControl` in
-  `transcript/notices.ts`, with the twin reader's tolerance). No turn runs,
-  nothing is published and nothing is written. The answer is
-  `{ report, takenAt }`, and the dialog says it was taken then.
+**The Mac keeps the latest report per session**, whichever way it was
+taken: a typed `/context` (its row stays in the transcript) or the
+read-out. A newer one replaces it; nothing older is kept.
+
+- `context_reports` (migration 0040, a new table, empty on update) holds
+  one report per session with when it was taken. The indexer reads the
+  newest `/context` twin off each transcript it reparses and keeps it
+  unless a newer one is kept; the route keeps every report it takes. The
+  retention sweep deletes the row with its session. A session indexed
+  before the update shows its old `/context` as kept only once its
+  transcript is written to again; its transcript row opens it as before.
+- Every session carries `contextReportAt`, when its kept report was taken,
+  or null. With a live Orbital session, which can always take one, it says
+  whether the read-out opens a report at all, without asking.
+- `GET /api/sessions/:id/context-report`:
+  - a session Orbital runs right now (a live query, not held by a
+    terminal) is asked for a fresh report on the side — the
+    `get_context_usage` control request with `detail: 'full'`, mapped into
+    the same `ContextReport` by `contextReportFromControl` with the twin
+    reader's tolerance. No turn runs and nothing is written to the
+    transcript. The report is kept and `{ report, takenAt, fresh: true }`
+    answered; the session is republished with its new `contextReportAt`.
+  - any other session — ended, asleep, still starting, held by a terminal —
+    answers its kept report, `{ report, takenAt, fresh: false }`.
+  - refusals: 404 `not_found`, a session nobody knows; 404 `no_report`, one
+    that is not running and has none kept. Taking a fresh one can fail with
+    504 `timeout` (`CONTEXT_REPORT_TIMEOUT_MS`, under the phone's request
+    timeout), 502 `failed` (the CLI refused, or answered with nothing
+    readable) or 409 `unsupported` (a query without the control request);
+    those carry the kept report as `earlier` when there is one.
 - **The window is `rawMaxTokens`.** The CLI builds `/context`'s twin from
   this same control answer (measured in the CLI the SDK bundles, 2.1.322),
   `raw_max_tokens` from `rawMaxTokens`, so the two reports measure against
@@ -147,25 +172,41 @@ adds nothing to the transcript. A typed `/context` keeps its row as above.
   worked out the way the CLI works it out for the twin: past the window,
   `hard_limit` when the answer's undocumented `autocompactSource` is `auto`,
   `compaction_window` otherwise.
-- **Every other session** — ended, asleep, held by a terminal, a terminal
-  session — and every refusal opens the last `/context` answer with a
-  report in the session's loaded transcript instead. The route names why it
-  refused: 404 `not_found`; 409 `terminal_session`, `not_running` (no live
-  query: ended, asleep, still starting) or `unsupported` (a query without
-  the control request); 502 `failed` (the CLI refused, or answered with
-  nothing readable); 504 `timeout` (`CONTEXT_REPORT_TIMEOUT_MS`, under the
-  phone's request timeout). An older Mac without the route, or the network
-  failing, falls back the same way.
-- **No printout.** A report taken on demand has no CLI text behind it, so
-  the dialog and the sheet leave out As text rather than making one up.
-- **Nothing to open** — not live, and no `/context` with a report in the
-  loaded transcript — hides the affordance (`useReportSource` answers
-  null).
-- **While it is being taken** the read-out can show it is loading
-  (`useTakingReport`). An answer that comes once the session is no longer
-  on screen here opens nothing, and a second request supersedes the first.
-- **The look of the affordance is pending** a Claude Design artboard; until
-  then the logic and the route ship without a control that calls them.
+
+**What the user sees** (`store/takeContextReport.ts`):
+
+- **The read-out is the button** (71b). On the Mac the bar, the note and
+  the figure are one target, washed on hover; `report ›` stands at the left
+  end of the note, the figure underlines. The shipped header puts the note
+  on the bar's own line rather than on a line of its own as 1b draws it,
+  so `report ›` sits between the bar and the figure there, and the header
+  is as tall as before. On the phone the header read-out keeps its 44 px
+  target; a tap opens the report sheet, and the 10l facts sheet stays only
+  where no report can be had.
+- **No report, no affordance.** A session that is not running and has none
+  kept shows the read-out as before: no `report ›`, no hover, no pointer.
+- **A running Orbital session** opens the dialog (the sheet) at once with
+  what the read-out knows — the figure, the window bar, the level — and one
+  static line of words where the split will be, in space kept for it, so
+  the dialog keeps one size. The split, the legend and the breakdowns
+  crossfade in when the report comes: the waiting layer out in 160 ms, the
+  data in in 240 ms, both ease-out. The figure changes once if the count
+  differs from the read-out's, without counting.
+- **An ended or terminal session** opens its kept report at once when the
+  loaded transcript holds it, else fetches it (no counting words, it is not
+  being counted).
+- **Failure** keeps the dialog open: one line of words, "nothing was added
+  to the transcript", Try again and, when there is one, Show the report
+  from `<time>` — the Mac's kept report, else the transcript's. No red, no
+  icon. On the phone the Mac asleep is a failure, said at once.
+- **No printout.** A report from the keeper or the read-out has no CLI text
+  behind it, so the dialog and the sheet leave out As text rather than
+  making one up.
+- **Footers** say where a report came from: "open it again for a new one"
+  for one taken from the read-out, the session's end or its terminal for a
+  kept one, "run /context again" for a typed one.
+- An answer for an opening that was closed, replaced or superseded opens
+  nothing.
 
 ### The summary row in the transcript
 
@@ -227,18 +268,19 @@ Built for the phone too, as a bottom sheet.
 
 - **How it reaches the phone.** The notice and its `contextReport` travel
   inside the transcript messages the phone already reads through the relay,
-  with no new WS topic. The report taken on demand (Opening it from the
-  context read-out) is the one new route,
+  with no new WS topic. The report from the read-out is the one new route,
   `GET /api/sessions/:id/context-report`, on the allowlist in the
-  `sessions` grant group beside the session's other reads.
+  `sessions` grant group beside the session's other reads, and
+  `contextReportAt` on the session.
 - **A phone ahead of its Mac.** An older Mac sends notices without
   `contextReport`; the phone draws the old printout. The field's absence is
-  the gate for the row and the sheet. The report taken on demand is gated
-  in `MAC_FEATURES.contextReportOnDemand` (the first Mac release that
-  serves the route): against an older Mac the read-out opens only the last
-  `/context` in the transcript, and never asks a route the Mac would drop.
-- **A Mac ahead of its phone.** An older phone ignores the unknown field and
-  draws the printout as today, and never calls the new route.
+  the gate for the row and the sheet. An older Mac also sends no
+  `contextReportAt`: the read-out then opens only the last `/context` in
+  the loaded transcript and never asks the route. The field's absence is
+  that gate too, per device of the group, so no `MAC_FEATURES` entry is
+  needed.
+- **A Mac ahead of its phone.** An older phone ignores the unknown fields
+  and draws the printout as today, and never calls the new route.
 - **Opening by itself** applies to a `/context` sent from the phone.
 - Ships over the air: `web/src/mobile` only, no native change.
 
@@ -259,8 +301,11 @@ Built for the phone too, as a bottom sheet.
 - `contextReportFromControl`: the control answer read into the same report
   as the twin; `rawMaxTokens` as the window; `over_limit` worked out; the
   same tolerance. The route's answer and each of its refusals.
-- Which report the read-out opens (taken now, the transcript's, none), and
-  that a late or superseded answer opens nothing.
+- The kept report: newer wins, found by the indexer, swept with its
+  session; the route's fresh, kept, refused and failed answers.
+- Which report the read-out opens (fresh, kept, the transcript's, none),
+  the failure with its earlier report and Try again, and that a late or
+  superseded answer opens nothing.
 - `notices.ts`: the twin read from a frame and from a file entry; a report
   dropped when its core numbers are missing; malformed lists and rows
   skipped; unknown `kind` kept.
