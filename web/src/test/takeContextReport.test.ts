@@ -74,10 +74,12 @@ describe('reportSourceFor', () => {
     expect(reportSourceFor(session({ status: 'working' }), [])).toBe('live')
   })
 
-  it('opens the kept one for a session that is ended, asleep or a terminal’s, and nothing without one', () => {
+  it('opens the kept one for a session that is ended, asleep or a terminal’s, else the transcript’s, else nothing', () => {
     for (const over of [{ status: 'ended' as const }, { status: 'idle' as const }, { source: 'terminal' as const, status: 'working' as const }]) {
       expect(reportSourceFor(session({ ...over, contextReportAt: 5 }), [])).toBe('kept')
-      expect(reportSourceFor(session({ ...over, contextReportAt: null }), [contextAnswer('n1', 1)])).toBeNull()
+      // Nothing kept yet — the transcript not indexed since the update — but the loaded one holds a /context.
+      expect(reportSourceFor(session({ ...over, contextReportAt: null }), [contextAnswer('n1', 1)])).toBe('transcript')
+      expect(reportSourceFor(session({ ...over, contextReportAt: null }), [said('a')])).toBeNull()
     }
   })
 
@@ -143,6 +145,26 @@ describe('takeReport', () => {
     expect(useContextReport.getState().open).toMatchObject({ failure: 'unreachable', earlier: { text: '## Context Usage' } })
     useContextReport.getState().showEarlier()
     expect(useContextReport.getState().open).toMatchObject({ phase: 'ready', snapshot: { report: report(1) } })
+  })
+
+  it('says out of reach for a request that never got an answer, or a member Mac offline', async () => {
+    seed(session(), [])
+    for (const err of [new TypeError('tunnel failed'), new ApiError('{"error":"member_offline"}', 409)]) {
+      vi.mocked(api.contextReport).mockRejectedValue(err)
+      expect(await takeReport('s1')).toBe('failed')
+      expect(useContextReport.getState().open).toMatchObject({ failure: 'unreachable' })
+    }
+    expect(api.reportErrorToServer).not.toHaveBeenCalled()
+  })
+
+  it('says failed for any other status, and records it', async () => {
+    seed(session(), [])
+    vi.mocked(api.contextReport).mockRejectedValue(new ApiError('Internal Server Error', 500, '/api/sessions/s1/context-report'))
+    expect(await takeReport('s1')).toBe('failed')
+    expect(useContextReport.getState().open).toMatchObject({ failure: 'failed' })
+    expect(api.reportErrorToServer).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'api_request', context: { status: 500, url: '/api/sessions/s1/context-report' },
+    }))
   })
 
   it('fails at once while the phone’s Mac is asleep', async () => {

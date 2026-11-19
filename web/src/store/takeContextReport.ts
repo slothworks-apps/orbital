@@ -8,7 +8,9 @@ import {
   type ReportPreview,
   type ReportSnapshot,
 } from './contextReport'
-import { api, type ContextReportAnswer } from '../lib/api'
+import { ApiError, api, type ContextReportAnswer } from '../lib/api'
+import { isMemberOffline } from '../lib/devices'
+import { recordError } from '../lib/errors'
 import { contextWindowFor } from '../lib/models'
 import type { ApiSession, ChatMessage } from '../lib/types'
 
@@ -48,7 +50,7 @@ export function configureTakeReport(opts: { asleep: (sessionId: string) => boole
 }
 
 /** A session Orbital holds a live query for, as the client can tell: its own, working or waiting. */
-export function isLiveOrbitalSession(session: Pick<ApiSession, 'source' | 'status'> | undefined): boolean {
+function isLiveOrbitalSession(session: Pick<ApiSession, 'source' | 'status'> | undefined): boolean {
   return session?.source === 'web' && (session.status === 'working' || session.status === 'needs_input')
 }
 
@@ -83,7 +85,10 @@ export function reportSourceFor(
   // An older Mac sends no `contextReportAt`: it keeps nothing and has no route to ask.
   if (session.contextReportAt === undefined) return latestContextAnswer(messages) ? 'transcript' : null
   if (isLiveOrbitalSession(session)) return 'live'
-  return session.contextReportAt !== null ? 'kept' : null
+  if (session.contextReportAt !== null) return 'kept'
+  // A newer Mac keeps a session's /context only once its transcript is next
+  // indexed: until then the loaded transcript's own is still there to open.
+  return latestContextAnswer(messages) ? 'transcript' : null
 }
 
 /**
@@ -154,11 +159,15 @@ export async function takeReport(sessionId: string, opts: { key?: string } = {})
   const mine = ++ticket
   show({ phase: 'loading', snapshot: null, counting: source === 'live' })
   let answer: ContextReportAnswer | null
+  let failure: ReportFailure | null = null
   try {
     answer = await api.contextReport(sessionId)
-  } catch {
-    // An older member Mac without the route, the network, the tunnel.
+  } catch (err) {
     answer = null
+    failure = thrownFailure(err)
+    // Anything but the Mac out of reach is a failure worth keeping: the
+    // dialog says it in its own place, so no toast.
+    if (failure === 'failed') recordError(err, 'Could not take the context report')
   }
   if (mine !== ticket || useContextReport.getState().open?.key !== key) return 'none'
 
@@ -168,13 +177,24 @@ export async function takeReport(sessionId: string, opts: { key?: string } = {})
   }
   const earlier: ReportSnapshot | null =
     answer?.earlier ? { report: answer.earlier.report, takenAt: answer.earlier.takenAt, text: null } : twinSnapshot
-  show({ phase: 'failed', snapshot: null, failure: failureOf(answer), earlier })
+  show({ phase: 'failed', snapshot: null, failure: failure ?? failureOf(answer), earlier })
   return 'failed'
 }
 
 function failureOf(answer: ContextReportAnswer | null): ReportFailure {
-  if (answer === null) return 'unreachable'
-  return 'error' in answer && answer.error === 'timeout' ? 'timeout' : 'failed'
+  return answer && 'error' in answer && answer.error === 'timeout' ? 'timeout' : 'failed'
+}
+
+/**
+ * What a thrown `api.contextReport` means. Out of reach (`unreachable`): an
+ * older Mac without the route (a 404 with no error it names — the named ones
+ * come back as values), a member Mac of the group offline, or a request that
+ * never got an answer — the network, or the phone's tunnel, which rejects
+ * with a `TypeError` as `fetch` does. Any other status is the Mac failing.
+ */
+function thrownFailure(err: unknown): ReportFailure {
+  if (!(err instanceof ApiError)) return 'unreachable'
+  return err.status === 404 || isMemberOffline(err) ? 'unreachable' : 'failed'
 }
 
 /** Whether the transcript's last `/context` is the report the Mac keeps: then it opens without asking. */
