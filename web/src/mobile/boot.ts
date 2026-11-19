@@ -39,6 +39,7 @@ import { makeTunnelFetch } from './transport/tunnelFetch'
 import { TunnelSocket } from './transport/tunnelSocket'
 import { sessionSupports } from './version'
 import { configureTakeReport } from '../store/takeContextReport'
+import { sessionOffline } from './deviceList'
 import { decideWhatsNew } from './WhatsNew'
 import { makeTunnelUpload } from './transport/tunnelUpload'
 import { applySystemTextScale } from './platform/textScale'
@@ -88,8 +89,10 @@ export async function boot(): Promise<void> {
     canShowPath: (path) => !isPdfPath(path) || servesPdf(useOrbital.getState().ui.selectedId ?? useMobile.getState().sessionId),
   })
   configurePdf({ load: makePdfLoader(readNamed, undefined, servesPdf) })
-  // The /context report is taken on demand only from a Mac that serves the route.
-  configureTakeReport({ servesOnDemand: (sessionId) => sessionSupports('contextReportOnDemand', sessionId) })
+  // The Mac asleep is a failure of the report taken from the read-out (canvas 71e).
+  configureTakeReport({
+    asleep: (sessionId) => sessionOffline(useMobile.getState(), useOrbital.getState().sessions[sessionId]?.machine?.id ?? null),
+  })
   installFileOpen()
   clientRef.on(onClientEvent)
   wireSocket()

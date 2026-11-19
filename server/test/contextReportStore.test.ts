@@ -62,7 +62,7 @@ describe('the kept report', () => {
     expect(indexPaths(db, projects, ['p/s1.jsonl']).reports).toEqual(['s1']);
     expect(keptContextReport(db, 's1')?.report.totalTokens).toBe(1);
 
-    keepContextReport(db, 's1', { report: report(9) as any, takenAt: Date.parse('2026-11-19T10:30:00Z') });
+    keepContextReport(db, 's1', { report: report(9), takenAt: Date.parse('2026-11-19T10:30:00Z') });
     write([user, contextEntry('2026-11-19T10:00:00Z', 1), { ...user, uuid: 'q2' }]);
     expect(indexPaths(db, projects, ['p/s1.jsonl']).reports).toEqual([]);
     expect(keptContextReport(db, 's1')?.report.totalTokens).toBe(9);

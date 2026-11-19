@@ -25,6 +25,7 @@ import {
 } from '../transcript/notices.js';
 import { TOOL_HOOK_EVENTS, configuredHookCommands, hookMatchQuery, hookSettingsSources } from './hookCommand.js';
 import type { LiveHookNotice } from '@orbital/shared/hookNotice';
+import { CONTEXT_REPORT_TIMEOUT_MS } from '@orbital/shared/contextReport';
 import { readRateLimitInfo, type RejectedLimit } from '../limits/logic.js';
 import {
   compactSummaryText,
@@ -47,15 +48,6 @@ import { shellIntentHooks } from './shellIntentHook.js';
  * the small accuracy it buys.
  */
 const CONTEXT_USAGE_TIMEOUT_MS = 2_000;
-
-/**
- * How long the report opened from the context read-out waits for the CLI's
- * full count. `detail: 'full'` counts each category with the token-count
- * API, so it takes longer than the turn-end summary; it stays well under the
- * phone's `REQUEST_TIMEOUT_MS`, so a slow CLI answers the phone with a
- * timeout rather than with silence.
- */
-export const CONTEXT_REPORT_TIMEOUT_MS = 10_000;
 
 /**
  * The report opened from the context read-out, or why there is none

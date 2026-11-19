@@ -36,11 +36,6 @@ export const figureInk = (level: ContextLevel): string => (level === 'critical' 
 const HATCH = `repeating-linear-gradient(135deg,${swatch('line', 0.5)} 0 1.5px,transparent 1.5px 4.5px)`
 const ring = (alpha: number): string => `inset 0 0 0 1px ${swatch('line', alpha)}`
 
-/** 70c's footer line, and the phone's line under As text. */
-export function snapshotLine(time: string | null): string {
-  return `${time ? `a snapshot from ${time}` : 'a snapshot'} · it doesn’t update · run /context again for a new one`
-}
-
 const MONO_CAPTION = 'font-mono fs-9.5 tracking-[0.14em] text-ink-900/45'
 const SQUARE = 'block h-2.5 w-2.5 flex-none rounded-[2.5px] box-border'
 
@@ -83,12 +78,12 @@ export function Headline({ report, view, phone }: { report: ContextReport; view:
 }
 
 /**
- * 70e's two bars: the window at true scale — used in the gauge colour, free
- * as an empty track, the buffer hatched at its end, the thresholds marked
- * above — and, carried down by a tapered band, the used part spread to full
- * width in category colours.
+ * 70e's window bar at true scale — used in the gauge colour, free as an
+ * empty track, the buffer hatched at its end, the thresholds marked above.
+ * Drawn from the read-out's figures as soon as the report opens (71c); the
+ * buffer comes with the report.
  */
-export function WindowChart({
+export function WindowBar({
   report,
   view,
   thresholds,
@@ -127,10 +122,21 @@ export function WindowChart({
           <span className="absolute inset-y-0 -right-[9px] block w-1.5 rounded-r-[2px]" style={{ background: gauge }} />
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * 70e's second bar: carried down from the window bar's fill by a tapered
+ * band, the used part spread to full width in category colours.
+ */
+export function UsedSplit({ report, view }: { report: ContextReport; view: ContextReportView }) {
+  return (
+    <div className="flex flex-col">
       <div
         className="h-4"
         style={{
-          clipPath: `polygon(0 0,${fill}% 0,100% 100%,0 100%)`,
+          clipPath: `polygon(0 0,${view.fill * 100}% 0,100% 100%,0 100%)`,
           background: `linear-gradient(180deg,${swatch('line', 0.1)},${swatch('line', 0.04)})`,
         }}
       />
@@ -145,6 +151,60 @@ export function WindowChart({
         ))}
       </div>
       <div className={`mt-1.5 ${MONO_CAPTION}`}>IN USE · {formatReportTokens(report.totalTokens)}</div>
+    </div>
+  )
+}
+
+/**
+ * 71c's waiting layer, over the space kept for the split: a dashed outline
+ * where the split will be, and one static line of words. No spinner.
+ */
+export function WaitingLayer({ counting }: { counting: boolean }) {
+  return (
+    <>
+      <div className="h-4" />
+      <div className="box-border h-3.5 rounded-[3px] border border-dashed border-line/22" />
+      <div className={`mt-1.5 ${MONO_CAPTION}`}>{counting ? 'IN USE · COUNTING' : 'IN USE'}</div>
+      {counting && (
+        <>
+          <div className="mt-5 fs-13 text-ink-400/85">Counting what fills the window.</div>
+          <div className="mt-1.5 font-mono fs-10.5 text-ink-900/60">the session counts it · usually about a second</div>
+        </>
+      )}
+    </>
+  )
+}
+
+/** 71c/71e: why no report was taken, Try again, and the earlier report if there is one. No red, no icon. */
+export function FailedBlock({
+  text,
+  onRetry,
+  earlierTime,
+  onEarlier,
+  phone,
+}: {
+  text: string
+  onRetry: () => void
+  /** When the earlier report was taken; null when there is none to offer. */
+  earlierTime: string | null | undefined
+  onEarlier: () => void
+  phone: boolean
+}) {
+  const size = phone ? 'copy-touch' : 'report-action'
+  return (
+    <div className="flex flex-col gap-2.5 rounded-[10px] border border-line/8 bg-space/45 px-4 py-3.5">
+      <div className="fs-13 leading-[1.5] text-pretty text-ink-100">{text}</div>
+      <div className="font-mono fs-10.5 text-ink-900/60">nothing was added to the transcript</div>
+      <div className="mt-0.5 flex flex-wrap gap-2">
+        <Button variant="hairline" size={size} onClick={onRetry}>
+          Try again
+        </Button>
+        {earlierTime !== undefined && (
+          <Button variant="hairline" size={size} onClick={onEarlier}>
+            {earlierTime ? `Show the report from ${earlierTime}` : 'Show the earlier report'}
+          </Button>
+        )}
+      </div>
     </div>
   )
 }

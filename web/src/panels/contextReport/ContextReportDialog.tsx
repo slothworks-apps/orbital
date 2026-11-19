@@ -3,7 +3,8 @@ import { useContextReport, type OpenContextReport } from '../../store/contextRep
 import { useOrbital } from '../../store/store'
 import { Button } from '../../ui/Button'
 import { Dialog, REVIEW_SCROLLBAR, ReviewHeader } from '../../ui/Dialog'
-import { AsText, Breakdowns, Headline, Legend, WindowChart, snapshotLine } from './parts'
+import { openingFoot, openingMeta } from '../../lib/contextReport'
+import { OpeningBody } from './OpeningBody'
 import { useReport } from './useReport'
 
 const DIALOG_LABEL = 'Context report'
@@ -37,34 +38,25 @@ export function ContextReportDialogHost() {
 }
 
 function ReportContent({ shown, onClose }: { shown: OpenContextReport; onClose: () => void }) {
-  const { report, text } = shown
-  const { title, thresholds, view, sections, time } = useReport(shown.sessionId, shown.takenAt, report)
+  const r = useReport(shown)
+  const words = { phase: shown.phase, origin: shown.origin, failure: shown.failure, counting: shown.counting }
 
   return (
     <>
-      {/* 70c header: Report Dialog's, with the report's eyebrow, name and when it was taken. */}
+      {/* 70c/71c header: Report Dialog's, with the report's eyebrow, name and when it was taken. */}
       <ReviewHeader onClose={onClose}>
         <div className="font-mono fs-10 tracking-[0.2em] text-ink-900/65">/context</div>
-        <h2 className="mt-1.5 truncate fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em]">{title}</h2>
-        <div className="mt-[5px] font-mono fs-10.5 tracking-[0.04em] text-ink-900/55">
-          {time ? `taken ${time} · a snapshot` : 'a snapshot'}
-        </div>
+        <h2 className="mt-1.5 truncate fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em]">{r.title}</h2>
+        <div className="mt-[5px] font-mono fs-10.5 tracking-[0.04em] text-ink-900/55">{openingMeta(words, r.time)}</div>
       </ReviewHeader>
 
       <div className={`flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overflow-x-hidden px-[26px] pb-[18px] pt-5 ${REVIEW_SCROLLBAR}`}>
-        <Headline report={report} view={view} phone={false} />
-        <WindowChart report={report} view={view} thresholds={thresholds} />
-        <Legend report={report} view={view} phone={false} />
-        <div className="flex flex-col">
-          <Breakdowns sections={sections} phone={false} />
-          {/* A report taken on demand has no CLI printout (no /context ran). */}
-          {text !== null && <AsText text={text} phone={false} />}
-        </div>
+        <OpeningBody shown={shown} r={r} phone={false} />
       </div>
 
       <div className="flex shrink-0 items-center gap-2.5 border-t border-line/10 pb-4 pl-[26px] pr-5 pt-3.5">
         <span className="min-w-0 flex-1 font-mono fs-10.5 leading-normal tracking-[0.03em] text-pretty text-ink-900/55">
-          {snapshotLine(time)}
+          {openingFoot(words, r.time, r.earlierTime ?? null)}
         </span>
         <span className="rounded border border-line/20 px-[7px] py-[3px] font-mono fs-10 text-ink-500/70">esc</span>
         <Button variant="ghost" size="lg" onClick={onClose}>

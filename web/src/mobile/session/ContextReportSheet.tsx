@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type TouchEvent } from 'react'
-import { AsText, Breakdowns, Headline, Legend, WindowChart, snapshotLine } from '../../panels/contextReport/parts'
+import { openingFoot } from '../../lib/contextReport'
+import { OpeningBody } from '../../panels/contextReport/OpeningBody'
 import { useReport } from '../../panels/contextReport/useReport'
 import { useContextReport, type OpenContextReport } from '../../store/contextReport'
 import { isGated, useMobile } from '../state'
@@ -43,8 +44,10 @@ export function ContextReportSheetHost({ sessionId }: { sessionId: string }) {
 }
 
 function ContextReportSheet({ shown, onClose }: { shown: OpenContextReport; onClose: () => void }) {
-  const { report, text } = shown
-  const { title, thresholds, view, sections, time } = useReport(shown.sessionId, shown.takenAt, report)
+  const r = useReport(shown)
+  const { title, time } = r
+  const words = { phase: shown.phase, origin: shown.origin, failure: shown.failure, counting: shown.counting }
+  const model = shown.snapshot?.report.model ?? shown.preview?.model ?? null
   const [detent, setDetent] = useState<Detent>('medium')
   const full = detent === 'full'
 
@@ -86,7 +89,13 @@ function ContextReportSheet({ shown, onClose }: { shown: OpenContextReport; onCl
               <div className="font-mono fs-10 tracking-[0.2em] text-ink-900/65">/context</div>
               <div className="mt-[5px] truncate fs-18 font-bold">{title}</div>
               <div className="mt-1 truncate font-mono fs-10.5 text-ink-900/55">
-                {[time ? `taken ${time}` : null, report.model].filter(Boolean).join(' · ')}
+                {shown.phase === 'ready'
+                  ? [time ? `taken ${time}` : null, model].filter(Boolean).join(' · ')
+                  : shown.phase === 'failed'
+                    ? 'no report taken'
+                    : shown.counting
+                      ? 'taking a report now'
+                      : model}
               </div>
             </div>
             <button
@@ -105,15 +114,15 @@ function ContextReportSheet({ shown, onClose }: { shown: OpenContextReport; onCl
           data-sheet-scroll
           className={`flex min-h-0 flex-1 flex-col gap-[18px] px-4 pb-4 pt-4 ${full ? 'overflow-y-auto' : 'overflow-hidden'}`}
         >
-          <Headline report={report} view={view} phone />
-          <WindowChart report={report} view={view} thresholds={thresholds} />
-          <Legend report={report} view={view} phone />
-          <div className="flex flex-col">
-            <Breakdowns sections={sections} phone />
-            {/* A report taken on demand has no CLI printout (no /context ran). */}
-            {text !== null && <AsText text={text} phone />}
-            <div className="px-1 pt-3.5 font-mono fs-10 leading-[1.6] text-ink-900/50">{snapshotLine(time)}</div>
-          </div>
+          <OpeningBody
+            shown={shown}
+            r={r}
+            phone
+            after={<div className="px-1 pt-3.5 font-mono fs-10 leading-[1.6] text-ink-900/50">{openingFoot(words, time)}</div>}
+          />
+          {shown.phase !== 'ready' && (
+            <div className="px-1 font-mono fs-10 leading-[1.6] text-ink-900/50">{openingFoot(words, time, r.earlierTime ?? null)}</div>
+          )}
         </div>
       </div>
 

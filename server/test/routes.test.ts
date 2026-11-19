@@ -5398,8 +5398,8 @@ describe('GET /api/sessions/:id/context-report', () => {
 
   it('answers the kept report for a session that is not running, or held by a terminal', async () => {
     const { app, db, contextReport } = withLive({ report: report(1000) });
-    keepContextReport(db, 's1', { report: report(7) as any, takenAt: Date.parse('2026-11-19T10:00:00Z') });
-    keepContextReport(db, 's2', { report: report(8) as any, takenAt: Date.parse('2026-11-19T11:00:00Z') });
+    keepContextReport(db, 's1', { report: report(7), takenAt: Date.parse('2026-11-19T10:00:00Z') });
+    keepContextReport(db, 's2', { report: report(8), takenAt: Date.parse('2026-11-19T11:00:00Z') });
     // s1 is held by a terminal; s2 has a row and no process.
     expect(res200(await app.inject({ url: '/api/sessions/s1/context-report' })))
       .toEqual({ report: report(7), takenAt: '2026-11-19T10:00:00.000Z', fresh: false });
@@ -5423,7 +5423,7 @@ describe('GET /api/sessions/:id/context-report', () => {
       const { app, db } = withLive({ error });
       const bare = await app.inject({ url: '/api/sessions/w1/context-report' });
       expect([bare.statusCode, bare.json()]).toEqual([code, { error }]);
-      keepContextReport(db, 'w1', { report: report(5) as any, takenAt: Date.parse('2026-11-19T09:00:00Z') });
+      keepContextReport(db, 'w1', { report: report(5), takenAt: Date.parse('2026-11-19T09:00:00Z') });
       const withEarlier = await app.inject({ url: '/api/sessions/w1/context-report' });
       expect(withEarlier.json()).toEqual({ error, earlier: { report: report(5), takenAt: '2026-11-19T09:00:00.000Z' } });
     }

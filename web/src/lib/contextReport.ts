@@ -350,3 +350,69 @@ export function contextReportView(report: ContextReport, thresholds: ContextThre
     windowNoun: (over && WINDOW_NOUN[over.kind]) || 'tokens in the window',
   }
 }
+
+// ---- An opening's words (canvas `Feature - Context report from the read-out` 71c–71e)
+
+/** The words an opening needs: its phase, where it came from and when it was taken. */
+export interface OpeningWords {
+  phase: 'loading' | 'ready' | 'failed'
+  origin: 'row' | 'readout' | 'ended' | 'terminal'
+  failure?: 'timeout' | 'failed' | 'asleep' | 'unreachable'
+  /** `loading` only: a fresh count, which the words say; false while the kept report is only fetched. */
+  counting?: boolean
+}
+
+/** The header's line under the title on the Mac (70c, 71c): when, or what is happening. */
+export function openingMeta(o: OpeningWords, time: string | null): string {
+  if (o.phase === 'loading') return o.counting ? 'taking a report now' : 'a snapshot'
+  if (o.phase === 'failed') return 'no report taken'
+  return time ? `taken ${time} · a snapshot` : 'a snapshot'
+}
+
+/**
+ * The footer (70c, 71c, 71d): a typed `/context` points at running it again,
+ * one from the read-out at opening it again; an ended or terminal session's
+ * says it is the last one. `earlierTime` is the failed opening's earlier
+ * report.
+ */
+export function openingFoot(o: OpeningWords, time: string | null, earlierTime: string | null = null): string {
+  if (o.phase === 'loading') {
+    return o.counting ? 'counting in the session · nothing is added to the transcript' : 'nothing is added to the transcript'
+  }
+  if (o.phase === 'failed') {
+    return earlierTime ? `the last report for this session is from ${earlierTime}` : 'nothing is added to the transcript'
+  }
+  const at = time ?? '—'
+  if (o.origin === 'ended') return `the session has ended · this is its last report, taken ${at}`
+  if (o.origin === 'terminal') return `running in Terminal · this is the last /context typed there, at ${at}`
+  const from = time ? `a snapshot from ${time}` : 'a snapshot'
+  return `${from} · it doesn’t update · ${o.origin === 'row' ? 'run /context again' : 'open it again'} for a new one`
+}
+
+/**
+ * Why no report was taken (71c, 71e). `timeoutSeconds` is the Mac's wait,
+ * `CONTEXT_REPORT_TIMEOUT_MS`. The canvas words the timeout and the Mac
+ * asleep; the session refusing and the Mac out of reach are worded the same
+ * way.
+ */
+export function failureText(failure: OpeningWords['failure'], timeoutSeconds: number): string {
+  if (failure === 'asleep') return 'The Mac is asleep, so the session can’t count now.'
+  if (failure === 'unreachable') return 'Couldn’t take a report. The Mac didn’t answer.'
+  if (failure === 'failed') return 'Couldn’t take a report. The session couldn’t count it.'
+  return `Couldn’t take a report. The session didn’t answer within ${timeoutSeconds} seconds.`
+}
+
+/** The report a read-out preview stands for until the real one arrives: the figure and the window, nothing split. */
+export function previewReport(preview: { used: number; window: number; model: string | null }): ContextReport {
+  return {
+    model: preview.model,
+    totalTokens: preview.used,
+    rawMaxTokens: preview.window,
+    percentage: Math.round((preview.used / preview.window) * 100),
+    categories: [],
+    mcpTools: [],
+    memoryFiles: [],
+    agents: [],
+    skills: [],
+  }
+}

@@ -44,7 +44,7 @@ const WAIT: LimitWait = {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(api.sendMessage).mockResolvedValue(undefined as never)
-  useContextReport.setState({ open: null, asked: {}, onScreen: null, taking: null })
+  useContextReport.setState({ open: null, asked: {}, onScreen: null })
 })
 
 function seed(s: ApiSession) {

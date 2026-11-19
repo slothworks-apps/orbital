@@ -32,7 +32,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'muted-chip'
     | 'outline-soft'
     | 'outline-touch'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action' | 'labs' | 'labs-row' | 'block-chip' | 'block-half' | 'copy' | 'copy-touch'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action' | 'labs' | 'labs-row' | 'block-chip' | 'block-half' | 'copy' | 'copy-touch' | 'report-action'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -200,6 +200,9 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   // `Feature - Context report` 70d's Copy beside As text: 5px/12px at 12px;
   // and 70f's on the phone, a 44px target, 16px sides at 14px.
   copy: 'px-3 py-[5px] fs-12 leading-(--text-xs--line-height)',
+  // `Feature - Context report from the read-out` 71c's Try again and Show the
+  // report from …: 7px/14px at 12.5px, the default 8px radius.
+  'report-action': 'px-3.5 py-[7px] fs-12.5',
   'copy-touch': 'h-11 whitespace-nowrap px-4 fs-14',
 }
 

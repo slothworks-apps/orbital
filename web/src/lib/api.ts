@@ -1240,16 +1240,17 @@ export const api = {
   },
 
   /**
-   * The `/context` report taken now from the session's live query, without a
-   * `/context` in the transcript (spec 2026-11-19-context-report-dialog-design
-   * § Opening it from the context read-out). A named refusal comes back as
-   * `{ error }`; anything else — an older Mac without the route, the network —
-   * throws. Either way the caller opens the last `/context` in the transcript.
+   * The session's `/context` report for the context read-out (spec
+   * 2026-11-19-context-report-dialog-design § Opening it from the context
+   * read-out): taken now from a session Orbital runs (`fresh`), else the one
+   * the Mac keeps. A named refusal comes back as `{ error }`, a failed taking
+   * with the kept report as `earlier`; anything else — an older Mac without
+   * the route, the network, the tunnel — throws.
    */
-  async contextReport(id: string): Promise<{ report: ContextReport; takenAt: string } | { error: ContextReportRefusal }> {
+  async contextReport(id: string): Promise<ContextReportAnswer> {
     return remoteCall('GET', apiPath`/api/sessions/${id}/context-report`, undefined, {
-      404: ['not_found'] as const,
-      409: ['terminal_session', 'not_running', 'unsupported'] as const,
+      404: ['not_found', 'no_report'] as const,
+      409: ['unsupported'] as const,
       502: ['failed'] as const,
       504: ['timeout'] as const,
     })
@@ -1931,8 +1932,10 @@ async function remoteCall<T, E extends string>(
   throw new ApiError(text || response.statusText, response.status, url)
 }
 
-/** Why `GET /api/sessions/:id/context-report` took no report (`server/src/api/routes.ts`). */
-export type ContextReportRefusal = 'not_found' | 'terminal_session' | 'not_running' | 'unsupported' | 'failed' | 'timeout'
+/** `GET /api/sessions/:id/context-report`'s answer (`server/src/api/routes.ts`); `takenAt` is ISO. */
+export type ContextReportAnswer =
+  | { report: ContextReport; takenAt: string; fresh: boolean }
+  | { error: 'not_found' | 'no_report' | 'unsupported' | 'failed' | 'timeout'; earlier?: { report: ContextReport; takenAt: string } }
 
 export type ServerHealth = {
   app?: string

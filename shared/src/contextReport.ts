@@ -21,3 +21,13 @@ export interface ContextReport {
   agents: { agentType: string; source: string; tokens: number }[];
   skills: { name: string; source: string; pluginName?: string; tokens: number }[];
 }
+
+/**
+ * How long the Mac waits for a session to count a report taken from the
+ * context read-out (`GET /api/sessions/:id/context-report`) before it gives
+ * up with `timeout`; the dialog's failure says it in seconds. `detail: 'full'`
+ * counts each category with the token-count API, so it takes longer than a
+ * turn's end summary; it stays well under the phone's `REQUEST_TIMEOUT_MS`,
+ * so a slow CLI answers the phone with a timeout rather than with silence.
+ */
+export const CONTEXT_REPORT_TIMEOUT_MS = 10_000;

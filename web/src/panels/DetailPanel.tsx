@@ -1,6 +1,6 @@
 import { swatch } from '../lib/palette'
 import { useEffect, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   useOrbital,
@@ -99,6 +99,7 @@ import { loginWaitLabels } from '../lib/profileLogin'
 import { ClaudeDirChip, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import type { BackgroundTask, WalkthroughSummary } from '../lib/types'
+import { takeReport, useReportSource } from '../store/takeContextReport'
 import { scaledPx, useTextScaleVersion } from '../lib/textScale'
 
 /** Hue the panel's accents fall back to when the session has no tag — the
@@ -1163,76 +1164,87 @@ export function DetailPanel({
                 moved here to make room there for the chips (canvas
                 `Feature - Terminal` 48e: bar flex, gap 12, read-out right). */}
             {showContext && (
-              <div className="mt-[9px] flex items-center gap-3">
-                <div className="relative h-[3px] min-w-0 flex-1 overflow-hidden rounded-[2px] bg-line/12">
-                  {contextPercent !== undefined && (
+              <ContextReadoutLine sessionId={session.id}>
+                {(opens) => (
+                  <>
+                    <div className="relative h-[3px] min-w-0 flex-1 overflow-hidden rounded-[2px] bg-line/12">
+                      {contextPercent !== undefined && (
+                        <span
+                          role="progressbar"
+                          aria-label="Context usage"
+                          aria-valuenow={contextPercent}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          className="block h-full rounded-[2px]"
+                          data-context-level={contextBarLevel}
+                          style={{
+                            width: `${contextPercent}%`,
+                            background: compacting ? COMPACTING_BAR_INK : contextInk,
+                            boxShadow: compacting ? 'none' : `0 0 8px ${contextGlow}`,
+                            transition: 'width .45s ease, background .3s ease',
+                          }}
+                        />
+                      )}
+                      {/* The two notches mark where the ink changes. Positioned
+                          from the SETTINGS, not from 9d's literal 50/80 — those are
+                          the defaults the artboard happens to draw. */}
+                      {[contextThresholds.warn, contextThresholds.critical].map((percent) => (
+                        <span
+                          key={percent}
+                          aria-hidden
+                          data-context-notch={percent}
+                          className="absolute top-0 bottom-0 w-[1.5px] bg-space/80"
+                          style={{ left: `${percent}%` }}
+                        />
+                      ))}
+                    </div>
+                    {/* 71b: "report ›" at the left end of the note, in 70b's wording; only where a report can be had. */}
+                    {opens && (
+                      <span className="whitespace-nowrap font-mono fs-10 tracking-[0.04em] text-ink-900/55 transition-colors duration-[180ms] group-hover:text-sky">
+                        report ›
+                      </span>
+                    )}
+                    {contextNote && (
+                      <span
+                        data-context-note
+                        className="font-mono fs-9.5 tracking-[0.16em] whitespace-nowrap"
+                        style={{ color: contextNote.ink }}
+                      >
+                        {contextNote.text}
+                      </span>
+                    )}
                     <span
-                      role="progressbar"
-                      aria-label="Context usage"
-                      aria-valuenow={contextPercent}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      className="block h-full rounded-[2px]"
-                      data-context-level={contextBarLevel}
-                      style={{
-                        width: `${contextPercent}%`,
-                        background: compacting ? COMPACTING_BAR_INK : contextInk,
-                        boxShadow: compacting ? 'none' : `0 0 8px ${contextGlow}`,
-                        transition: 'width .45s ease, background .3s ease',
-                      }}
-                    />
-                  )}
-                  {/* The two notches mark where the ink changes. Positioned
-                      from the SETTINGS, not from 9d's literal 50/80 — those are
-                      the defaults the artboard happens to draw. */}
-                  {[contextThresholds.warn, contextThresholds.critical].map((percent) => (
-                    <span
-                      key={percent}
-                      aria-hidden
-                      data-context-notch={percent}
-                      className="absolute top-0 bottom-0 w-[1.5px] bg-space/80"
-                      style={{ left: `${percent}%` }}
-                    />
-                  ))}
-                </div>
-                {contextNote && (
-                  <span
-                    data-context-note
-                    className="font-mono fs-9.5 tracking-[0.16em] whitespace-nowrap"
-                    style={{ color: contextNote.ink }}
-                  >
-                    {contextNote.text}
-                  </span>
+                      data-context-readout
+                      data-testid="context-readout"
+                      className="flex items-baseline gap-1 font-mono whitespace-nowrap"
+                    >
+                      <span
+                        // 71b: the figure underlines in its own ink on hover, the read-out being the button.
+                        className={`fs-12.5 leading-none underline decoration-transparent decoration-1 underline-offset-4 transition-colors duration-300 ${opens ? 'group-hover:decoration-current' : ''}`}
+                        style={{
+                          // Past the critical line the number turns ink-100 beside the red
+                          // fill: red light enough to read stops looking critical
+                          // (canvas `Feature - Colour themes` 1b, flag 2).
+                          color: compacting
+                            ? COMPACTING_READOUT_INK
+                            : contextUsed == null
+                              ? UNMEASURED_INK
+                              : contextBarLevel === 'critical'
+                                ? swatch('ink-100')
+                                : contextInk,
+                        }}
+                      >
+                        {/* The measurement itself, NOT the bar's clamped fraction:
+                            a session past a mis-learned window says so. */}
+                        {contextUsed != null ? formatTokens(contextUsed) : NO_VALUE}
+                      </span>
+                      <span className="fs-10 text-ink-900/55">
+                        / {formatContextWindow(contextWindow)}
+                      </span>
+                    </span>
+                  </>
                 )}
-                <span
-                  data-context-readout
-                  data-testid="context-readout"
-                  className="flex items-baseline gap-1 font-mono whitespace-nowrap"
-                >
-                  <span
-                    className="fs-12.5 leading-none transition-colors duration-300"
-                    style={{
-                      // Past the critical line the number turns ink-100 beside the red
-                      // fill: red light enough to read stops looking critical
-                      // (canvas `Feature - Colour themes` 1b, flag 2).
-                      color: compacting
-                        ? COMPACTING_READOUT_INK
-                        : contextUsed == null
-                          ? UNMEASURED_INK
-                          : contextBarLevel === 'critical'
-                            ? swatch('ink-100')
-                            : contextInk,
-                    }}
-                  >
-                    {/* The measurement itself, NOT the bar's clamped fraction:
-                        a session past a mis-learned window says so. */}
-                    {contextUsed != null ? formatTokens(contextUsed) : NO_VALUE}
-                  </span>
-                  <span className="fs-10 text-ink-900/55">
-                    / {formatContextWindow(contextWindow)}
-                  </span>
-                </span>
-              </div>
+              </ContextReadoutLine>
             )}
 
             {/* The stats readout (canvas 10g): below the panel's own meta,
@@ -1583,5 +1595,28 @@ export function DetailPanel({
         ].join(' ')}
       />
     </div>
+  )
+}
+
+/**
+ * The context bar's line (9d/48e) as the button that opens the session's
+ * `/context` report (canvas `Feature - Context report from the read-out`
+ * 71a/71b): the bar, the note and the figure are one target, washed on hover
+ * without growing the header. Where no report can be had it stays the plain
+ * line it was — no hover, no pointer, nothing to click.
+ */
+function ContextReadoutLine({ sessionId, children }: { sessionId: string; children: (opens: boolean) => ReactNode }) {
+  const source = useReportSource(sessionId)
+  if (source === null) return <div className="mt-[9px] flex items-center gap-3">{children(false)}</div>
+  return (
+    <button
+      type="button"
+      aria-label="Context used · open the report"
+      onClick={() => void takeReport(sessionId)}
+      // 71b: padded 8px into the panel's margin, so the wash has room and the line keeps its place.
+      className="group -mx-2 -mb-1 mt-[5px] flex w-[calc(100%+16px)] cursor-pointer items-center gap-3 rounded-[7px] px-2 py-1 text-left transition-colors duration-[180ms] hover:bg-line/6"
+    >
+      {children(true)}
+    </button>
   )
 }

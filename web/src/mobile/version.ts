@@ -64,13 +64,6 @@ export const MAC_FEATURES = {
    * left out against one all the same.
    */
   progressList: '0.49.0',
-  /**
-   * The `/context` report taken on demand from the context read-out: `GET
-   * /api/sessions/:id/context-report` (spec 2026-11-19-context-report-dialog-design § Opening it
-   * from the context read-out). Against an older Mac only the last `/context` in the transcript
-   * opens.
-   */
-  contextReportOnDemand: '0.50.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

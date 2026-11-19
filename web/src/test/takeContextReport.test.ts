@@ -3,21 +3,17 @@ import type { ApiSession, ChatMessage, ContextReport } from '../lib/types'
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
-import { ApiError, api } from '../lib/api'
+import { ApiError, api, type ContextReportAnswer } from '../lib/api'
 import { useContextReport } from '../store/contextReport'
 import { useOrbital } from '../store/store'
-import {
-  configureTakeReport,
-  latestContextAnswer,
-  reportSourceFor,
-  takeReport,
-} from '../store/takeContextReport'
+import { configureTakeReport, latestContextAnswer, reportSourceFor, takeReport } from '../store/takeContextReport'
 
 /**
  * Opening the report from the context read-out (spec
  * 2026-11-19-context-report-dialog-design § Opening it from the context
- * read-out): taken now from a live Orbital session, else the transcript's
- * last `/context`, and never a row in the transcript.
+ * read-out; canvas 71a–71e): fresh from a session Orbital runs, the Mac's kept
+ * one otherwise, the transcript's against an older Mac; at once with what the
+ * read-out knows, and never a row in the transcript.
  */
 
 function report(totalTokens: number): ContextReport {
@@ -27,9 +23,11 @@ function report(totalTokens: number): ContextReport {
   }
 }
 
-function contextAnswer(id: string, totalTokens: number): ChatMessage {
+const AT = '2026-11-19T10:00:00Z'
+
+function contextAnswer(id: string, totalTokens: number, timestamp = AT): ChatMessage {
   return {
-    id, role: 'notice', text: '## Context Usage', timestamp: '2026-11-19T10:00:00Z',
+    id, role: 'notice', text: '## Context Usage', timestamp,
     notice: { level: 'notice', command: '/context', contextReport: report(totalTokens) },
   }
 }
@@ -39,7 +37,8 @@ const said = (id: string): ChatMessage => ({ id, role: 'assistant', text: 'hi' }
 function session(over: Partial<ApiSession> = {}): ApiSession {
   return {
     id: 's1', cwd: '/w/x', title: 'Session', firstAt: 1, lastAt: 1, messageCount: 0, source: 'web',
-    permissionMode: null, model: null, resolvedModel: null, tagIds: [], status: 'needs_input', subagents: [],
+    permissionMode: null, model: null, resolvedModel: 'claude-opus-5', tagIds: [], status: 'needs_input', subagents: [],
+    contextUsedTokens: 50000, contextReportAt: null,
     ...over,
   }
 }
@@ -48,111 +47,134 @@ function seed(s: ApiSession, messages: ChatMessage[] = []) {
   useOrbital.setState((state) => ({
     sessions: { ...state.sessions, [s.id]: s },
     transcripts: { ...state.transcripts, [s.id]: messages },
+    contextWindows: { 'claude-opus-5': 200000 },
   }))
 }
 
+const fresh = (totalTokens: number, takenAt = '2026-11-19T11:00:00Z'): ContextReportAnswer => ({ report: report(totalTokens), takenAt, fresh: true })
+
 beforeEach(() => {
   vi.clearAllMocks()
-  configureTakeReport({ servesOnDemand: () => true })
-  useContextReport.setState({ open: null, asked: {}, onScreen: 's1', taking: null })
+  configureTakeReport({ asleep: () => false })
+  useContextReport.setState({ open: null, asked: {}, onScreen: 's1' })
 })
 
 describe('latestContextAnswer', () => {
   it('is the newest /context answer with a report, and null without one', () => {
-    const older = contextAnswer('n1', 1000)
-    const newer = contextAnswer('n2', 2000)
     const bare: ChatMessage = { id: 'n3', role: 'notice', text: 'old CLI', notice: { level: 'notice', command: '/context' } }
-    expect(latestContextAnswer([older, said('a'), newer, bare, said('b')])?.id).toBe('n2')
+    expect(latestContextAnswer([contextAnswer('n1', 1), said('a'), contextAnswer('n2', 2), bare, said('b')])?.id).toBe('n2')
     expect(latestContextAnswer([said('a'), bare])).toBeNull()
     expect(latestContextAnswer(undefined)).toBeNull()
   })
 })
 
 describe('reportSourceFor', () => {
-  const history = [contextAnswer('n1', 1000)]
-
   it('takes it now from an Orbital session that runs, working or waiting', () => {
-    expect(reportSourceFor(session({ status: 'needs_input' }), [], true)).toBe('live')
-    expect(reportSourceFor(session({ status: 'working' }), [], true)).toBe('live')
+    expect(reportSourceFor(session({ status: 'needs_input' }), [])).toBe('live')
+    expect(reportSourceFor(session({ status: 'working' }), [])).toBe('live')
   })
 
-  it('opens the transcript’s for one that is ended, asleep, a terminal’s, or on a Mac too old to ask', () => {
-    expect(reportSourceFor(session({ status: 'ended' }), history, true)).toBe('transcript')
-    expect(reportSourceFor(session({ status: 'idle' }), history, true)).toBe('transcript')
-    expect(reportSourceFor(session({ source: 'terminal', status: 'working' }), history, true)).toBe('transcript')
-    expect(reportSourceFor(session(), history, false)).toBe('transcript')
+  it('opens the kept one for a session that is ended, asleep or a terminal’s, and nothing without one', () => {
+    for (const over of [{ status: 'ended' as const }, { status: 'idle' as const }, { source: 'terminal' as const, status: 'working' as const }]) {
+      expect(reportSourceFor(session({ ...over, contextReportAt: 5 }), [])).toBe('kept')
+      expect(reportSourceFor(session({ ...over, contextReportAt: null }), [contextAnswer('n1', 1)])).toBeNull()
+    }
   })
 
-  it('has nothing to open when neither is there', () => {
-    expect(reportSourceFor(session({ status: 'idle' }), [said('a')], true)).toBeNull()
-    expect(reportSourceFor(session(), [], false)).toBeNull()
-    expect(reportSourceFor(undefined, undefined, true)).toBeNull()
+  it('falls back to the loaded transcript against an older Mac, which sends no contextReportAt', () => {
+    expect(reportSourceFor(session({ contextReportAt: undefined }), [contextAnswer('n1', 1)])).toBe('transcript')
+    expect(reportSourceFor(session({ contextReportAt: undefined }), [said('a')])).toBeNull()
+    expect(reportSourceFor(undefined, undefined)).toBeNull()
   })
 })
 
 describe('takeReport', () => {
-  it('opens a report taken now, without a printout and without touching the transcript', async () => {
+  it('opens at once with what the read-out knows, then fills in the fresh report, touching no transcript', async () => {
     const messages = [said('a')]
     seed(session(), messages)
-    vi.mocked(api.contextReport).mockResolvedValue({ report: report(5000), takenAt: '2026-11-19T11:00:00Z' })
+    let answer!: (v: ContextReportAnswer) => void
+    vi.mocked(api.contextReport).mockImplementation(() => new Promise((resolve) => (answer = resolve)))
     const pending = takeReport('s1')
-    expect(useContextReport.getState().taking).toBe('s1')
+    const loading = useContextReport.getState().open
+    expect(loading).toMatchObject({
+      phase: 'loading', counting: true, origin: 'readout', snapshot: null,
+      preview: { used: 50000, window: 200000, model: 'claude-opus-5' },
+    })
+    answer(fresh(5000))
     expect(await pending).toBe('live')
-    expect(api.contextReport).toHaveBeenCalledWith('s1')
-    expect(useContextReport.getState().taking).toBeNull()
-    expect(useContextReport.getState().open).toEqual({
-      sessionId: 's1', key: 'taken:2026-11-19T11:00:00Z', report: report(5000), takenAt: '2026-11-19T11:00:00Z', text: null,
+    expect(useContextReport.getState().open).toMatchObject({
+      key: loading?.key, phase: 'ready', snapshot: { report: report(5000), takenAt: '2026-11-19T11:00:00Z', text: null },
     })
     expect(useOrbital.getState().transcripts.s1).toBe(messages)
   })
 
-  it('opens the transcript’s last /context when the Mac refuses or cannot be asked', async () => {
-    seed(session(), [contextAnswer('n1', 1000), said('a')])
-    vi.mocked(api.contextReport).mockResolvedValue({ error: 'not_running' })
-    expect(await takeReport('s1')).toBe('transcript')
-    expect(useContextReport.getState().open).toMatchObject({ key: 'n1', text: '## Context Usage', takenAt: '2026-11-19T10:00:00Z' })
-
-    useContextReport.setState({ open: null })
-    vi.mocked(api.contextReport).mockRejectedValue(new ApiError('Not Found', 404))
-    expect(await takeReport('s1')).toBe('transcript')
-    expect(useContextReport.getState().open?.key).toBe('n1')
-    expect(useContextReport.getState().taking).toBeNull()
-  })
-
-  it('does not ask a session that is not live, or a Mac too old for the route', async () => {
-    seed(session({ status: 'idle' }), [contextAnswer('n1', 1000)])
-    expect(await takeReport('s1')).toBe('transcript')
-    seed(session(), [contextAnswer('n1', 1000)])
-    configureTakeReport({ servesOnDemand: () => false })
-    expect(await takeReport('s1')).toBe('transcript')
+  it('opens an ended session’s kept report from the transcript at once when it is the same one', async () => {
+    seed(session({ status: 'ended', contextReportAt: Date.parse(AT) }), [contextAnswer('n1', 1)])
+    expect(await takeReport('s1')).toBe('kept')
     expect(api.contextReport).not.toHaveBeenCalled()
+    expect(useContextReport.getState().open).toMatchObject({ phase: 'ready', origin: 'ended', snapshot: { text: '## Context Usage' } })
   })
 
-  it('opens nothing when there is nothing to open', async () => {
+  it('fetches a kept report the transcript does not hold, without counting words', async () => {
+    seed(session({ status: 'idle', contextReportAt: Date.parse('2026-11-19T12:00:00Z') }), [contextAnswer('n1', 1)])
+    vi.mocked(api.contextReport).mockResolvedValue({ report: report(9), takenAt: '2026-11-19T12:00:00Z', fresh: false })
+    const pending = takeReport('s1')
+    expect(useContextReport.getState().open).toMatchObject({ phase: 'loading', counting: false })
+    expect(await pending).toBe('kept')
+    expect(useContextReport.getState().open?.snapshot?.report.totalTokens).toBe(9)
+  })
+
+  it('fails with why, the Mac’s earlier report, and Try again on the same opening', async () => {
+    seed(session(), [contextAnswer('n1', 1)])
+    vi.mocked(api.contextReport).mockResolvedValue({ error: 'timeout', earlier: { report: report(3), takenAt: '2026-11-19T09:00:00Z' } })
+    expect(await takeReport('s1')).toBe('failed')
+    const failed = useContextReport.getState().open!
+    expect(failed).toMatchObject({ phase: 'failed', failure: 'timeout', earlier: { report: report(3), text: null } })
+
+    vi.mocked(api.contextReport).mockResolvedValue(fresh(4))
+    expect(await takeReport('s1', { key: failed.key })).toBe('live')
+    expect(useContextReport.getState().open).toMatchObject({ key: failed.key, phase: 'ready' })
+  })
+
+  it('offers the transcript’s report when the Mac cannot be reached, and shows it on asking', async () => {
+    seed(session(), [contextAnswer('n1', 1)])
+    vi.mocked(api.contextReport).mockRejectedValue(new ApiError('Not Found', 404))
+    expect(await takeReport('s1')).toBe('failed')
+    expect(useContextReport.getState().open).toMatchObject({ failure: 'unreachable', earlier: { text: '## Context Usage' } })
+    useContextReport.getState().showEarlier()
+    expect(useContextReport.getState().open).toMatchObject({ phase: 'ready', snapshot: { report: report(1) } })
+  })
+
+  it('fails at once while the phone’s Mac is asleep', async () => {
+    configureTakeReport({ asleep: () => true })
+    seed(session(), [])
+    expect(await takeReport('s1')).toBe('failed')
+    expect(api.contextReport).not.toHaveBeenCalled()
+    expect(useContextReport.getState().open).toMatchObject({ failure: 'asleep', earlier: null })
+  })
+
+  it('opens nothing when there is nothing to open, and drops an answer for a closed or replaced opening', async () => {
     seed(session({ status: 'ended' }), [said('a')])
     expect(await takeReport('s1')).toBe('none')
     expect(useContextReport.getState().open).toBeNull()
-  })
 
-  it('opens nothing once the session has left the screen, and lets a later take supersede it', async () => {
-    seed(session(), [contextAnswer('n1', 1000)])
-    let answer!: (v: Awaited<ReturnType<typeof api.contextReport>>) => void
+    seed(session(), [])
+    let answer!: (v: ContextReportAnswer) => void
     vi.mocked(api.contextReport).mockImplementation(() => new Promise((resolve) => (answer = resolve)))
-    const first = takeReport('s1')
-    useContextReport.setState({ onScreen: 's2' })
-    answer({ report: report(5000), takenAt: '2026-11-19T11:00:00Z' })
-    expect(await first).toBe('none')
+    const closed = takeReport('s1')
+    useContextReport.getState().close()
+    answer(fresh(1))
+    expect(await closed).toBe('none')
     expect(useContextReport.getState().open).toBeNull()
 
-    useContextReport.setState({ onScreen: 's1' })
     const earlier = takeReport('s1')
     const answerEarlier = answer
     const later = takeReport('s1')
-    answerEarlier({ report: report(1), takenAt: '2026-11-19T11:01:00Z' })
+    answerEarlier(fresh(1))
     expect(await earlier).toBe('none')
-    expect(useContextReport.getState().taking).toBe('s1')
-    answer({ report: report(2), takenAt: '2026-11-19T11:02:00Z' })
+    answer(fresh(2))
     expect(await later).toBe('live')
-    expect(useContextReport.getState().open?.key).toBe('taken:2026-11-19T11:02:00Z')
+    expect(useContextReport.getState().open?.snapshot?.report.totalTokens).toBe(2)
   })
 })
+

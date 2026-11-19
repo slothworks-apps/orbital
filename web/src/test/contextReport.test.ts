@@ -221,7 +221,7 @@ describe('opening by itself', () => {
     notice: { level: 'notice', command: '/context', contextReport: report(), ...over },
   })
 
-  beforeEach(() => useContextReport.setState({ open: null, asked: {}, onScreen: null, taking: null }))
+  beforeEach(() => useContextReport.setState({ open: null, asked: {}, onScreen: null }))
 
   it('opens the answer to a /context sent from here while its session is on screen', () => {
     useContextReport.getState().view('s1')

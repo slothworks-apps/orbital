@@ -1,41 +1,53 @@
 import { useOrbital } from './store'
-import { openingOf, useContextReport } from './contextReport'
-import { api } from '../lib/api'
+import {
+  snapshotOf,
+  useContextReport,
+  type OpenContextReport,
+  type ReportFailure,
+  type ReportOrigin,
+  type ReportPreview,
+  type ReportSnapshot,
+} from './contextReport'
+import { api, type ContextReportAnswer } from '../lib/api'
+import { contextWindowFor } from '../lib/models'
 import type { ApiSession, ChatMessage } from '../lib/types'
 
 /**
  * Opening the `/context` report from where Orbital shows how full the window
- * is — the Mac detail panel's context bar, the phone's session header — with
- * no `/context` typed and nothing added to the transcript (spec
+ * is — the Mac detail panel's context read-out, the phone's session header —
+ * with no `/context` typed and nothing added to the transcript (spec
  * 2026-11-19-context-report-dialog-design § Opening it from the context
- * read-out).
+ * read-out; canvas `Feature - Context report from the read-out` 71a–71e).
  *
- * A session Orbital runs right now is asked for a fresh report on the side
- * (`GET /api/sessions/:id/context-report`). Any other — ended, asleep, held
- * by a terminal — or one whose Mac says no, or is too old to ask, opens the
- * last `/context` answer in its loaded transcript instead.
+ * The Mac keeps each session's latest report, whichever way it was taken
+ * (`contextReportAt` on the session). A session Orbital runs right now takes
+ * a fresh one; any other opens the kept one. Against an older Mac, which
+ * keeps none and has no route, the read-out opens the last `/context` in the
+ * loaded transcript.
  */
-
-/** Where the report would come from: taken now, the transcript's last `/context`, or nowhere. */
-export type ReportSource = 'live' | 'transcript' | null
-
-/** What `takeReport` opened: a report taken now, the transcript's last one, or nothing. */
-export type TakeOutcome = 'live' | 'transcript' | 'none'
 
 /**
- * Whether the device a session runs on serves the on-demand route. Always
- * yes on the Mac, whose own server or a forwarding member answers (an older
- * member answers with an error, and the transcript opens instead); the phone
- * sets it to `MAC_FEATURES.contextReportOnDemand` (`mobile/boot.ts`), since
- * an older Mac would leave the ask to time out.
+ * Where the read-out's report comes from: taken now, the Mac's kept one,
+ * the loaded transcript's last `/context` (an older Mac), or nowhere — and
+ * then the read-out offers nothing (canvas 71b).
  */
-let servesOnDemand: (sessionId: string) => boolean = () => true
+export type ReportSource = 'live' | 'kept' | 'transcript' | null
 
-export function configureTakeReport(opts: { servesOnDemand: (sessionId: string) => boolean }): void {
-  servesOnDemand = opts.servesOnDemand
+/** What `takeReport` did: opened a fresh report, a kept or transcript one, a failure, or nothing. */
+export type TakeOutcome = 'live' | 'kept' | 'transcript' | 'failed' | 'none'
+
+/**
+ * Whether the device a session runs on is out of reach now: the phone's
+ * Mac asleep, which is a failure there (canvas 71e). Never on the Mac; the
+ * phone sets it (`mobile/boot.ts`).
+ */
+let asleep: (sessionId: string) => boolean = () => false
+
+export function configureTakeReport(opts: { asleep: (sessionId: string) => boolean }): void {
+  asleep = opts.asleep
 }
 
-/** A session Orbital holds a live query for, as the client can tell: its own, not ended and not asleep. */
+/** A session Orbital holds a live query for, as the client can tell: its own, working or waiting. */
 export function isLiveOrbitalSession(session: Pick<ApiSession, 'source' | 'status'> | undefined): boolean {
   return session?.source === 'web' && (session.status === 'working' || session.status === 'needs_input')
 }
@@ -64,76 +76,108 @@ export function latestContextAnswer(messages: readonly ChatMessage[] | undefined
 
 /** Where a report for this session would come from right now; null when there is nothing to open. */
 export function reportSourceFor(
-  session: Pick<ApiSession, 'source' | 'status'> | undefined,
+  session: Pick<ApiSession, 'source' | 'status' | 'contextReportAt'> | undefined,
   messages: readonly ChatMessage[] | undefined,
-  serves: boolean,
 ): ReportSource {
-  if (serves && isLiveOrbitalSession(session)) return 'live'
-  return latestContextAnswer(messages) ? 'transcript' : null
-}
-
-/** Where `sessionId`'s report would come from, read from the stores now. */
-export function reportSourceOf(sessionId: string): ReportSource {
-  const { sessions, transcripts } = useOrbital.getState()
-  return reportSourceFor(sessions[sessionId], transcripts[sessionId], servesOnDemand(sessionId))
+  if (!session) return null
+  // An older Mac sends no `contextReportAt`: it keeps nothing and has no route to ask.
+  if (session.contextReportAt === undefined) return latestContextAnswer(messages) ? 'transcript' : null
+  if (isLiveOrbitalSession(session)) return 'live'
+  return session.contextReportAt !== null ? 'kept' : null
 }
 
 /**
- * The same, as a hook: whether the read-out offers the report at all (null
- * hides the affordance) and whether it would be taken now. The phone's Mac
- * version is read when the stores change, not on its own.
+ * Whether the read-out opens a report (`ReportSource` not null), as a hook:
+ * the affordance — "report ›", the hover, the pointer, the phone's tap into
+ * the report sheet — is there only when it is.
  */
 export function useReportSource(sessionId: string): ReportSource {
-  return useOrbital((s) => reportSourceFor(s.sessions[sessionId], s.transcripts[sessionId], servesOnDemand(sessionId)))
+  return useOrbital((s) => reportSourceFor(s.sessions[sessionId], s.transcripts[sessionId]))
 }
 
-/** Whether a report is being taken for `sessionId`: the read-out's loading state. */
-export function useTakingReport(sessionId: string): boolean {
-  return useContextReport((s) => s.taking === sessionId)
+/** What the footer of a report from the read-out says about its session (canvas 71d). */
+export function originOf(session: Pick<ApiSession, 'source' | 'status'> | undefined): ReportOrigin {
+  if (session?.status === 'ended') return 'ended'
+  return session?.source === 'terminal' ? 'terminal' : 'readout'
+}
+
+/** What the read-out shows — used, window and model — or null when it does not know both numbers. */
+export function previewOf(session: ApiSession | undefined): ReportPreview | null {
+  if (!session || session.contextUsedTokens == null) return null
+  const { models, contextWindows } = useOrbital.getState()
+  const window = contextWindowFor(session, models, contextWindows)
+  if (window === null || window <= 0) return null
+  return { used: session.contextUsedTokens, window, model: session.resolvedModel ?? session.model ?? null }
 }
 
 let ticket = 0
 
 /**
- * Opens `sessionId`'s report, as `ReportSource` says: taken now from its live
- * query, else the last `/context` in its loaded transcript. While one is
- * being taken, `taking` names the session. A later `takeReport` supersedes an
- * earlier one still out, and an answer that comes once the session is no
- * longer on screen here opens nothing — it was asked for over this session,
- * not over whatever the user turned to since. Never touches the transcript.
+ * Opens `sessionId`'s report from the read-out, as `ReportSource` says.
+ *
+ * - `transcript`: the loaded transcript's last `/context`, at once.
+ * - `kept`: the transcript's `/context` at once when it is the kept one;
+ *   else the kept one is fetched, the dialog open meanwhile.
+ * - `live`: the dialog opens at once with the preview (`loading`, counting),
+ *   and the fresh report fills it in when it comes.
+ *
+ * A failure keeps the dialog open with why, Try again (`takeReport` again,
+ * with the opening's `key`) and the earlier report — the Mac's, else the
+ * transcript's. An answer for an opening that has been closed or replaced
+ * meanwhile, or that a later `takeReport` superseded, is dropped. Nothing
+ * here touches the transcript.
  */
-export async function takeReport(sessionId: string): Promise<TakeOutcome> {
-  const fromTranscript = (): TakeOutcome => {
-    const message = latestContextAnswer(useOrbital.getState().transcripts[sessionId])
-    const open = message ? openingOf(sessionId, message) : null
-    if (!open) return 'none'
-    useContextReport.getState().showReport(open)
-    return 'transcript'
+export async function takeReport(sessionId: string, opts: { key?: string } = {}): Promise<TakeOutcome> {
+  const { sessions, transcripts } = useOrbital.getState()
+  const session = sessions[sessionId]
+  const source = reportSourceFor(session, transcripts[sessionId])
+  if (source === null) return 'none'
+  const origin = originOf(session)
+  const twin = latestContextAnswer(transcripts[sessionId])
+  const twinSnapshot = twin ? snapshotOf(twin) : null
+  const key = opts.key ?? `readout:${sessionId}:${++ticket}`
+  const base = { sessionId, key, origin, preview: previewOf(session) }
+  const show = (open: Omit<OpenContextReport, 'sessionId' | 'key' | 'origin' | 'preview'>) =>
+    useContextReport.getState().showReport({ ...base, ...open })
+
+  if (source === 'transcript' || (source === 'kept' && twinSnapshot && isKeptTwin(twinSnapshot, session))) {
+    if (!twinSnapshot) return 'none'
+    show({ phase: 'ready', snapshot: twinSnapshot })
+    return source
   }
 
-  if (reportSourceOf(sessionId) !== 'live') return fromTranscript()
+  if (asleep(sessionId)) {
+    show({ phase: 'failed', snapshot: null, failure: 'asleep', earlier: twinSnapshot })
+    return 'failed'
+  }
 
   const mine = ++ticket
-  useContextReport.setState({ taking: sessionId })
-  let answer: Awaited<ReturnType<typeof api.contextReport>> | null
+  show({ phase: 'loading', snapshot: null, counting: source === 'live' })
+  let answer: ContextReportAnswer | null
   try {
     answer = await api.contextReport(sessionId)
   } catch {
-    // An older member Mac without the route, the network, the tunnel: the transcript's report will do.
+    // An older member Mac without the route, the network, the tunnel.
     answer = null
   }
-  if (mine !== ticket) return 'none'
-  useContextReport.setState({ taking: null })
-  if (useContextReport.getState().onScreen !== sessionId) return 'none'
+  if (mine !== ticket || useContextReport.getState().open?.key !== key) return 'none'
+
   if (answer && 'report' in answer) {
-    useContextReport.getState().showReport({
-      sessionId,
-      key: `taken:${answer.takenAt}`,
-      report: answer.report,
-      takenAt: answer.takenAt,
-      text: null,
-    })
-    return 'live'
+    show({ phase: 'ready', snapshot: { report: answer.report, takenAt: answer.takenAt, text: null } })
+    return answer.fresh ? 'live' : 'kept'
   }
-  return fromTranscript()
+  const earlier: ReportSnapshot | null =
+    answer?.earlier ? { report: answer.earlier.report, takenAt: answer.earlier.takenAt, text: null } : twinSnapshot
+  show({ phase: 'failed', snapshot: null, failure: failureOf(answer), earlier })
+  return 'failed'
+}
+
+function failureOf(answer: ContextReportAnswer | null): ReportFailure {
+  if (answer === null) return 'unreachable'
+  return 'error' in answer && answer.error === 'timeout' ? 'timeout' : 'failed'
+}
+
+/** Whether the transcript's last `/context` is the report the Mac keeps: then it opens without asking. */
+function isKeptTwin(twin: ReportSnapshot, session: ApiSession | undefined): boolean {
+  return twin.takenAt !== null && session?.contextReportAt != null && Date.parse(twin.takenAt) >= session.contextReportAt
 }

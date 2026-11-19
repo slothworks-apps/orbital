@@ -111,6 +111,14 @@ export interface ApiSession {
    */
   contextUsedTokens?: number | null
   /**
+   * When the session's kept `/context` report was taken (epoch ms), or null
+   * when the Mac keeps none — the newer of a typed `/context` and one taken
+   * from the context read-out. Absent from an older Mac, which keeps none and
+   * has no route to ask (spec 2026-11-19-context-report-dialog-design §
+   * Opening it from the context read-out). Mirrors `server/src/api/shape.ts`.
+   */
+  contextReportAt?: number | null
+  /**
    * When the user pinned this session (epoch ms), or null. A pinned session
    * stays on the map even once it has ended (spec
    * 2026-09-20-pinned-sessions-design, spec
