@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { effectiveTagIds } from '../tags/rules.js';
+import { contextReportAt } from '../contextReport/store.js';
 import { compactionFailures, pendingRewinds, sessionHarnesses } from '../db/schema.js';
 import { activeIndex, gateOf } from '../harness/logic.js';
 import type { HarnessGate } from '../harness/types.js';
@@ -100,6 +101,15 @@ export interface ApiSession {
    * either side means no arc, never an invented one.
    */
   contextUsedTokens: number | null;
+  /**
+   * When the session's kept `/context` report was taken (epoch ms), or null
+   * when none is kept (`contextReport/store.ts`). With a live Orbital session,
+   * which can always take one, it is what tells the client whether the
+   * context read-out opens a report at all, without asking (spec
+   * 2026-11-19-context-report-dialog-design § Opening it from the context
+   * read-out). Absent from an older Mac.
+   */
+  contextReportAt: number | null;
   /**
    * When the user pinned this session (epoch ms), or null. A pinned session
    * stays on the map even once it has ended, and sorts to the front of
@@ -432,6 +442,7 @@ export function toApiSession(
     permissionMode: row.permission_mode,
     model: row.model, resolvedModel: row.resolved_model,
     contextUsedTokens: row.context_used_tokens,
+    contextReportAt: contextReportAt(ctx.db, row.id),
     pinnedAt: row.pinned_at,
     endedAt: row.ended_at,
     interruptedAt: row.interrupted_at,

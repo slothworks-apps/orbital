@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- /context answers as a report: one line in the transcript with how full the window is, and a tap opens a sheet with a chart of what fills it and the heaviest MCP servers, memory files, agents and skills; it opens by itself for a /context you send from the phone. A tap on the context read-out in the session's header opens the same report without typing anything. Needs a Mac on the new version; with an older one the printout shows as before.
 
 ## [0.26.1] — 2026-11-11
 ### Added

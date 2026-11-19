@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNow } from '../../lib/useNow'
 import { useOrbital } from '../../store/store'
+import { takeReport, useReportSource } from '../../store/takeContextReport'
 import { CLOCK_TICK_MS } from '../constants'
 import { ContextSheet } from '../limits/ContextSheet'
 import { contextReading, readoutLines, ringGradient } from '../limits/context'
@@ -11,15 +12,18 @@ import type { SlotProps } from './slot'
 const RING_MASK = 'radial-gradient(farthest-side,transparent calc(100% - 3px),#000 calc(100% - 2.5px))'
 
 /**
- * Header row 1, after the title: "used / window" and its ring, tapping into
- * the context sheet (spec 2026-10-05-mobile-next § 5; canvas 10k, 10l). It
- * changes per turn without animating. Absent for a terminal session, whose
- * context is never measured (spec § 8 Decision 1).
+ * Header row 1, after the title: "used / window" and its ring (spec
+ * 2026-10-05-mobile-next § 5; canvas 10k). A tap opens the session's
+ * `/context` report sheet (canvas `Feature - Context report from the
+ * read-out` 71e); the 10l facts sheet stays only where no report can be had.
+ * It changes per turn without animating. Absent for a terminal session,
+ * whose context is never measured (spec § 8 Decision 1).
  */
 export function ContextReadout({ session, offline }: SlotProps) {
   const models = useOrbital((s) => s.models)
   const learned = useOrbital((s) => s.contextWindows)
   const [open, setOpen] = useState(false)
+  const reportSource = useReportSource(session.id)
   const now = useNow(open, CLOCK_TICK_MS)
   const reading = contextReading(session, models, learned)
   if (!reading) return null
@@ -32,7 +36,7 @@ export function ContextReadout({ session, offline }: SlotProps) {
       <button
         type="button"
         aria-label="Context used"
-        onClick={() => setOpen(true)}
+        onClick={() => (reportSource !== null ? void takeReport(session.id) : setOpen(true))}
         // canvas 10k: dimmed while the Mac sleeps — the number is the last sync's.
         className={['flex h-11 shrink-0 items-center gap-[7px] px-1', offline ? 'opacity-70' : ''].join(' ')}
       >

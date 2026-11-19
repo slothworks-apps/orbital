@@ -53,4 +53,6 @@ Behind `macSupports(...)`, the phone leaves the feature out against an
 older Mac instead of asking. An older Mac drops a tunnel message it cannot
 parse, so asking costs a timeout and a wrong state. Raise
 `MIN_SERVER_VERSION` only for what the whole app cannot work without (ADR
-`a-phone-feature-waits-for-the-mac-that-serves-it`).
+`a-phone-feature-waits-for-the-mac-that-serves-it`). A session field the Mac
+always sends from the release that adds the route, null included, can gate
+by its absence instead of a row (the ADR's 2026-11-19 amendment).

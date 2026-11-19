@@ -17,6 +17,7 @@ describe('remote allowlist', () => {
       ['GET', '/api/sessions'], ['GET', '/api/sessions/abc'], ['GET', '/api/sessions/abc/messages'],
       ['GET', '/api/sessions/abc/messages?limit=30&before=x'],
       ['GET', '/api/sessions/abc/subagents/toolu_1/messages'], ['GET', '/api/sessions/abc/media'], ['GET', '/api/sessions/abc/progress-calls'],
+      ['GET', '/api/sessions/abc/context-report'],
       ['POST', '/api/sessions'], ['POST', '/api/sessions/abc/messages'],
       ['POST', '/api/sessions/abc/decision/d1'], ['POST', '/api/sessions/abc/interrupt'],
       ['POST', '/api/sessions/abc/model'], ['POST', '/api/sessions/abc/permission-mode'],

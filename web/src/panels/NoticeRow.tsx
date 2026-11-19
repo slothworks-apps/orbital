@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import type { ChatMessage, NoticeLevel } from '../lib/types'
 import { ansiToHtml } from '../lib/highlight'
+import { ContextReportLine } from './contextReport/ContextReportLine'
 
 /**
  * Canvas 20c F's ramp: glyph and ink rise with urgency, and accent appears
@@ -100,14 +101,23 @@ export interface NoticeRowProps {
   message: ChatMessage
   /** What can be done about it, at the end of a one-line row: the live Stop hook notice's Cancel. */
   action?: ReactNode
+  /** The session the row is in: what a `/context` report opens for. */
+  sessionId?: string
+  /** The phone's transcript: the report line is a touch target (canvas 70f). */
+  phone?: boolean
 }
 
-export function NoticeRow({ message, action }: NoticeRowProps) {
+export function NoticeRow({ message, action, sessionId = '', phone = false }: NoticeRowProps) {
   const [open, setOpen] = useState(false)
   const level = message.notice?.level ?? 'notice'
   const tone = LEVEL[level]
-  const command = message.notice?.command
-  const text = message.text ?? ''
+  // A `/context` answer with its report as data is drawn as one line that
+  // opens the report (canvas `Feature - Context report` 70b) instead of the
+  // printout. Read back from the file it names no command, but the report
+  // says which it is.
+  const report = message.notice?.contextReport
+  const command = message.notice?.command ?? (report ? '/context' : undefined)
+  const text = report ? '' : (message.text ?? '')
   const lines = text.split('\n').length
   const boxed = isTerminalArt(text)
   const folded = lines > FOLD_AT && !open
@@ -117,7 +127,7 @@ export function NoticeRow({ message, action }: NoticeRowProps) {
   // Canvas 20c F draws a run message as ONE baseline-aligned line — glyph,
   // level, text. Only output that needs more than a line gets 20c A's header
   // over a body.
-  const inline = !command && lines === 1
+  const inline = !command && lines === 1 && !report
   const time = message.timestamp
     ? new Date(message.timestamp).toLocaleTimeString(undefined, {
         hour: '2-digit',
@@ -148,7 +158,7 @@ export function NoticeRow({ message, action }: NoticeRowProps) {
       data-notice
       data-notice-level={level}
       className={[
-        inline ? 'flex items-baseline gap-2' : 'flex flex-col gap-[5px]',
+        inline ? 'flex items-baseline gap-2' : report ? 'flex flex-col gap-1.5' : 'flex flex-col gap-[5px]',
         'font-mono',
         loud
           ? 'rounded-[8px] border border-ink-100/32 bg-ink-100/5 px-2.5 py-[7px]'
@@ -190,6 +200,9 @@ export function NoticeRow({ message, action }: NoticeRowProps) {
               </span>
             )}
           </div>
+          {report ? (
+            <ContextReportLine message={message} report={report} sessionId={sessionId} phone={phone} />
+          ) : (
           <div className="relative">
             <pre
               className={[
@@ -211,6 +224,7 @@ export function NoticeRow({ message, action }: NoticeRowProps) {
               />
             )}
           </div>
+          )}
         </>
       )}
       {lines > FOLD_AT && (

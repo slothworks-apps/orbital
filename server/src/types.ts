@@ -2,6 +2,8 @@ import type { WalkthroughTag } from './walkthrough/tag.js';
 import type { RecentTool } from './transcript/recentTools.js';
 import type { HarnessMessageKind } from './harness/types.js';
 import type { LiveHookNotice } from '@orbital/shared/hookNotice';
+import type { ContextReport } from '@orbital/shared/contextReport';
+export type { ContextReport };
 
 export type SessionSource = 'terminal' | 'web';
 /** Why Orbital started a session: `harness_draft` is a harness template's drafting conversation. */
@@ -197,6 +199,14 @@ export interface ChatMessage {
      * this; `text` says the same for a client that predates it.
      */
     hook?: LiveHookNotice;
+    /**
+     * `/context` answers only: the structured twin of the printout in
+     * `text`, read tolerantly from the SDK frame's `context_usage` or the
+     * file entry's `contextUsage` (`transcript/notices.ts`). Absent when the
+     * CLI attached none or what it attached could not be read; `text` is
+     * always there as the fallback.
+     */
+    contextReport?: ContextReport;
   };
   /** Images this message carries — refs into the image store, never data.
    * A pasted user image is its own message (no text); a tool_result keeps
@@ -218,6 +228,7 @@ export interface ChatMessage {
    */
   rewind?: { hiddenCount: number | null };
 }
+
 
 /**
  * A `notice` row with `kind: 'limit_reset'`: a usage-limit wait fired (spec
@@ -346,7 +357,9 @@ export type ErrorKind =
   /** Git refused to remove a session's worktree, or a failed worktree launch could not be fully undone. */
   | 'worktree_failed'
   /** The call naming a worktree's branch failed, timed out or answered nothing usable; the temporary name stood in. */
-  | 'branch_naming_failed';
+  | 'branch_naming_failed'
+  /** A live session refused the context report request from the read-out, or answered it with nothing readable. */
+  | 'context_report_failed';
 
 export interface ErrorRecord {
   id: number;

@@ -1,3 +1,4 @@
+import type { ContextReportAnswer } from '@orbital/shared/contextReport'
 import type { McpjsonDecisions, McpjsonServer } from './mcpjson'
 import { NOT_A_NAME, type FindFilesAnswer, type FoundFile } from './findByName'
 import type {
@@ -1238,6 +1239,23 @@ export const api = {
     return request<SessionStatsDetail>('GET', apiPath`/api/stats/sessions/${id}` + query)
   },
 
+  /**
+   * The session's `/context` report for the context read-out (spec
+   * 2026-11-19-context-report-dialog-design § Opening it from the context
+   * read-out): taken now from a session Orbital runs (`fresh`), else the one
+   * the Mac keeps. A named refusal comes back as `{ error }`, a failed taking
+   * with the kept report as `earlier`; anything else — an older Mac without
+   * the route, the network, the tunnel — throws.
+   */
+  async contextReport(id: string): Promise<ContextReportAnswer> {
+    return remoteCall('GET', apiPath`/api/sessions/${id}/context-report`, undefined, {
+      404: ['not_found', 'no_report'] as const,
+      409: ['unsupported'] as const,
+      502: ['failed'] as const,
+      504: ['timeout'] as const,
+    })
+  },
+
   // Reports to Orbital's GitHub (spec 2026-10-20-report-to-github-design).
   // Mac only: the phone opens the prefilled form instead. `gh` missing or
   // logged out comes back as `{ error }`; anything gh says otherwise throws.
@@ -1926,6 +1944,9 @@ export interface SessionTip {
   title: string
   text: string
 }
+
+/** `GET /api/sessions/:id/context-report`'s answer, declared once in `shared/` for the route and the web. */
+export type { ContextReportAnswer }
 
 // Export types for convenience
 export type {

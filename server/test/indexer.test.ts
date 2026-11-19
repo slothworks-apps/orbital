@@ -68,7 +68,7 @@ describe('indexProjects', () => {
   it('indexes new transcripts and extracts meta', () => {
     const { db, projects } = setup();
     const result = indexProjects(db, projects);
-    expect(result).toEqual({ scanned: 1, indexed: 1 });
+    expect(result).toEqual({ scanned: 1, indexed: 1, reports: [] });
     const row = db.select().from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!;
     expect(row.cwd).toBe('/Users/tomin/Projects/slothworks/ergaily');
     expect(row.title).toBe('Fix the login bug in the auth service please');
@@ -77,12 +77,12 @@ describe('indexProjects', () => {
   it('is incremental: unchanged files are skipped, changed files re-indexed', () => {
     const { db, projects, transcriptPath } = setup();
     indexProjects(db, projects);
-    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 0 });
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 0, reports: [] });
     appendFileSync(
       transcriptPath,
       '\n{"type":"user","uuid":"u9","timestamp":"2026-09-01T12:00:00.000Z","message":{"role":"user","content":"more"}}',
     );
-    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1 });
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1, reports: [] });
     const row = db
       .select({ messageCount: sessions.messageCount })
       .from(sessions)
@@ -98,12 +98,12 @@ describe('indexProjects', () => {
     writeTranscriptFile(projects, 'proj', 'sess-clear', [
       { type: 'user', timestamp: '2026-09-16T10:00:00Z', cwd: '/w/x', message: { role: 'user', content: '/clear' } },
     ]);
-    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1 });
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1, reports: [] });
     expect(
       db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, 'sess-clear')).get()!
         .title,
     ).toBe('/clear');
-    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 0 });
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 0, reports: [] });
   });
 });
 
@@ -163,7 +163,7 @@ describe('stranded titles migration', () => {
 describe('indexProjects', () => {
   it('returns zeros for a missing dir', () => {
     const { db } = setup();
-    expect(indexProjects(db, '/nonexistent-dir-xyz')).toEqual({ scanned: 0, indexed: 0 });
+    expect(indexProjects(db, '/nonexistent-dir-xyz')).toEqual({ scanned: 0, indexed: 0, reports: [] });
   });
   it('preserves title, source, permission_mode, ended_at on re-index; backfills project_dir for web sessions', () => {
     const { db, projects, transcriptPath } = setup();
@@ -197,7 +197,7 @@ describe('indexProjects', () => {
       transcriptPath,
       '\n{"type":"user","uuid":"u9","timestamp":"2026-09-01T12:00:00.000Z","message":{"role":"user","content":"more"}}',
     );
-    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1 });
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1, reports: [] });
     // Verify title and other fields are preserved, but message_count updated
     row = db.select().from(sessions).where(eq(sessions.id, 'aaaa-bbbb')).get()!;
     expect(row.title).toBe('My renamed title');
@@ -430,14 +430,14 @@ describe('indexProjects and session_stats', () => {
     const { db, projects } = setupEmpty();
     oneTurnSession(projects);
     indexProjects(db, projects);
-    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 0 });
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 0, reports: [] });
 
     // What a definition change looks like to an already-indexed session.
     db.update(sessionStats)
       .set({ statsVersion: STATS_VERSION - 1, turns: 0 })
       .where(eq(sessionStats.sessionId, 'sess-stats'))
       .run();
-    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1 });
+    expect(indexProjects(db, projects)).toEqual({ scanned: 1, indexed: 1, reports: [] });
 
     const row = statsRow(db, 'sess-stats')!;
     expect(row.statsVersion).toBe(STATS_VERSION);
@@ -474,7 +474,7 @@ describe('indexPaths', () => {
     const { db, projects } = setupEmpty();
     writeTranscriptFile(projects, 'proj', 'one', [userTurn('/w/x', 'first')]);
     writeTranscriptFile(projects, 'proj', 'two', [userTurn('/w/x', 'second')]);
-    expect(indexPaths(db, projects, ['proj/one.jsonl'])).toEqual({ scanned: 1, indexed: 1 });
+    expect(indexPaths(db, projects, ['proj/one.jsonl'])).toEqual({ scanned: 1, indexed: 1, reports: [] });
     expect(ids(db)).toEqual(['one']);
   });
 
@@ -499,7 +499,7 @@ describe('indexPaths', () => {
       'proj/sessions-index.json',
       'proj/deleted.jsonl',
     ]);
-    expect(result).toEqual({ scanned: 1, indexed: 0 });
+    expect(result).toEqual({ scanned: 1, indexed: 0, reports: [] });
     expect(ids(db)).toEqual([]);
   });
 
@@ -577,7 +577,7 @@ describe('the sliced full pass', () => {
     const announced: string[] = [];
     try {
       const result = await indexProjectsSliced(db, projects, (id) => announced.push(id), undefined, undefined, 0);
-      expect(result).toEqual({ scanned: 6, indexed: 6 });
+      expect(result).toEqual({ scanned: 6, indexed: 6, reports: [] });
     } finally {
       clearInterval(ticker);
     }

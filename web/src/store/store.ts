@@ -38,6 +38,8 @@ import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
 import type { LinesMode } from '../lib/branchStatus'
 import { archipelagoEnabled } from '../lib/experimental'
+import { isContextCommand } from '../lib/contextReport'
+import { isContextAnswer, useContextReport } from './contextReport'
 import type { MachineEvent } from '@orbital/shared/remote/device'
 import { deviceChips, deviceOf, devicesOn, ideHere, isMemberOffline, machineOffline, withMachine, withMachineOffline } from '../lib/devices'
 import type {
@@ -1647,6 +1649,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // A live notice's end may have gone by while the socket was down; the
     // server puts one up again only with the next hook.
     if (Object.keys(get().liveNotices).length > 0) set({ liveNotices: {} })
+    // A `/context` answer that came while the socket was down arrives as
+    // history, which never settles its ask: none may outlive the outage.
+    useContextReport.getState().forgetAll()
     try {
       // The full snapshot already covers everything the `sessions` and
       // `errors` topics carried while the socket was down.
@@ -1874,6 +1879,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           [sessionId]: [...existing, msg.message],
         },
       })
+      if (isContextAnswer(msg.message)) useContextReport.getState().answered(sessionId, msg.message)
       return
     }
 
@@ -2470,6 +2476,13 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const queues =
       Boolean(session?.limitWait) || (session != null && (pendingSetup(session) !== null || (session.setup?.queued.length ?? 0) > 0))
 
+    // Typing /context asks for the report: its live answer opens it here, and
+    // nowhere else (spec 2026-11-19-context-report-dialog-design). A queued
+    // one is not asking now: its answer comes after a wait, over whatever the
+    // user has turned to since.
+    const asksReport = !queues && isContextCommand(text)
+    if (asksReport) useContextReport.getState().ask(id)
+
     set((state) => ({
       ...(queues
         ? {}
@@ -2510,6 +2523,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         })
       }
     } catch (err) {
+      // Only the ask this send made: a later message failing leaves a
+      // pending /context's ask in place.
+      if (asksReport) useContextReport.getState().forget(id)
       // Whatever refused the turn — offline, 409, 500, the network — the
       // browser selection did not go out: back above the composer, unless a
       // newer one arrived meanwhile.

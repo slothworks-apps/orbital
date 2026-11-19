@@ -44,6 +44,7 @@ import { notificationId } from '../notify'
 import { readTranscriptCache } from '../platform/cache'
 import { removeDeliveredNotification } from '../platform/localNotify'
 import { ContextReadout } from '../session/ContextReadout'
+import { ContextReportSheetHost } from '../session/ContextReportSheet'
 import { HarnessProgress } from '../session/HarnessProgress'
 import { useHarnessRows } from '../session/harnessRows'
 import { ModelSwitch } from '../session/ModelSwitch'
@@ -279,6 +280,7 @@ function SessionView({ id }: { id: string }) {
       </LoginNoticeContext.Provider>
       <SheetPresence>{cleanup.sheet && <WorktreeCleanupSheet cleanup={cleanup} />}</SheetPresence>
       {session && <ProgressSheetHost session={session} />}
+      <ContextReportSheetHost sessionId={id} />
     </MobileScreen>
   )
 }
