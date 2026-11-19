@@ -4,9 +4,9 @@ import {
   categorySlots,
   contextReportView,
   formatShare,
-  formatTokens,
+  formatReportTokens,
   isContextCommand,
-  shortenPath,
+  shortenMemoryPath,
 } from '../lib/contextReport'
 import type { ChatMessage, ContextReport } from '../lib/types'
 import { isContextAnswer, useContextReport } from '../store/contextReport'
@@ -47,19 +47,19 @@ describe('isContextCommand', () => {
   })
 })
 
-describe('formatTokens', () => {
+describe('formatReportTokens', () => {
   it('writes tokens the way the printout does', () => {
-    expect(formatTokens(654)).toBe('654')
-    expect(formatTokens(999)).toBe('999')
-    expect(formatTokens(1000)).toBe('1k')
-    expect(formatTokens(2758)).toBe('2.8k')
-    expect(formatTokens(108805)).toBe('108.8k')
-    expect(formatTokens(1000000)).toBe('1M')
+    expect(formatReportTokens(654)).toBe('654')
+    expect(formatReportTokens(999)).toBe('999')
+    expect(formatReportTokens(1000)).toBe('1k')
+    expect(formatReportTokens(2758)).toBe('2.8k')
+    expect(formatReportTokens(108805)).toBe('108.8k')
+    expect(formatReportTokens(1000000)).toBe('1M')
   })
 
   it('never writes 1000k', () => {
-    expect(formatTokens(999960)).toBe('1M')
-    expect(formatTokens(999940)).toBe('999.9k')
+    expect(formatReportTokens(999960)).toBe('1M')
+    expect(formatReportTokens(999940)).toBe('999.9k')
   })
 })
 
@@ -84,15 +84,15 @@ describe('categorySlots', () => {
   })
 })
 
-describe('shortenPath', () => {
+describe('shortenMemoryPath', () => {
   it('writes home as ~ and keeps the file and its folder', () => {
-    expect(shortenPath('/Users/me/.claude/CLAUDE.md')).toBe('~/.claude/CLAUDE.md')
-    expect(shortenPath('/Users/me/work/orbital/.claude/rules/design-tokens.md')).toBe('~/…/rules/design-tokens.md')
-    expect(shortenPath('/home/me/work/orbital/app/CLAUDE.md')).toBe('~/…/app/CLAUDE.md')
+    expect(shortenMemoryPath('/Users/me/.claude/CLAUDE.md')).toBe('~/.claude/CLAUDE.md')
+    expect(shortenMemoryPath('/Users/me/work/orbital/.claude/rules/design-tokens.md')).toBe('~/…/rules/design-tokens.md')
+    expect(shortenMemoryPath('/home/me/work/orbital/app/CLAUDE.md')).toBe('~/…/app/CLAUDE.md')
   })
 
   it('leaves a path outside home whole when it is short', () => {
-    expect(shortenPath('/etc/claude/CLAUDE.md')).toBe('/etc/claude/CLAUDE.md')
+    expect(shortenMemoryPath('/etc/claude/CLAUDE.md')).toBe('/etc/claude/CLAUDE.md')
   })
 })
 
@@ -221,9 +221,10 @@ describe('opening by itself', () => {
     notice: { level: 'notice', command: '/context', contextReport: report(), ...over },
   })
 
-  beforeEach(() => useContextReport.setState({ open: null, asked: {} }))
+  beforeEach(() => useContextReport.setState({ open: null, asked: {}, onScreen: null }))
 
-  it('opens the answer to a /context sent from here', () => {
+  it('opens the answer to a /context sent from here while its session is on screen', () => {
+    useContextReport.getState().view('s1')
     useContextReport.getState().ask('s1')
     useContextReport.getState().answered('s1', answer())
     expect(useContextReport.getState().open?.message.id).toBe('n1')
@@ -231,6 +232,7 @@ describe('opening by itself', () => {
   })
 
   it('leaves an answer nobody here asked for closed, and one for another session', () => {
+    useContextReport.getState().view('s1')
     useContextReport.getState().answered('s1', answer())
     useContextReport.getState().ask('s2')
     useContextReport.getState().answered('s1', answer())
@@ -238,7 +240,37 @@ describe('opening by itself', () => {
     expect(useContextReport.getState().asked).toEqual({ s2: true })
   })
 
+  it('settles the ask but stays closed when the session is no longer on screen', () => {
+    const leave = useContextReport.getState().view('s1')
+    useContextReport.getState().ask('s1')
+    leave()
+    useContextReport.getState().view('s2')
+    useContextReport.getState().answered('s1', answer())
+    expect(useContextReport.getState().open).toBeNull()
+    expect(useContextReport.getState().asked).toEqual({})
+    // Back on the session, a later answer from elsewhere does not open either.
+    useContextReport.getState().view('s1')
+    useContextReport.getState().answered('s1', answer())
+    expect(useContextReport.getState().open).toBeNull()
+  })
+
+  it('stays closed while nothing is on screen (a pushed screen, a lock)', () => {
+    const leave = useContextReport.getState().view('s1')
+    useContextReport.getState().ask('s1')
+    leave()
+    useContextReport.getState().answered('s1', answer())
+    expect(useContextReport.getState().open).toBeNull()
+  })
+
+  it('leaving a session does not take the screen from the one that replaced it', () => {
+    const leaveFirst = useContextReport.getState().view('s1')
+    useContextReport.getState().view('s2')
+    leaveFirst()
+    expect(useContextReport.getState().onScreen).toBe('s2')
+  })
+
   it('settles the ask on an answer without a report, so the next one from elsewhere stays closed', () => {
+    useContextReport.getState().view('s1')
     useContextReport.getState().ask('s1')
     useContextReport.getState().answered('s1', answer({ contextReport: undefined }))
     expect(useContextReport.getState().open).toBeNull()
@@ -247,10 +279,21 @@ describe('opening by itself', () => {
   })
 
   it('forgets a /context that did not go out', () => {
+    useContextReport.getState().view('s1')
     useContextReport.getState().ask('s1')
     useContextReport.getState().forget('s1')
     useContextReport.getState().answered('s1', answer())
     expect(useContextReport.getState().open).toBeNull()
+  })
+
+  it('forgets every ask at once, as a reconnect does', () => {
+    useContextReport.getState().view('s1')
+    useContextReport.getState().ask('s1')
+    useContextReport.getState().ask('s2')
+    useContextReport.getState().forgetAll()
+    useContextReport.getState().answered('s1', answer())
+    expect(useContextReport.getState().open).toBeNull()
+    expect(useContextReport.getState().asked).toEqual({})
   })
 
   it('knows a /context answer by its command or by its report', () => {

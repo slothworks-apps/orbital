@@ -8,6 +8,7 @@ related:
   - locally-answered-slash-commands
   - context-usage-has-one-source
   - 2026-09-18-transcript-folding-design
+  - 2026-11-19-context-report-dialog-design
 tags:
   - slash-commands
   - transcripts
@@ -83,6 +84,15 @@ such card yet. The arc keeps its single source — the `get_context_usage`
 control request the turn's `result` already triggers (adr
 `context-usage-has-one-source`) — rather than gaining a second one that only
 `/context` turns would feed.
+
+Amended 2026-11-19 (spec 2026-11-19-context-report-dialog-design): the
+`/context` twin is now read. Both paths put `context_usage` (the stream) and
+`contextUsage` (the file) on the notice as `notice.contextReport`, and the
+clients draw it as a one-line summary row in place of the printout and a
+report dialog on the Mac, a bottom sheet on the phone. The text stays on the
+row as the fallback and the report's "As text". The arc still has its one
+source: the report is a snapshot shown beside it, never fed into it.
+`/usage`'s `usage_report` is still not read.
 
 ## What was ruled out
 

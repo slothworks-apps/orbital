@@ -107,10 +107,20 @@ const NO_PROPS: LongPressProps = {}
  * swallowed, so the element's own press does not run as well.
  */
 export function useLongPress(path: string | null): LongPressProps {
+  const longPress = handlers?.longPress
+  const action = useMemo(() => (longPress && path !== null ? () => longPress(path) : null), [longPress, path])
+  return useLongPressAction(action)
+}
+
+/**
+ * The handlers that turn a resting finger into `action()`, the way
+ * `useLongPress` does for a path; empty when there is no action. Pass a
+ * stable `action`: the handlers are rebuilt when it changes.
+ */
+export function useLongPressAction(action: (() => void) | null): LongPressProps {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const start = useRef<{ x: number; y: number } | null>(null)
   const fired = useRef(false)
-  const longPress = handlers?.longPress
 
   useEffect(
     () => () => {
@@ -120,7 +130,7 @@ export function useLongPress(path: string | null): LongPressProps {
   )
 
   return useMemo(() => {
-    if (!longPress || path === null) return NO_PROPS
+    if (!action) return NO_PROPS
     const cancel = () => {
       if (timer.current) clearTimeout(timer.current)
       timer.current = null
@@ -134,7 +144,7 @@ export function useLongPress(path: string | null): LongPressProps {
         timer.current = setTimeout(() => {
           timer.current = null
           fired.current = true
-          longPress(path)
+          action()
         }, LONG_PRESS_MS)
       },
       onPointerMove: (event) => {
@@ -154,7 +164,7 @@ export function useLongPress(path: string | null): LongPressProps {
         event.stopPropagation()
       },
     }
-  }, [longPress, path])
+  }, [action])
 }
 
 /** One image a message carries, in the order a viewer pages through them. */

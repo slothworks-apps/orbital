@@ -1649,6 +1649,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // A live notice's end may have gone by while the socket was down; the
     // server puts one up again only with the next hook.
     if (Object.keys(get().liveNotices).length > 0) set({ liveNotices: {} })
+    // A `/context` answer that came while the socket was down arrives as
+    // history, which never settles its ask: none may outlive the outage.
+    useContextReport.getState().forgetAll()
     try {
       // The full snapshot already covers everything the `sessions` and
       // `errors` topics carried while the socket was down.
@@ -2451,9 +2454,6 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (browserSelection) get().dismissBrowserSelection(id)
 
     const images = attachments?.map((a) => a.entry)
-    // Typing /context asks for the report: its live answer opens the dialog
-    // here, and nowhere else (spec 2026-11-19-context-report-dialog-design).
-    if (isContextCommand(text)) useContextReport.getState().ask(id)
     // What was SENT, not what was typed: the echo that comes back off the
     // transcript carries the block too, and an optimistic turn that showed
     // less would be replaced by a longer one a moment later.
@@ -2475,6 +2475,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // for its first turn to end: the message joins the end of it.
     const queues =
       Boolean(session?.limitWait) || (session != null && (pendingSetup(session) !== null || (session.setup?.queued.length ?? 0) > 0))
+
+    // Typing /context asks for the report: its live answer opens it here, and
+    // nowhere else (spec 2026-11-19-context-report-dialog-design). A queued
+    // one is not asking now: its answer comes after a wait, over whatever the
+    // user has turned to since.
+    if (!queues && isContextCommand(text)) useContextReport.getState().ask(id)
 
     set((state) => ({
       ...(queues

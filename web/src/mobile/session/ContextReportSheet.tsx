@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react'
-import { breakdownSections, contextReportView } from '../../lib/contextReport'
+import { useEffect, useRef, useState, type TouchEvent } from 'react'
 import type { ChatMessage, ContextReport } from '../../lib/types'
-import { AsText, Breakdowns, Headline, Legend, WindowChart, reportTime, snapshotLine } from '../../panels/contextReport/parts'
+import { AsText, Breakdowns, Headline, Legend, WindowChart, snapshotLine } from '../../panels/contextReport/parts'
+import { useReport } from '../../panels/contextReport/useReport'
 import { useContextReport } from '../../store/contextReport'
-import { parseContextThresholds, useOrbital } from '../../store/store'
+import { isGated, useMobile } from '../state'
 import { BottomSheet, SecondaryButton, SheetPresence } from '../ui'
 
 /**
@@ -22,10 +22,16 @@ const DISMISS_DRAG_PX = 60
  * The open `/context` report on the phone, for the session on screen (spec
  * 2026-11-19-context-report-dialog-design § Phone). Leaving the session
  * closes it.
+ *
+ * Mounted with the session screen, which a pushed subagent, task or file
+ * screen unmounts; while it is mounted and no lock stands in front of it,
+ * the session is on screen, and only then does its answer open by itself.
  */
 export function ContextReportSheetHost({ sessionId }: { sessionId: string }) {
   const open = useContextReport((s) => s.open)
   const close = useContextReport((s) => s.close)
+  const gated = useMobile(isGated)
+  useEffect(() => (gated ? undefined : useContextReport.getState().view(sessionId)), [sessionId, gated])
   useEffect(() => () => {
     if (useContextReport.getState().open?.sessionId === sessionId) useContextReport.getState().close()
   }, [sessionId])
@@ -49,12 +55,7 @@ function ContextReportSheet({
   report: ContextReport
   onClose: () => void
 }) {
-  const title = useOrbital((s) => s.sessions[sessionId]?.title) || 'Context'
-  const settings = useOrbital((s) => s.settings)
-  const thresholds = useMemo(() => parseContextThresholds(settings), [settings])
-  const view = useMemo(() => contextReportView(report, thresholds), [report, thresholds])
-  const sections = useMemo(() => breakdownSections(report), [report])
-  const time = reportTime(message.timestamp)
+  const { title, thresholds, view, sections, time } = useReport(sessionId, message, report)
   const [detent, setDetent] = useState<Detent>('medium')
   const full = detent === 'full'
 

@@ -1,7 +1,9 @@
-import { useState, type CSSProperties } from 'react'
+import { useCallback, useState, type CSSProperties } from 'react'
 import {
   formatShare,
-  formatTokens,
+  formatReportTokens,
+  type BreakdownGroup,
+  type BreakdownItem,
   type BreakdownSection,
   type CategorySlot,
   type ContextReportView,
@@ -11,7 +13,9 @@ import { copyToClipboard } from '../../lib/clipboard'
 import { swatch } from '../../lib/palette'
 import type { ContextReport } from '../../lib/types'
 import { contextLevelOklch, oklchCss, type ContextLevel, type ContextThresholds } from '../../lib/usage'
+import { useLongPressAction } from '../../lib/fileOpen'
 import { Button } from '../../ui/Button'
+import { REVIEW_SCROLLBAR } from '../../ui/Dialog'
 
 /*
  * The pieces of the `/context` report, drawn the same on the Mac's dialog and
@@ -31,11 +35,6 @@ export const figureInk = (level: ContextLevel): string => (level === 'critical' 
 /** 70e: the autocompact buffer's hatch. */
 const HATCH = `repeating-linear-gradient(135deg,${swatch('line', 0.5)} 0 1.5px,transparent 1.5px 4.5px)`
 const ring = (alpha: number): string => `inset 0 0 0 1px ${swatch('line', alpha)}`
-
-/** `14:20`, or null when the row carries no time. */
-export function reportTime(timestamp: string | undefined): string | null {
-  return timestamp ? new Date(timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : null
-}
 
 /** 70c's footer line, and the phone's line under As text. */
 export function snapshotLine(time: string | null): string {
@@ -60,7 +59,7 @@ export function Headline({ report, view, phone }: { report: ContextReport; view:
         </span>
         <span className="flex min-w-0 flex-col gap-[3px]">
           <span className="whitespace-nowrap font-mono fs-13 text-ink-100">
-            {formatTokens(report.totalTokens)} / {formatTokens(report.rawMaxTokens)}
+            {formatReportTokens(report.totalTokens)} / {formatReportTokens(report.rawMaxTokens)}
           </span>
           <span className="whitespace-nowrap fs-11.5 text-ink-900/60">{view.windowNoun}</span>
         </span>
@@ -103,7 +102,7 @@ export function WindowChart({
   return (
     <div className="flex flex-col">
       <div className={`relative h-4 ${MONO_CAPTION}`}>
-        <span className="absolute left-0 top-0">WINDOW · {formatTokens(report.rawMaxTokens)}</span>
+        <span className="absolute left-0 top-0">WINDOW · {formatReportTokens(report.rawMaxTokens)}</span>
         {[thresholds.warn, thresholds.critical].map((mark) => (
           <span key={mark}>
             <span className="absolute top-px -translate-x-1/2 tracking-[0.02em]" style={{ left: `${mark}%` }}>
@@ -119,7 +118,7 @@ export function WindowChart({
           style={{ width: `${view.buffer * 100}%`, background: HATCH, boxShadow: ring(0.3) }}
         />
         <span
-          title={`${formatTokens(report.totalTokens)} / ${formatTokens(report.rawMaxTokens)}`}
+          title={`${formatReportTokens(report.totalTokens)} / ${formatReportTokens(report.rawMaxTokens)}`}
           className="absolute inset-y-0 left-0 block rounded-l-[3px]"
           style={{ width: `${fill}%`, background: gauge, boxShadow: `2px 0 0 ${swatch('raised')}` }}
         />
@@ -139,13 +138,13 @@ export function WindowChart({
         {view.used.map((c) => (
           <span
             key={c.name}
-            title={`${c.name} · ${formatTokens(c.tokens)}`}
+            title={`${c.name} · ${formatReportTokens(c.tokens)}`}
             className="block min-w-0.5"
             style={{ flex: `${c.tokens} 1 0`, background: slotColour(c.slot) }}
           />
         ))}
       </div>
-      <div className={`mt-1.5 ${MONO_CAPTION}`}>IN USE · {formatTokens(report.totalTokens)}</div>
+      <div className={`mt-1.5 ${MONO_CAPTION}`}>IN USE · {formatReportTokens(report.totalTokens)}</div>
     </div>
   )
 }
@@ -167,8 +166,8 @@ function LegendRow({ name, tokens, share, swatchStyle, phone }: {
     <div className={`flex items-center gap-[9px] ${phone ? 'h-[30px] fs-13.5' : 'h-[26px] fs-12.5'}`}>
       <span className={SQUARE} style={swatchStyle} />
       <span className="min-w-0 flex-1 truncate text-ink-100">{name}</span>
-      <span className="font-mono fs-11.5 text-ink-100">{formatTokens(tokens)}</span>
-      <span className="w-[54px] text-right font-mono fs-11 text-ink-900/60">{share}</span>
+      <span className="font-mono fs-11.5 text-ink-100">{formatReportTokens(tokens)}</span>
+      <span className="block w-[54px] shrink-0 text-right font-mono fs-11 text-ink-900/60">{share}</span>
     </div>
   )
 }
@@ -210,8 +209,8 @@ export function Legend({ report, view, phone }: { report: ContextReport; view: C
         >
           <span className={SQUARE} style={{ border: `1px dashed ${swatch('ink-900', 0.45)}` }} />
           <span className="min-w-0 flex-1 truncate">{d.name}</span>
-          <span className="font-mono fs-11">{formatTokens(d.tokens)}</span>
-          <span className="w-[54px] text-right font-mono fs-11 text-ink-900/45">—</span>
+          <span className="font-mono fs-11">{formatReportTokens(d.tokens)}</span>
+          <span className="block w-[54px] shrink-0 text-right font-mono fs-11 text-ink-900/45">—</span>
         </div>
       ))}
     </div>
@@ -259,65 +258,25 @@ export function Breakdowns({ sections, phone }: { sections: BreakdownSection[]; 
               onClick={() => toggle(section.key)}
               className={`flex w-full cursor-pointer items-center gap-2.5 text-left text-ink-100 hover:bg-line/4 ${phone ? 'h-13 px-1' : 'h-10 px-1.5'}`}
             >
-              <span className="w-2.5 font-mono fs-10 text-ink-900/60">{sectionOpen ? '▾' : '▸'}</span>
+              <span className="block w-2.5 shrink-0 font-mono fs-10 text-ink-900/60">{sectionOpen ? '▾' : '▸'}</span>
               <span className={SQUARE} style={{ background: colour }} />
               <span className={`whitespace-nowrap font-semibold ${phone ? 'fs-15' : 'fs-13'}`}>{section.name}</span>
               <span className="min-w-0 flex-1 truncate font-mono fs-10.5 text-ink-900/60">{section.sub}</span>
-              <span className="font-mono fs-11.5">{formatTokens(section.tokens)}</span>
+              <span className="font-mono fs-11.5">{formatReportTokens(section.tokens)}</span>
             </button>
             {sectionOpen && (
               <div className="flex flex-col pb-2 pl-[30px]">
                 {section.groups.map((group) => {
                   const key = `${section.key}/${group.lead}`
-                  const opens = group.items.length > 0
-                  const groupOpen = opens && Boolean(open[key])
                   return (
-                    <div key={key}>
-                      <button
-                        type="button"
-                        aria-expanded={opens ? groupOpen : undefined}
-                        onClick={opens ? () => toggle(key) : undefined}
-                        title={group.full}
-                        className={`flex w-full items-center gap-[9px] pr-1.5 text-left text-ink-100 ${opens ? 'cursor-pointer' : 'cursor-default'} ${phone ? 'h-12' : 'h-[30px]'}`}
-                      >
-                        <span className="w-[9px] flex-none font-mono fs-9.5 text-ink-900/60">
-                          {opens ? (groupOpen ? '▾' : '▸') : ''}
-                        </span>
-                        <span
-                          className={`min-w-0 flex-1 truncate ${
-                            group.mono
-                              ? `font-mono ${phone ? 'fs-12' : 'fs-11.5'}`
-                              : `font-sans ${phone ? 'fs-14' : 'fs-12.5'}`
-                          }`}
-                        >
-                          {group.lead}
-                        </span>
-                        <span className="flex-none whitespace-nowrap font-mono fs-10 text-ink-900/60">{group.tag}</span>
-                        {!phone && (
-                          // 70d: the row's weight against the heaviest of its section, in the section's colour.
-                          <span className="block h-1 w-16 flex-none overflow-hidden rounded-[2px] bg-line/8">
-                            <span
-                              className="block h-full rounded-[2px]"
-                              style={{ width: `${Math.max(2, group.share * 100)}%`, background: colour }}
-                            />
-                          </span>
-                        )}
-                        <span className="w-[46px] flex-none text-right font-mono fs-11">{formatTokens(group.tokens)}</span>
-                      </button>
-                      {groupOpen && (
-                        <div className="mb-1.5 ml-1 border-l border-line/12 pl-3.5">
-                          {group.items.map((item, i) => (
-                            <div
-                              key={`${item.name}:${i}`}
-                              className={`flex items-center gap-2 pr-1.5 font-mono text-ink-400/85 ${phone ? 'h-10 fs-11.5' : 'h-6 fs-10.5'}`}
-                            >
-                              <span className="min-w-0 flex-1 truncate">{item.name}</span>
-                              <span className="text-ink-900/60">{formatTokens(item.tokens)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <GroupRow
+                      key={key}
+                      group={group}
+                      colour={colour}
+                      phone={phone}
+                      open={Boolean(open[key])}
+                      onToggle={() => toggle(key)}
+                    />
                   )
                 })}
               </div>
@@ -326,6 +285,104 @@ export function Breakdowns({ sections, phone }: { sections: BreakdownSection[]; 
         )
       })}
     </div>
+  )
+}
+
+/**
+ * The full name of a row whose lead is cut — a memory file's path, a long
+ * server, plugin or agent name, a tool. 70d: the Mac's tooltip, the phone's
+ * long-press. On the phone the long-press opens it in place under the row,
+ * selectable, and another closes it; the canvas draws no more than that.
+ */
+function useFullName(phone: boolean) {
+  const [shown, setShown] = useState(false)
+  const toggle = useCallback(() => setShown((v) => !v), [])
+  const press = useLongPressAction(phone ? toggle : null)
+  return { shown: phone && shown, press }
+}
+
+function FullName({ text, inset }: { text: string; inset: string }) {
+  return (
+    <div data-selectable className={`break-all pb-2 font-mono fs-10.5 leading-[1.5] text-ink-900/60 ${inset}`}>
+      {text}
+    </div>
+  )
+}
+
+function GroupRow({
+  group,
+  colour,
+  phone,
+  open,
+  onToggle,
+}: {
+  group: BreakdownGroup
+  colour: string
+  phone: boolean
+  open: boolean
+  onToggle: () => void
+}) {
+  const opens = group.items.length > 0
+  const groupOpen = opens && open
+  const full = useFullName(phone)
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={opens ? groupOpen : undefined}
+        onClick={opens ? onToggle : undefined}
+        title={phone ? undefined : group.full}
+        {...full.press}
+        className={`flex w-full items-center gap-[9px] pr-1.5 text-left text-ink-100 ${opens ? 'cursor-pointer' : 'cursor-default'} ${phone ? 'h-12' : 'h-[30px]'}`}
+      >
+        <span className="block w-[9px] flex-none font-mono fs-9.5 text-ink-900/60">
+          {opens ? (groupOpen ? '▾' : '▸') : ''}
+        </span>
+        <span
+          className={`min-w-0 flex-1 truncate ${
+            group.mono ? `font-mono ${phone ? 'fs-12' : 'fs-11.5'}` : `font-sans ${phone ? 'fs-14' : 'fs-12.5'}`
+          }`}
+        >
+          {group.lead}
+        </span>
+        <span className="flex-none whitespace-nowrap font-mono fs-10 text-ink-900/60">{group.tag}</span>
+        {!phone && (
+          // 70d: the row's weight against the heaviest of its section, in the section's colour.
+          <span className="block h-1 w-16 flex-none overflow-hidden rounded-[2px] bg-line/8">
+            <span
+              className="block h-full rounded-[2px]"
+              style={{ width: `${Math.max(2, group.share * 100)}%`, background: colour }}
+            />
+          </span>
+        )}
+        <span className="block w-[46px] flex-none text-right font-mono fs-11">{formatReportTokens(group.tokens)}</span>
+      </button>
+      {full.shown && <FullName text={group.full} inset="-mt-1.5 pl-[18px] pr-1.5" />}
+      {groupOpen && (
+        <div className="mb-1.5 ml-1 border-l border-line/12 pl-3.5">
+          {group.items.map((item, i) => (
+            <ItemRow key={`${item.name}:${i}`} item={item} phone={phone} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ItemRow({ item, phone }: { item: BreakdownItem; phone: boolean }) {
+  const full = useFullName(phone)
+  return (
+    <>
+      <div
+        title={phone ? undefined : item.name}
+        {...full.press}
+        className={`flex items-center gap-2 pr-1.5 font-mono text-ink-400/85 ${phone ? 'h-10 fs-11.5' : 'h-6 fs-10.5'}`}
+      >
+        <span className="min-w-0 flex-1 truncate">{item.name}</span>
+        <span className="text-ink-900/60">{formatReportTokens(item.tokens)}</span>
+      </div>
+      {full.shown && <FullName text={item.name} inset="-mt-1 pr-1.5" />}
+    </>
   )
 }
 
@@ -343,7 +400,7 @@ export function AsText({ text, phone }: { text: string; phone: boolean }) {
           onClick={() => setOpen((v) => !v)}
           className="flex h-full flex-1 cursor-pointer items-center gap-2.5 px-1.5 text-left text-ink-100"
         >
-          <span className="w-2.5 font-mono fs-10 text-ink-900/60">{open ? '▾' : '▸'}</span>
+          <span className="block w-2.5 shrink-0 font-mono fs-10 text-ink-900/60">{open ? '▾' : '▸'}</span>
           <span className={`font-semibold ${phone ? 'fs-15' : 'fs-13'}`}>As text</span>
           <span className="font-mono fs-10.5 text-ink-900/60">the CLI’s printout</span>
         </button>
@@ -363,7 +420,7 @@ export function AsText({ text, phone }: { text: string; phone: boolean }) {
           className={`m-0 mb-1.5 overflow-auto whitespace-pre rounded-[9px] border border-line/8 bg-space/60 px-3.5 py-3 font-mono fs-11 leading-[1.6] text-ink-400/85 ${
             phone
               ? 'max-h-[360px] [scrollbar-width:none]'
-              : 'max-h-[240px] [scrollbar-color:color-mix(in_oklab,_var(--color-line)_25%,_transparent)_transparent] [scrollbar-width:thin]'
+              : `max-h-[240px] ${REVIEW_SCROLLBAR}`
           }`}
         >
           {text}

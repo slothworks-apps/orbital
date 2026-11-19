@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
-import { breakdownSections, contextReportView } from '../../lib/contextReport'
+import { useEffect, useState } from 'react'
 import type { ChatMessage, ContextReport } from '../../lib/types'
 import { useContextReport } from '../../store/contextReport'
-import { parseContextThresholds, useOrbital } from '../../store/store'
+import { useOrbital } from '../../store/store'
 import { Button } from '../../ui/Button'
-import { Dialog } from '../../ui/Dialog'
-import { AsText, Breakdowns, Headline, Legend, WindowChart, reportTime, snapshotLine } from './parts'
+import { Dialog, REVIEW_SCROLLBAR, ReviewHeader } from '../../ui/Dialog'
+import { AsText, Breakdowns, Headline, Legend, WindowChart, snapshotLine } from './parts'
+import { useReport } from './useReport'
 
 const DIALOG_LABEL = 'Context report'
 
@@ -18,6 +18,10 @@ const DIALOG_LABEL = 'Context report'
 export function ContextReportDialogHost() {
   const open = useContextReport((s) => s.open)
   const close = useContextReport((s) => s.close)
+  // The session on screen in this window: the main window's detail panel,
+  // or a detached window's one session. Only its answer opens by itself.
+  const selectedId = useOrbital((s) => s.ui.selectedId)
+  useEffect(() => (selectedId ? useContextReport.getState().view(selectedId) : undefined), [selectedId])
   // The last report opened stays drawn while the dialog closes, so its exit
   // shows the report rather than an empty frame.
   const [shown, setShown] = useState(open)
@@ -44,35 +48,20 @@ function ReportContent({
   report: ContextReport
   onClose: () => void
 }) {
-  const title = useOrbital((s) => s.sessions[sessionId]?.title) || 'Context'
-  const settings = useOrbital((s) => s.settings)
-  const thresholds = useMemo(() => parseContextThresholds(settings), [settings])
-  const view = useMemo(() => contextReportView(report, thresholds), [report, thresholds])
-  const sections = useMemo(() => breakdownSections(report), [report])
-  const time = reportTime(message.timestamp)
+  const { title, thresholds, view, sections, time } = useReport(sessionId, message, report)
 
   return (
     <>
       {/* 70c header: Report Dialog's, with the report's eyebrow, name and when it was taken. */}
-      <div className="flex shrink-0 items-start gap-3 border-b border-line/10 pb-4 pl-[26px] pr-[18px] pt-[22px]">
-        <div className="min-w-0 flex-1">
-          <div className="font-mono fs-10 tracking-[0.2em] text-ink-900/65">/context</div>
-          <h2 className="mt-1.5 truncate fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em]">{title}</h2>
-          <div className="mt-[5px] font-mono fs-10.5 tracking-[0.04em] text-ink-900/55">
-            {time ? `taken ${time} · a snapshot` : 'a snapshot'}
-          </div>
+      <ReviewHeader onClose={onClose}>
+        <div className="font-mono fs-10 tracking-[0.2em] text-ink-900/65">/context</div>
+        <h2 className="mt-1.5 truncate fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em]">{title}</h2>
+        <div className="mt-[5px] font-mono fs-10.5 tracking-[0.04em] text-ink-900/55">
+          {time ? `taken ${time} · a snapshot` : 'a snapshot'}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="grid h-[30px] w-[30px] shrink-0 cursor-pointer place-items-center rounded-[7px] fs-16 leading-(--text-base--line-height) text-ink-900/70 transition-colors hover:bg-line/8 hover:text-ink-100"
-        >
-          ×
-        </button>
-      </div>
+      </ReviewHeader>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overflow-x-hidden px-[26px] pb-[18px] pt-5 [scrollbar-color:color-mix(in_oklab,_var(--color-line)_25%,_transparent)_transparent] [scrollbar-width:thin]">
+      <div className={`flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overflow-x-hidden px-[26px] pb-[18px] pt-5 ${REVIEW_SCROLLBAR}`}>
         <Headline report={report} view={view} phone={false} />
         <WindowChart report={report} view={view} thresholds={thresholds} />
         <Legend report={report} view={view} phone={false} />

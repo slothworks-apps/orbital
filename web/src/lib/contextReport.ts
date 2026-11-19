@@ -10,6 +10,7 @@
  * colour whichever others are present.
  */
 
+import { homePath } from './format'
 import { contextLevel, type ContextLevel, type ContextThresholds } from './usage'
 import type { ContextReport } from './types'
 
@@ -21,7 +22,7 @@ export function isContextCommand(text: string): boolean {
 const oneDecimal = (x: number): string => (Math.round(x * 10) / 10).toFixed(1).replace(/\.0$/, '')
 
 /** Tokens the way the CLI's printout writes them: `654`, `2.8k`, `108.8k`, `1M`. */
-export function formatTokens(n: number): string {
+export function formatReportTokens(n: number): string {
   // 999,960 would round to "1000k": it is already "1M".
   if (Math.round(n / 100) >= 10_000) return `${oneDecimal(n / 1e6)}M`
   if (n >= 1000) return `${oneDecimal(n / 1000)}k`
@@ -114,8 +115,8 @@ export function sourceLabel(source: string): string {
  * file and its folder with the middle as `…`. The full path is the row's
  * tooltip.
  */
-export function shortenPath(path: string): string {
-  const home = path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~')
+export function shortenMemoryPath(path: string): string {
+  const home = homePath(path)
   const seg = home.split('/')
   return seg.length <= 4 ? home : `${seg[0]}/…/${seg.slice(-2).join('/')}`
 }
@@ -253,7 +254,7 @@ export function breakdownSections(report: ContextReport): BreakdownSection[] {
         report.memoryFiles
           .slice()
           .sort(byTokens)
-          .map((f) => ({ lead: shortenPath(f.path), full: f.path, mono: true, tag: f.type, tokens: f.tokens, items: [] })),
+          .map((f) => ({ lead: shortenMemoryPath(f.path), full: f.path, mono: true, tag: f.type, tokens: f.tokens, items: [] })),
       ),
     })
   }
@@ -345,7 +346,7 @@ export function contextReportView(report: ContextReport, thresholds: ContextThre
       .filter((c) => c.kind !== 'used' && c.kind !== 'deferred')
       .map((c) => ({ name: c.name, tokens: c.tokens, kind: c.kind === 'buffer' || c.kind === 'free' ? c.kind : 'other' })),
     deferred: shown.filter((c) => c.kind === 'deferred').map((c) => ({ name: c.name, tokens: c.tokens })),
-    overLine: over ? `${formatTokens(over.tokensOver)} ${OVER_WORDS[over.kind] ?? 'over the window'}` : null,
+    overLine: over ? `${formatReportTokens(over.tokensOver)} ${OVER_WORDS[over.kind] ?? 'over the window'}` : null,
     windowNoun: (over && WINDOW_NOUN[over.kind]) || 'tokens in the window',
   }
 }

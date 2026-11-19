@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { contextReportView, formatTokens } from '../../lib/contextReport'
+import { contextReportView, formatReportTokens } from '../../lib/contextReport'
 import type { ChatMessage, ContextReport } from '../../lib/types'
 import { useContextReport } from '../../store/contextReport'
 import { parseContextThresholds, useOrbital } from '../../store/store'
@@ -40,7 +40,7 @@ export function ContextReportLine({
         />
       </span>
       <span>
-        {formatTokens(report.totalTokens)} / {formatTokens(report.rawMaxTokens)} ·{' '}
+        {formatReportTokens(report.totalTokens)} / {formatReportTokens(report.rawMaxTokens)} ·{' '}
         <span style={{ color: figureInk(view.level) }}>{report.percentage} %</span>
       </span>
       {view.overLine && <span className="min-w-0 truncate text-ink-600/75">· {view.overLine}</span>}

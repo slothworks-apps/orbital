@@ -42,6 +42,11 @@ the Mac and on the phone.
   attach the data, still show the table as before.
 - **What can be set.** Nothing. The dialog is the answer to a command the
   user typed; there is no taste to configure.
+- **Why opening by itself is the default.** Typing the command is asking
+  for the report. Someone who typed `/context` and got a summary row they
+  must click again would be asked twice for one thing; an answer that opens
+  only while they are still looking at that session (When it opens) cannot
+  land over other work.
 
 ## Where the data comes from
 
@@ -76,8 +81,10 @@ session.
   that is missing or malformed becomes empty; a row without a numeric
   `tokens` is skipped. A row with an unknown `kind` is kept and listed in
   the legend, outside the chart.
-- `notice.contextReport` is camelCase, mirrored in `server/src/types.ts`
-  and `web/src/lib/types.ts`. The notice keeps its `text`: it is the
+- `notice.contextReport` is camelCase, declared once in
+  `shared/src/contextReport.ts` and used by `server/src/types.ts` and
+  `web/src/lib/types.ts`. It is read only from a `stdout` answer, live and
+  from the file alike, so a live row and its reload agree. The notice keeps its `text`: it is the
   fallback and the "as text" view.
 - Classification is by `kind`, never by the English `name` (the SDK's own
   rule).
@@ -92,10 +99,24 @@ the chart and its colours, **70f** the phone row and sheet.
 ### When it opens
 
 - **Opens by itself** when the answer arrives live for a `/context` that
-  this window (or this phone) sent. Typing the command is asking for the
+  this window (or this phone) sent, and only if, when it arrives, that
+  session is the one on screen here. Typing the command is asking for the
   report, so showing it is not calling for attention. The canvas draws only
   the opening from the row (`report ›`); opening by itself is the owner's
   call on top of it (2026-11-19), and the row stays as the way back.
+- **On screen** means: on the Mac, the session shown in the main window's
+  detail panel (the selected session) or the one session of a detached
+  `/session/<id>` window; on the phone, that session's screen is the
+  visible one — not merely kept under a pushed subagent, task or file
+  screen, and not behind the lock.
+- **An answer that arrives while its session is not on screen** settles the
+  ask and leaves only the summary row. Coming back to the session does not
+  open it late.
+- **The ask** is made only when the `/context` goes out now. One queued
+  behind a usage-limit wait or a worktree still being set up is not
+  asking: its answer comes after a wait, over whatever the user turned to
+  since. A reconnect drops every ask, since answers that came while the
+  socket was down arrive as history.
 - **Does not open by itself** for an answer in history, a terminal
   session's answer, or one sent from another device. Those show the summary
   row; a click (a tap on the phone) opens the dialog.
@@ -129,7 +150,9 @@ What it holds, top to bottom (the arrangement is Claude Design's call):
    own quiet group, "not loaded — listed for reference".
 5. **Breakdowns.** MCP tools grouped by server (server total, expandable to
    its tools), memory files (path shortened to the project or `~`, type,
-   tokens), custom agents, skills (grouped by plugin or source). Each list
+   tokens; the full path is the row's tooltip on the Mac and its
+   long-press on the phone, which shows it under the row), custom agents,
+   skills (grouped by plugin or source). Each list
    sorted by tokens, heaviest first; each section collapsed past a handful
    of rows. A section with no rows is absent.
 6. **As text.** The CLI's own printout, the row's `text`, behind a
