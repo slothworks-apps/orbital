@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- After you log in again from a session, the "Logged in" line shows above the message Orbital sends to continue, not below it, so the chat no longer looks like it is waiting for you while the session already works.
 
 ## [0.49.2] — 2026-11-16
 ### Changed
