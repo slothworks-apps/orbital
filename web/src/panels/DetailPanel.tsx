@@ -1198,7 +1198,10 @@ export function DetailPanel({
                         />
                       ))}
                     </div>
-                    {/* 71b: "report ›" at the left end of the note, in 70b's wording; only where a report can be had. */}
+                    {/* 71b: "report ›", in 70b's wording; only where a report can be had.
+                        71b puts it at the left end of the note on a line of its own;
+                        here the note shares the bar's line, so it stands right after
+                        the bar, before the level note and the figure. */}
                     {opens && (
                       <span className="whitespace-nowrap font-mono fs-10 tracking-[0.04em] text-ink-900/55 transition-colors duration-[180ms] group-hover:text-sky">
                         report ›
@@ -1220,8 +1223,11 @@ export function DetailPanel({
                     >
                       <span
                         // 71b: the figure underlines in its own ink on hover, the read-out being the button.
-                        className={`fs-12.5 leading-none underline decoration-transparent decoration-1 underline-offset-4 transition-colors duration-300 ${opens ? 'group-hover:decoration-current' : ''}`}
+                        className={`fs-12.5 leading-none underline decoration-transparent decoration-1 underline-offset-4 ${opens ? 'group-hover:decoration-current' : ''}`}
                         style={{
+                          // The level's ink keeps its 300ms; the underline comes in with
+                          // the wash and the label (71b: text-decoration-color .18s ease).
+                          transition: 'color .3s ease, text-decoration-color .18s ease',
                           // Past the critical line the number turns ink-100 beside the red
                           // fill: red light enough to read stops looking critical
                           // (canvas `Feature - Colour themes` 1b, flag 2).
@@ -1614,6 +1620,8 @@ function ContextReadoutLine({ sessionId, children }: { sessionId: string; childr
       aria-label="Context used · open the report"
       onClick={() => void takeReport(sessionId)}
       // 71b: padded 8px into the panel's margin, so the wash has room and the line keeps its place.
+      // `mt-[5px] -mb-1 py-1` are 71b's `margin:3px -8px 0; padding:6px 8px 4px` reworked to
+      // keep the plain line's 9px offset: 5 + 4 above the bar, and the 4 below taken back.
       className="group -mx-2 -mb-1 mt-[5px] flex w-[calc(100%+16px)] cursor-pointer items-center gap-3 rounded-[7px] px-2 py-1 text-left transition-colors duration-[180ms] hover:bg-line/6"
     >
       {children(true)}
