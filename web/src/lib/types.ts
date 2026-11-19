@@ -3,6 +3,7 @@ import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ce
 import type { MachineRef } from '@orbital/shared/remote/device'
 import { asksForHuman, gateWaits, loginLost } from '@orbital/shared/parked'
 import type { LiveHookNotice } from '@orbital/shared/hookNotice'
+import type { ContextReport } from '@orbital/shared/contextReport'
 import type { ProgressRow } from './progressList'
 import type { SessionSetup } from '@orbital/shared/worktree'
 
@@ -83,6 +84,8 @@ export interface RecentTool {
 
 /** The member of the device group a session runs on: `MachineRef` in `shared/src/remote/device.ts`. */
 export type { MachineRef }
+/** The `/context` report as data: `ContextReport` in `shared/src/contextReport.ts`. */
+export type { ContextReport }
 
 export interface ApiSession {
   id: string
@@ -751,24 +754,6 @@ export interface PendingVerdictDecision {
  */
 export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning'
 
-/**
- * The CLI's `/context` report as data. Mirrors `server/src/types.ts`. The
- * window is `rawMaxTokens`, which can be a compaction window smaller than the
- * model's; a category's `kind` may be one the CLI added after this was
- * written.
- */
-export interface ContextReport {
-  model: string | null
-  totalTokens: number
-  rawMaxTokens: number
-  percentage: number
-  overLimit?: { tokensOver: number; kind: string }
-  categories: { name: string; tokens: number; kind: string }[]
-  mcpTools: { name: string; serverName: string; tokens: number }[]
-  memoryFiles: { path: string; type: string; tokens: number }[]
-  agents: { agentType: string; source: string; tokens: number }[]
-  skills: { name: string; source: string; pluginName?: string; tokens: number }[]
-}
 
 /**
  * What one compaction left behind (spec 2026-09-28-context-compaction-design).

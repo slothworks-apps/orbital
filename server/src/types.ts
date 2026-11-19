@@ -2,6 +2,8 @@ import type { WalkthroughTag } from './walkthrough/tag.js';
 import type { RecentTool } from './transcript/recentTools.js';
 import type { HarnessMessageKind } from './harness/types.js';
 import type { LiveHookNotice } from '@orbital/shared/hookNotice';
+import type { ContextReport } from '@orbital/shared/contextReport';
+export type { ContextReport };
 
 export type SessionSource = 'terminal' | 'web';
 /** Why Orbital started a session: `harness_draft` is a harness template's drafting conversation. */
@@ -227,25 +229,6 @@ export interface ChatMessage {
   rewind?: { hiddenCount: number | null };
 }
 
-/**
- * The CLI's `/context` report as data (`SDKContextUsage`, camelCased). The
- * window is `rawMaxTokens`, which can be a compaction window smaller than the
- * model's. Rows are kept in the CLI's order; a category's `kind` is the CLI's
- * (`used` / `free` / `buffer` / `deferred`) or one it has since added.
- * Spec 2026-11-19-context-report-dialog-design.
- */
-export interface ContextReport {
-  model: string | null;
-  totalTokens: number;
-  rawMaxTokens: number;
-  percentage: number;
-  overLimit?: { tokensOver: number; kind: string };
-  categories: { name: string; tokens: number; kind: string }[];
-  mcpTools: { name: string; serverName: string; tokens: number }[];
-  memoryFiles: { path: string; type: string; tokens: number }[];
-  agents: { agentType: string; source: string; tokens: number }[];
-  skills: { name: string; source: string; pluginName?: string; tokens: number }[];
-}
 
 /**
  * A `notice` row with `kind: 'limit_reset'`: a usage-limit wait fired (spec
