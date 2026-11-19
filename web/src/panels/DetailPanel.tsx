@@ -1198,15 +1198,6 @@ export function DetailPanel({
                         />
                       ))}
                     </div>
-                    {/* 71b: "report ›", in 70b's wording; only where a report can be had.
-                        71b puts it at the left end of the note on a line of its own;
-                        here the note shares the bar's line, so it stands right after
-                        the bar, before the level note and the figure. */}
-                    {opens && (
-                      <span className="whitespace-nowrap font-mono fs-10 tracking-[0.04em] text-ink-900/55 transition-colors duration-[180ms] group-hover:text-sky">
-                        report ›
-                      </span>
-                    )}
                     {contextNote && (
                       <span
                         data-context-note
@@ -1223,7 +1214,7 @@ export function DetailPanel({
                     >
                       <span
                         // 71b: the figure underlines in its own ink on hover, the read-out being the button.
-                        className={`fs-12.5 leading-none underline decoration-transparent decoration-1 underline-offset-4 ${opens ? 'group-hover:decoration-current' : ''}`}
+                        className={`fs-12.5 leading-none underline decoration-transparent decoration-1 underline-offset-3 ${opens ? 'group-hover:decoration-current' : ''}`}
                         style={{
                           // The level's ink keeps its 300ms; the underline comes in with
                           // the wash and the label (71b: text-decoration-color .18s ease).
@@ -1247,6 +1238,17 @@ export function DetailPanel({
                       <span className="fs-10 text-ink-900/55">
                         / {formatContextWindow(contextWindow)}
                       </span>
+                      {/* 71a variant A: a muted "›" after the figure marks the line as a
+                          button, one character so the bar keeps its length at the panel's
+                          minimum width; link blue on hover. Only where a report can be had. */}
+                      {opens && (
+                        <span
+                          aria-hidden
+                          className="ml-[2px] fs-12.5 leading-none text-ink-900/55 transition-colors duration-[180ms] group-hover:text-sky"
+                        >
+                          ›
+                        </span>
+                      )}
                     </span>
                   </>
                 )}
@@ -1618,6 +1620,8 @@ function ContextReadoutLine({ sessionId, children }: { sessionId: string; childr
     <button
       type="button"
       aria-label="Context used · open the report"
+      // 71a: the line's tooltip.
+      title="Context report"
       onClick={() => void takeReport(sessionId)}
       // 71b: padded 8px into the panel's margin, so the wash has room and the line keeps its place.
       // `mt-[5px] -mb-1 py-1` are 71b's `margin:3px -8px 0; padding:6px 8px 4px` reworked to

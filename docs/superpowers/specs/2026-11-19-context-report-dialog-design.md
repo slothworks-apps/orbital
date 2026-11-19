@@ -41,7 +41,7 @@ the Mac and on the phone.
   the folded table. Older answers in history, written by a CLI too old to
   attach the data, still show the table as before. On the Mac, the detail
   panel's context bar and read-out become a button wherever a report can
-  be had: `report ›` stands beside the bar, the line washes on hover, and
+  be had: a muted `›` follows the figure, the line washes on hover, and
   a click opens the report without typing anything. On the phone, tapping
   the session header's read-out opens the report sheet instead of the
   context facts sheet (10l) wherever a report can be had; the facts sheet
@@ -214,16 +214,18 @@ read-out. A newer one replaces it; nothing older is kept.
 
 **What the user sees** (`store/takeContextReport.ts`):
 
-- **The read-out is the button** (71b). On the Mac the bar, the note and
-  the figure are one target, washed on hover; `report ›` stands at the left
-  end of the note, the figure underlines. The shipped header puts the note
-  on the bar's own line rather than on a line of its own as 1b draws it,
-  so `report ›` sits between the bar and the figure there, and the header
-  is as tall as before. On the phone the header read-out keeps its 44 px
+- **The read-out is the button** (71a variant A, redrawn for the shipped
+  one-line header). On the Mac the bar, the note and the figure are one
+  target with the tooltip "Context report"; a muted `›` after the figure
+  marks it. It costs one character, so the bar keeps its length at the
+  panel's minimum width; the word `report` in front of it, as first drawn,
+  took about 50 px more from the bar. Hover washes the line, underlines the
+  figure and turns `›` link blue, all over 180 ms, and the header is as
+  tall as before. On the phone the header read-out keeps its 44 px
   target; a tap opens the report sheet, and the 10l facts sheet stays only
   where no report can be had.
 - **No report, no affordance.** A session that is not running and has none
-  kept shows the read-out as before: no `report ›`, no hover, no pointer.
+  kept shows the read-out as before: no `›`, no hover, no pointer.
 - **A running Orbital session** opens the dialog (the sheet) at once with
   what the read-out knows — the figure, the window bar, the level — and one
   static line of words where the split will be, in space kept for it, so
