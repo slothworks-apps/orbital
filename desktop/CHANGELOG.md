@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- A file name pressed in a transcript finds a file at the top of the project that git ignores, such as `CLAUDE.local.md` or `.env`, instead of saying there is no file by that name.
 
 ## [0.49.2] — 2026-11-16
 ### Changed

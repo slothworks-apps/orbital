@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -103,10 +104,20 @@ describe('findByName', () => {
     expect((await findByName([dir], 'new.ts', noTranscripts, listings, '/nonexistent-home')).matches).toEqual([]);
     expect(calls).toBe(1);
     // The agent writes the file inside the listing's TTL.
-    writeFileSync(join(dir, 'new.ts'), 'x');
+    mkdirSync(join(dir, 'sub'));
+    writeFileSync(join(dir, 'sub', 'new.ts'), 'x');
     const result = await findByName([dir], 'new.ts', noTranscripts, listings, '/nonexistent-home');
-    expect(result.matches.map((m) => m.relative)).toEqual(['new.ts']);
+    expect(result.matches.map((m) => m.relative)).toEqual(['sub/new.ts']);
     expect(calls).toBe(2);
+  });
+
+  it('finds a .gitignored file at the top of a git tree, which git does not list', async () => {
+    const dir = makeTmpDir('find-ignored');
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    writeFileSync(join(dir, '.gitignore'), 'CLAUDE.local.md\n');
+    writeFileSync(join(dir, 'CLAUDE.local.md'), 'x');
+    const result = await findByName([dir], 'CLAUDE.local.md', noTranscripts, new ListingCache(), '/nonexistent-home');
+    expect(result.matches).toEqual([{ path: join(dir, 'CLAUDE.local.md'), relative: 'CLAUDE.local.md', touched: false }]);
   });
 
   it('lists up to its cap and counts the rest', async () => {
