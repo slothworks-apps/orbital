@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type TouchEvent } from 'react'
-import { openingFoot } from '../../lib/contextReport'
+import { openingFoot, openingMeta } from '../../lib/contextReport'
 import { OpeningBody } from '../../panels/contextReport/OpeningBody'
 import { useReport } from '../../panels/contextReport/useReport'
 import { useContextReport, type OpenContextReport } from '../../store/contextReport'
@@ -46,8 +46,6 @@ export function ContextReportSheetHost({ sessionId }: { sessionId: string }) {
 function ContextReportSheet({ shown, onClose }: { shown: OpenContextReport; onClose: () => void }) {
   const r = useReport(shown)
   const { title, time } = r
-  const words = { phase: shown.phase, origin: shown.origin, failure: shown.failure, counting: shown.counting }
-  const model = shown.snapshot?.report.model ?? shown.preview?.model ?? null
   const [detent, setDetent] = useState<Detent>('medium')
   const full = detent === 'full'
 
@@ -89,13 +87,7 @@ function ContextReportSheet({ shown, onClose }: { shown: OpenContextReport; onCl
               <div className="font-mono fs-10 tracking-[0.2em] text-ink-900/65">/context</div>
               <div className="mt-[5px] truncate fs-18 font-bold">{title}</div>
               <div className="mt-1 truncate font-mono fs-10.5 text-ink-900/55">
-                {shown.phase === 'ready'
-                  ? [time ? `taken ${time}` : null, model].filter(Boolean).join(' · ')
-                  : shown.phase === 'failed'
-                    ? 'no report taken'
-                    : shown.counting
-                      ? 'taking a report now'
-                      : model}
+                {openingMeta(shown, time, r.report?.model ?? null)}
               </div>
             </div>
             <button
@@ -118,10 +110,12 @@ function ContextReportSheet({ shown, onClose }: { shown: OpenContextReport; onCl
             shown={shown}
             r={r}
             phone
-            after={<div className="px-1 pt-3.5 font-mono fs-10 leading-[1.6] text-ink-900/50">{openingFoot(words, time)}</div>}
+            after={<div className="px-1 pt-3.5 font-mono fs-10 leading-[1.6] text-ink-900/50">{openingFoot(shown, time)}</div>}
           />
+          {/* The canvas has no value for this line while waiting or failed (70f/71e draw the
+              foot only under the arrived report); it takes that line's type, without its top padding. */}
           {shown.phase !== 'ready' && (
-            <div className="px-1 font-mono fs-10 leading-[1.6] text-ink-900/50">{openingFoot(words, time, r.earlierTime ?? null)}</div>
+            <div className="px-1 font-mono fs-10 leading-[1.6] text-ink-900/50">{openingFoot(shown, time, r.earlierTime ?? null)}</div>
           )}
         </div>
       </div>

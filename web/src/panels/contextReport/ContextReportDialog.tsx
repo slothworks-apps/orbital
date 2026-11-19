@@ -39,7 +39,6 @@ export function ContextReportDialogHost() {
 
 function ReportContent({ shown, onClose }: { shown: OpenContextReport; onClose: () => void }) {
   const r = useReport(shown)
-  const words = { phase: shown.phase, origin: shown.origin, failure: shown.failure, counting: shown.counting }
 
   return (
     <>
@@ -47,7 +46,7 @@ function ReportContent({ shown, onClose }: { shown: OpenContextReport; onClose: 
       <ReviewHeader onClose={onClose}>
         <div className="font-mono fs-10 tracking-[0.2em] text-ink-900/65">/context</div>
         <h2 className="mt-1.5 truncate fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em]">{r.title}</h2>
-        <div className="mt-[5px] font-mono fs-10.5 tracking-[0.04em] text-ink-900/55">{openingMeta(words, r.time)}</div>
+        <div className="mt-[5px] font-mono fs-10.5 tracking-[0.04em] text-ink-900/55">{openingMeta(shown, r.time)}</div>
       </ReviewHeader>
 
       <div className={`flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overflow-x-hidden px-[26px] pb-[18px] pt-5 ${REVIEW_SCROLLBAR}`}>
@@ -56,7 +55,7 @@ function ReportContent({ shown, onClose }: { shown: OpenContextReport; onClose: 
 
       <div className="flex shrink-0 items-center gap-2.5 border-t border-line/10 pb-4 pl-[26px] pr-5 pt-3.5">
         <span className="min-w-0 flex-1 font-mono fs-10.5 leading-normal tracking-[0.03em] text-pretty text-ink-900/55">
-          {openingFoot(words, r.time, r.earlierTime ?? null)}
+          {openingFoot(shown, r.time, r.earlierTime ?? null)}
         </span>
         <span className="rounded border border-line/20 px-[7px] py-[3px] font-mono fs-10 text-ink-500/70">esc</span>
         <Button variant="ghost" size="lg" onClick={onClose}>

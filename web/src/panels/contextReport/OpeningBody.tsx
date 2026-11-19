@@ -41,7 +41,10 @@ export function OpeningBody({
   if (shown.phase !== 'ready' && !waited) setWaited(true)
   const ready = shown.phase === 'ready' && shown.snapshot !== null
   const kept = !phone && waited ? { minHeight: KEPT_HEIGHT_PX } : undefined
+  // 71c / 71e: the body's sections stand 20px apart on the Mac, 18px on the phone;
+  // the failure follows the window bar by the same.
   const gap = phone ? 'gap-[18px]' : 'gap-5'
+  const failedGap = phone ? 'mt-[18px]' : 'mt-5'
 
   return (
     <>
@@ -49,7 +52,7 @@ export function OpeningBody({
       {shown.phase === 'failed' ? (
         <div className="flex flex-col" style={phone ? undefined : { height: KEPT_HEIGHT_PX }}>
           {r.report && r.view && <WindowBar report={r.report} view={r.view} thresholds={r.thresholds} />}
-          <div className={r.report ? 'mt-5' : undefined}>
+          <div className={r.report ? failedGap : undefined}>
             <FailedBlock
               text={failureText(shown.failure, Math.round(CONTEXT_REPORT_TIMEOUT_MS / 1000))}
               onRetry={() => void takeReport(shown.sessionId, { key: shown.key })}

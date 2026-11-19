@@ -13,6 +13,7 @@
 import { homePath } from './format'
 import { contextLevel, type ContextLevel, type ContextThresholds } from './usage'
 import type { ContextReport } from './types'
+import type { ReportPreview } from '../store/contextReport'
 
 /** A slash command line that runs `/context`, with or without arguments. */
 export function isContextCommand(text: string): boolean {
@@ -362,11 +363,16 @@ export interface OpeningWords {
   counting?: boolean
 }
 
-/** The header's line under the title on the Mac (70c, 71c): when, or what is happening. */
-export function openingMeta(o: OpeningWords, time: string | null): string {
-  if (o.phase === 'loading') return o.counting ? 'taking a report now' : 'a snapshot'
+/**
+ * The header's line under the title (70c, 71c; 70f, 71e): when, or what is
+ * happening. The Mac closes it with "a snapshot"; the phone passes `model`,
+ * which stands there instead (null when nothing says which).
+ */
+export function openingMeta(o: OpeningWords, time: string | null, model?: string | null): string {
+  const tail = model === undefined ? 'a snapshot' : model
+  if (o.phase === 'loading') return o.counting ? 'taking a report now' : (tail ?? '')
   if (o.phase === 'failed') return 'no report taken'
-  return time ? `taken ${time} · a snapshot` : 'a snapshot'
+  return [time ? `taken ${time}` : null, tail].filter(Boolean).join(' · ')
 }
 
 /**
@@ -403,7 +409,7 @@ export function failureText(failure: OpeningWords['failure'], timeoutSeconds: nu
 }
 
 /** The report a read-out preview stands for until the real one arrives: the figure and the window, nothing split. */
-export function previewReport(preview: { used: number; window: number; model: string | null }): ContextReport {
+export function previewReport(preview: ReportPreview): ContextReport {
   return {
     model: preview.model,
     totalTokens: preview.used,
