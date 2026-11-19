@@ -7,6 +7,7 @@ domain: remote
 related:
   - 2026-10-07-version-compatibility-design
   - 2026-10-09-session-media-design
+  - 2026-11-19-context-report-dialog-design
 tags:
   - mobile
   - versions
@@ -46,6 +47,23 @@ row is absent, because the media route answers 403.
 
 Raising `MIN_SERVER_VERSION` stays the tool for a dependency the whole app
 cannot work without.
+
+### Amended 2026-11-19
+
+A field's absence on the session may stand in for a `MAC_FEATURES` row,
+when two things hold: the field and the route that needs it ship in the
+same Mac release, and a Mac of that release or newer always sends the
+field, null included. Then a session without the field comes from an older
+Mac, which has no route either, and the phone leaves the feature out
+without asking. It also reads per session, so in a group of devices each
+member Mac answers for its own sessions, which a version in `hello` cannot.
+The `/context` report from the read-out is the first such case (spec
+[[2026-11-19-context-report-dialog-design]]): every session from a Mac with
+`GET /api/sessions/:id/context-report` carries `contextReportAt`, a time
+or null; one without it opens only the last `/context` in the loaded
+transcript and never calls the route. A field that may be left out on a
+newer Mac, or that ships before or after its route, cannot gate this way
+and needs its row.
 
 ## What was ruled out
 

@@ -39,7 +39,26 @@ the Mac and on the phone.
 - **What someone notices after updating.** A `/context` they run opens a
   dialog. In the transcript the answer is a short summary row instead of
   the folded table. Older answers in history, written by a CLI too old to
-  attach the data, still show the table as before.
+  attach the data, still show the table as before. On the Mac, the detail
+  panel's context bar and read-out become a button wherever a report can
+  be had: `report ›` stands beside the bar, the line washes on hover, and
+  a click opens the report without typing anything. On the phone, tapping
+  the session header's read-out opens the report sheet instead of the
+  context facts sheet (10l) wherever a report can be had; the facts sheet
+  stays only where none can.
+- **Why the read-out change is plainly better.** Both places already said
+  how full the window is; now they also answer what fills it, which is
+  the next question anyone looking at a full window asks, and before this
+  they had to type `/context` into the session to get it — a turn in the
+  transcript for a question about the transcript. Nothing is taken away:
+  a session with no report shows the read-out as before, with no
+  affordance. The facts sheet's two extra lines are covered. Its "as of"
+  time is the report sheet's "taken 14:20" under the title (70f, 71e). Its
+  sentence that Claude Code compacts the conversation near the window is
+  dropped: the canvas has no place for it in the sheet, and the report
+  shows the same thing as data — the compaction reserve hatched at the end
+  of the window bar and listed as Autocompact buffer in the legend, and a
+  window past the compaction point said in words with the tokens over.
 - **What can be set.** Nothing. The dialog is the answer to a command the
   user typed; there is no taste to configure.
 - **Why opening by itself is the default.** Typing the command is asking
@@ -138,12 +157,23 @@ taken: a typed `/context` (its row stays in the transcript) or the
 read-out. A newer one replaces it; nothing older is kept.
 
 - `context_reports` (migration 0040, a new table, empty on update) holds
-  one report per session with when it was taken. The indexer reads the
-  newest `/context` twin off each transcript it reparses and keeps it
-  unless a newer one is kept; the route keeps every report it takes. The
+  one report per session with when it was taken and where it came from:
+  `transcript`, with the `/context` answer's entry uuid, or `readout`. The
+  indexer reads the newest `/context` twin off the live branch of each
+  transcript it reparses and keeps it unless a newer one is kept, after
+  the session's row and in the same transaction; the route keeps every
+  report it takes, if the session is still there once it has counted. The
   retention sweep deletes the row with its session. A session indexed
   before the update shows its old `/context` as kept only once its
-  transcript is written to again; its transcript row opens it as before.
+  transcript is written to again; until then the read-out opens the loaded
+  transcript's own `/context`, as its transcript row does.
+- **A rewind takes a kept report with it.** One from the transcript
+  follows the live branch: when its `/context` is rewound away the row
+  becomes the branch's newest `/context`, even an older one, or goes. One
+  from the read-out goes when a rewind was sent from Orbital after it was
+  taken (`rewinds`), the branch's newest `/context` standing in. A rewind
+  done in the terminal leaves no record, so a read-out report survives it
+  until the next report replaces it.
 - Every session carries `contextReportAt`, when its kept report was taken,
   or null. With a live Orbital session, which can always take one, it says
   whether the read-out opens a report at all, without asking.
@@ -155,6 +185,9 @@ read-out. A newer one replaces it; nothing older is kept.
     reader's tolerance. No turn runs and nothing is written to the
     transcript. The report is kept and `{ report, takenAt, fresh: true }`
     answered; the session is republished with its new `contextReportAt`.
+    A session that stopped or ended while it counted answers its kept
+    report instead of a failure; one the sweep deleted meanwhile is
+    `not_found` and nothing is kept.
   - any other session — ended, asleep, still starting, held by a terminal —
     answers its kept report, `{ report, takenAt, fresh: false }`.
   - refusals: 404 `not_found`, a session nobody knows; 404 `no_report`, one
@@ -162,7 +195,13 @@ read-out. A newer one replaces it; nothing older is kept.
     504 `timeout` (`CONTEXT_REPORT_TIMEOUT_MS`, under the phone's request
     timeout), 502 `failed` (the CLI refused, or answered with nothing
     readable) or 409 `unsupported` (a query without the control request);
-    those carry the kept report as `earlier` when there is one.
+    those carry the kept report as `earlier` when there is one. A `failed`
+    is recorded in the error log (`context_report_failed`) with the CLI's
+    words or the unreadable answer: the control answer is the CLI's
+    undocumented format, and a break in it has to be readable afterwards
+    (adr `errors-are-recorded-not-announced`).
+  - the answer's type, `ContextReportAnswer`, is declared once in
+    `shared/src/contextReport.ts` for the route and the web.
 - **The window is `rawMaxTokens`.** The CLI builds `/context`'s twin from
   this same control answer (measured in the CLI the SDK bundles, 2.1.322),
   `raw_max_tokens` from `rawMaxTokens`, so the two reports measure against
@@ -198,7 +237,11 @@ read-out. A newer one replaces it; nothing older is kept.
 - **Failure** keeps the dialog open: one line of words, "nothing was added
   to the transcript", Try again and, when there is one, Show the report
   from `<time>` — the Mac's kept report, else the transcript's. No red, no
-  icon. On the phone the Mac asleep is a failure, said at once.
+  icon. On the phone the Mac asleep is a failure, said at once. The Mac out
+  of reach — an older member Mac without the route, a member offline, no
+  answer over the network or the tunnel — is said as such; any other
+  failed request says the report could not be taken and is recorded in
+  the error log.
 - **No printout.** A report from the keeper or the read-out has no CLI text
   behind it, so the dialog and the sheet leave out As text rather than
   making one up.
