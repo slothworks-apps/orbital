@@ -142,6 +142,71 @@ export function contextReportOf(raw: unknown): ContextReport | null {
 }
 
 /**
+ * The same report from the `get_context_usage` control request — the SDK's
+ * `getContextUsage({ detail: 'full' })`, camelCase and flat
+ * (`SDKControlGetContextUsageResponse`) — or null. What the report opened
+ * from the context read-out reads, without a `/context` in the transcript
+ * (spec 2026-11-19-context-report-dialog-design § Opening it from the
+ * context read-out).
+ *
+ * The CLI builds `/context`'s twin from this very object (measured in the
+ * CLI bundled with the SDK, 2.1.322), so the fields map one to one:
+ * `rawMaxTokens` is the twin's `raw_max_tokens`, the window the report
+ * measures against. `maxTokens` is not read: the catalog found it reporting
+ * the session's ceiling rather than the window on older CLIs
+ * (`models/catalog.ts`), and the twin never carries it. An answer without
+ * `rawMaxTokens` is dropped whole, like a twin without `raw_max_tokens`.
+ *
+ * `over_limit` is not on this answer; it is worked out here the way the CLI
+ * works it out for the twin: past the window, `hard_limit` when the
+ * undocumented `autocompactSource` is `auto`, `compaction_window` otherwise.
+ * Skills come from `skills.skillFrontmatter`. The same tolerance as
+ * `contextReportOf`: a missing or malformed list is empty, a row without a
+ * numeric `tokens` is skipped, an unknown `kind` is kept.
+ */
+export function contextReportFromControl(raw: unknown): ContextReport | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (!isNumber(r.totalTokens) || !isNumber(r.rawMaxTokens) || r.rawMaxTokens <= 0) return null;
+  if (!Array.isArray(r.categories)) return null;
+  const total = r.totalTokens;
+  const window = r.rawMaxTokens;
+  const skills = r.skills && typeof r.skills === 'object' ? (r.skills as Record<string, unknown>).skillFrontmatter : undefined;
+
+  return {
+    model: isText(r.model) ? r.model : null,
+    totalTokens: total,
+    rawMaxTokens: window,
+    percentage: isNumber(r.percentage) ? r.percentage : Math.round((total / window) * 100),
+    ...(total > window
+      ? { overLimit: { tokensOver: total - window, kind: r.autocompactSource === 'auto' ? 'hard_limit' : 'compaction_window' } }
+      : {}),
+    categories: rowsOf(r.categories, (c, tokens) =>
+      isText(c.name) ? { name: c.name, tokens, kind: typeof c.kind === 'string' ? c.kind : '' } : null,
+    ),
+    mcpTools: rowsOf(r.mcpTools, (t, tokens) =>
+      isText(t.name) ? { name: t.name, serverName: typeof t.serverName === 'string' ? t.serverName : '', tokens } : null,
+    ),
+    memoryFiles: rowsOf(r.memoryFiles, (f, tokens) =>
+      isText(f.path) ? { path: f.path, type: typeof f.type === 'string' ? f.type : '', tokens } : null,
+    ),
+    agents: rowsOf(r.agents, (a, tokens) =>
+      isText(a.agentType) ? { agentType: a.agentType, source: typeof a.source === 'string' ? a.source : '', tokens } : null,
+    ),
+    skills: rowsOf(skills, (k, tokens) =>
+      isText(k.name)
+        ? {
+            name: k.name,
+            source: typeof k.source === 'string' ? k.source : '',
+            ...(isText(k.pluginName) ? { pluginName: k.pluginName } : {}),
+            tokens,
+          }
+        : null,
+    ),
+  };
+}
+
+/**
  * The command a local-command frame answered, as `/name`, or null.
  *
  * `local_command_run.command` carries the bare name (`context`, not

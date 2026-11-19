@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  contextReportFromControl,
   contextReportOf,
   messageFromLocalCommandEntry,
   noticeFromSdkMessage,
@@ -423,6 +424,108 @@ describe('the /context report on a notice', () => {
     expect(noticeFromSdkMessage(syntheticAssistant({ context_usage: { total_tokens: 5 } }), 'id-d')?.notice).toEqual({
       level: 'notice',
       command: '/context',
+    });
+  });
+});
+
+/**
+ * `getContextUsage({ detail: 'full' })`'s answer, trimmed: the flat camelCase
+ * `SDKControlGetContextUsageResponse` with the fields the CLI builds `/context`'s
+ * twin from, plus some it does not (`color`, `gridRows`, `isLoaded`).
+ */
+function control(over: Record<string, unknown> = {}) {
+  return {
+    model: 'claude-opus-5-5[1m]',
+    totalTokens: 108805,
+    maxTokens: 1000000,
+    rawMaxTokens: 1000000,
+    autocompactSource: 'model-default',
+    percentage: 11,
+    categories: [
+      { id: 'system_prompt', name: 'System prompt', tokens: 2758, color: 'promptBorder', kind: 'used' },
+      { name: 'MCP tools (deferred)', tokens: 25954, color: 'inactive', isDeferred: true, kind: 'deferred' },
+      { name: 'Free space', tokens: 858195, color: 'promptBorder', kind: 'free' },
+    ],
+    gridRows: [],
+    mcpTools: [{ name: 'mcp__atlas__docs_create', serverName: 'atlas', tokens: 286, isLoaded: false }],
+    memoryFiles: [{ path: '/Users/me/.claude/CLAUDE.md', type: 'User', tokens: 142 }],
+    agents: [{ agentType: 'code-reviewer', source: 'userSettings', tokens: 92 }],
+    skills: {
+      totalSkills: 2,
+      includedSkills: 2,
+      tokens: 500,
+      skillFrontmatter: [
+        { name: 'code-review:code-review', source: 'plugin', pluginName: 'code-review', tokens: 18 },
+        { name: 'dataviz', source: 'built-in', tokens: 482 },
+      ],
+    },
+    isAutoCompactEnabled: true,
+    apiUsage: null,
+    ...over,
+  };
+}
+
+describe('contextReportFromControl', () => {
+  it('reads the control answer into the same report the twin gives', () => {
+    expect(contextReportFromControl(control())).toEqual({
+      model: 'claude-opus-5-5[1m]',
+      totalTokens: 108805,
+      rawMaxTokens: 1000000,
+      percentage: 11,
+      categories: [
+        { name: 'System prompt', tokens: 2758, kind: 'used' },
+        { name: 'MCP tools (deferred)', tokens: 25954, kind: 'deferred' },
+        { name: 'Free space', tokens: 858195, kind: 'free' },
+      ],
+      mcpTools: [{ name: 'mcp__atlas__docs_create', serverName: 'atlas', tokens: 286 }],
+      memoryFiles: [{ path: '/Users/me/.claude/CLAUDE.md', type: 'User', tokens: 142 }],
+      agents: [{ agentType: 'code-reviewer', source: 'userSettings', tokens: 92 }],
+      skills: [
+        { name: 'code-review:code-review', source: 'plugin', pluginName: 'code-review', tokens: 18 },
+        { name: 'dataviz', source: 'built-in', tokens: 482 },
+      ],
+    });
+  });
+
+  it('measures against rawMaxTokens, never maxTokens', () => {
+    const report = contextReportFromControl(control({ maxTokens: 1000000, rawMaxTokens: 200000, percentage: 54 }));
+    expect(report?.rawMaxTokens).toBe(200000);
+    expect(contextReportFromControl(control({ rawMaxTokens: undefined }))).toBeNull();
+  });
+
+  it('works out over_limit as the CLI does for the twin', () => {
+    expect(contextReportFromControl(control({ totalTokens: 204500, rawMaxTokens: 200000 }))?.overLimit).toEqual({
+      tokensOver: 4500,
+      kind: 'compaction_window',
+    });
+    expect(
+      contextReportFromControl(control({ totalTokens: 204500, rawMaxTokens: 200000, autocompactSource: 'auto' }))?.overLimit,
+    ).toEqual({ tokensOver: 4500, kind: 'hard_limit' });
+    expect(contextReportFromControl(control())).not.toHaveProperty('overLimit');
+  });
+
+  it('is as tolerant as the twin reader', () => {
+    expect(contextReportFromControl(null)).toBeNull();
+    expect(contextReportFromControl(control({ totalTokens: undefined }))).toBeNull();
+    expect(contextReportFromControl(control({ rawMaxTokens: 0 }))).toBeNull();
+    expect(contextReportFromControl(control({ categories: undefined }))).toBeNull();
+    const report = contextReportFromControl(
+      control({
+        percentage: undefined,
+        mcpTools: 'nope',
+        memoryFiles: [{ path: '/a', tokens: 'many' }, { path: '/b', tokens: 3 }],
+        skills: [{ name: 'flat', source: 'x', tokens: 1 }],
+        agents: undefined,
+        categories: [{ name: 'New', tokens: 5, kind: 'later' }, { tokens: 9 }],
+      }),
+    );
+    expect(report).toMatchObject({
+      percentage: 11,
+      mcpTools: [],
+      memoryFiles: [{ path: '/b', type: '', tokens: 3 }],
+      skills: [],
+      agents: [],
+      categories: [{ name: 'New', tokens: 5, kind: 'later' }],
     });
   });
 });

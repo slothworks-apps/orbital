@@ -5365,3 +5365,51 @@ describe('issue routes', () => {
     expect((await app.inject({ method: 'POST', url, payload: { title: 'Map', body: 'b', model: '--settings=x' } })).statusCode).toBe(400);
   });
 });
+
+describe('GET /api/sessions/:id/context-report', () => {
+  const REPORT = {
+    model: 'claude-opus-5', totalTokens: 1000, rawMaxTokens: 200000, percentage: 1,
+    categories: [], mcpTools: [], memoryFiles: [], agents: [], skills: [],
+  };
+
+  /** `w1`, an Orbital session whose live query answers `answer`. */
+  function withLive(answer: unknown) {
+    const made = makeApp();
+    made.db.insert(sessions).values({ id: 'w1', projectDir: 'p', cwd: '/w/z', title: 'web', lastAt: 300, source: 'web' }).run();
+    (made.runner as any).status = (id: string) => (id === 'w1' ? 'needs_input' : undefined);
+    const contextReport = vi.fn(async (_id: string) => answer);
+    (made.runner as any).contextReport = contextReport;
+    return { ...made, contextReport };
+  }
+
+  it('answers the live report with when it was taken, publishing nothing', async () => {
+    const { app, hub, contextReport } = withLive({ report: REPORT });
+    const published = subscribeFake(hub, 'session:w1');
+    const res = await app.inject({ url: '/api/sessions/w1/context-report' });
+    const body = res200(res);
+    expect(body.report).toEqual(REPORT);
+    expect(Number.isNaN(Date.parse(body.takenAt))).toBe(false);
+    expect(contextReport).toHaveBeenCalledWith('w1');
+    expect(published).toEqual([]);
+  });
+
+  it('refuses a terminal session, one with no live query and one nobody knows, by name', async () => {
+    const { app, contextReport } = withLive({ report: REPORT });
+    // s1 is held by a terminal; s2 has a row and no process; nope has neither.
+    const terminal = await app.inject({ url: '/api/sessions/s1/context-report' });
+    expect([terminal.statusCode, terminal.json().error]).toEqual([409, 'terminal_session']);
+    const asleep = await app.inject({ url: '/api/sessions/s2/context-report' });
+    expect([asleep.statusCode, asleep.json().error]).toEqual([409, 'not_running']);
+    const unknown = await app.inject({ url: '/api/sessions/nope/context-report' });
+    expect([unknown.statusCode, unknown.json().error]).toEqual([404, 'not_found']);
+    expect(contextReport).not.toHaveBeenCalled();
+  });
+
+  it('passes the Runner’s refusal on with its own status', async () => {
+    for (const [error, code] of [['not_running', 409], ['unsupported', 409], ['timeout', 504], ['failed', 502]] as const) {
+      const { app } = withLive({ error });
+      const res = await app.inject({ url: '/api/sessions/w1/context-report' });
+      expect([res.statusCode, res.json().error]).toEqual([code, error]);
+    }
+  });
+});

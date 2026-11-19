@@ -1050,6 +1050,33 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return tail;
   });
 
+  /**
+   * The `/context` report taken now, without a `/context` turn: the session's
+   * live query is asked for its full context breakdown on the side, and
+   * nothing is published or written to the transcript (spec
+   * 2026-11-19-context-report-dialog-design § Opening it from the context
+   * read-out). `{ report, takenAt }`, `takenAt` an ISO time.
+   *
+   * Every refusal names why, so the client can open the last `/context` in
+   * the transcript instead: 404 `not_found`, a session nobody knows; 409
+   * `terminal_session`, one a terminal holds; 409 `not_running`, one with no
+   * live query (ended, asleep, still starting); 409 `unsupported`, a query
+   * without the control request; 504 `timeout`; 502 `failed`, the CLI
+   * refused or answered with nothing readable.
+   */
+  app.get('/api/sessions/:id/context-report', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (ctx.registry.get(id)) return reply.code(409).send({ error: 'terminal_session' });
+    if (!ctx.runner.status(id)) {
+      const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
+      return reply.code(row ? 409 : 404).send({ error: row ? 'not_running' : 'not_found' });
+    }
+    const answer = await ctx.runner.contextReport(id);
+    if ('report' in answer) return { report: answer.report, takenAt: new Date().toISOString() };
+    const code = answer.error === 'timeout' ? 504 : answer.error === 'failed' ? 502 : 409;
+    return reply.code(code).send({ error: answer.error });
+  });
+
   // Transcript images, served straight from the content-addressed store.
   // The ref regex is the whole security story: 64 lowercase hex chars plus
   // a whitelisted extension can neither traverse nor name anything the

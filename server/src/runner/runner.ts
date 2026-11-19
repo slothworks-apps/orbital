@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { CanUseTool, HookCallbackMatcher, PermissionResult, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
-import type { PermissionMode, SessionStatus, ChatMessage, McpServerRow } from '../types.js';
+import type { PermissionMode, SessionStatus, ChatMessage, ContextReport, McpServerRow } from '../types.js';
 import type { TurnEndInfo } from '../login/service.js';
 import type { McpConfigSnapshot } from '../mcp/claudeJson.js';
 import { shapeMcpServers } from '../mcp/rows.js';
@@ -20,8 +20,8 @@ import type { PermissionWait } from '../stats/compute.js';
 import { TASK_LAUNCHING_TOOLS, withoutIntentMarker, type LaunchingCall } from '../transcript/backgroundTasks.js';
 import { imageRefOf, isInterruptMarker, questionAnswersOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import {
-  AUTHENTICATION_FAILED, STOP_HOOK_EVENT, designLoginLine, isDesignSyncTool, loginLostNotice, noticeFromSdkMessage,
-  hookRunningNotice, stopHookCancelledNotice, textOfContent,
+  AUTHENTICATION_FAILED, STOP_HOOK_EVENT, contextReportFromControl, designLoginLine, isDesignSyncTool, loginLostNotice,
+  noticeFromSdkMessage, hookRunningNotice, stopHookCancelledNotice, textOfContent,
 } from '../transcript/notices.js';
 import { TOOL_HOOK_EVENTS, configuredHookCommands, hookMatchQuery, hookSettingsSources } from './hookCommand.js';
 import type { LiveHookNotice } from '@orbital/shared/hookNotice';
@@ -47,6 +47,59 @@ import { shellIntentHooks } from './shellIntentHook.js';
  * the small accuracy it buys.
  */
 const CONTEXT_USAGE_TIMEOUT_MS = 2_000;
+
+/**
+ * How long the report opened from the context read-out waits for the CLI's
+ * full count. `detail: 'full'` counts each category with the token-count
+ * API, so it takes longer than the turn-end summary; it stays well under the
+ * phone's `REQUEST_TIMEOUT_MS`, so a slow CLI answers the phone with a
+ * timeout rather than with silence.
+ */
+export const CONTEXT_REPORT_TIMEOUT_MS = 10_000;
+
+/**
+ * The report opened from the context read-out, or why there is none
+ * (spec 2026-11-19-context-report-dialog-design § Opening it from the context
+ * read-out): `not_running` — no live query to ask (ended, asleep, still
+ * starting); `unsupported` — a query without the control request;
+ * `timeout` — no answer in time; `failed` — the CLI refused, or answered
+ * with nothing `contextReportFromControl` could read.
+ */
+export type ContextReportAnswer =
+  | { report: ContextReport }
+  | { error: 'not_running' | 'unsupported' | 'timeout' | 'failed' };
+
+/**
+ * Asks one live query for the full context breakdown, bounded by `timeoutMs`.
+ * The control request rides the stdio channel `pump()` drains, so nothing is
+ * published and nothing reaches the transcript: this is a question, not a
+ * `/context` turn. A late answer past the deadline is dropped.
+ */
+export async function askContextReport(
+  generator: { getContextUsage?: (opts?: { detail?: 'summary' | 'full' }) => Promise<unknown> },
+  timeoutMs: number,
+): Promise<ContextReportAnswer> {
+  const ask = generator.getContextUsage;
+  if (!ask) return { error: 'unsupported' };
+  const TIMED_OUT = Symbol('timeout');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const answer = await Promise.race([
+      ask.call(generator, { detail: 'full' }),
+      new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+    if (answer === TIMED_OUT) return { error: 'timeout' };
+    const report = contextReportFromControl(answer);
+    return report ? { report } : { error: 'failed' };
+  } catch {
+    return { error: 'failed' };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /**
  * How long a rewind waits for the session's `claude` process to exit once
@@ -3413,6 +3466,17 @@ export class Runner {
     if (!generator?.stopTask) return false;
     await generator.stopTask(taskId);
     return true;
+  }
+
+  /**
+   * The full `/context` breakdown of a session this Runner holds a live query
+   * for, asked on the side (`askContextReport`): no turn, no message, nothing
+   * in the transcript.
+   */
+  async contextReport(sessionId: string): Promise<ContextReportAnswer> {
+    const generator = this.sessions.get(sessionId)?.generator;
+    if (!generator) return { error: 'not_running' };
+    return askContextReport(generator, CONTEXT_REPORT_TIMEOUT_MS);
   }
 
   /** The `Bash`/`Monitor` call with this `tool_use` id, as this session's stream carried it. */
