@@ -752,6 +752,25 @@ export interface PendingVerdictDecision {
 export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning'
 
 /**
+ * The CLI's `/context` report as data. Mirrors `server/src/types.ts`. The
+ * window is `rawMaxTokens`, which can be a compaction window smaller than the
+ * model's; a category's `kind` may be one the CLI added after this was
+ * written.
+ */
+export interface ContextReport {
+  model: string | null
+  totalTokens: number
+  rawMaxTokens: number
+  percentage: number
+  overLimit?: { tokensOver: number; kind: string }
+  categories: { name: string; tokens: number; kind: string }[]
+  mcpTools: { name: string; serverName: string; tokens: number }[]
+  memoryFiles: { path: string; type: string; tokens: number }[]
+  agents: { agentType: string; source: string; tokens: number }[]
+  skills: { name: string; source: string; pluginName?: string; tokens: number }[]
+}
+
+/**
  * What one compaction left behind (spec 2026-09-28-context-compaction-design).
  * A figure the CLI did not report is null, never estimated. Mirrors
  * `server/src/types.ts`.
@@ -881,6 +900,12 @@ export interface ChatMessage {
      * only `text`.
      */
     hook?: LiveHookNotice
+    /**
+     * `/context` answers only: the report as data, drawn as the summary row
+     * and the report dialog (spec 2026-11-19-context-report-dialog-design).
+     * Absent from an older Mac or CLI, where `text` is drawn as before.
+     */
+    contextReport?: ContextReport
   }
   /** `compaction` rows only. Mirrors `server/src/types.ts`. */
   compaction?: CompactionMark

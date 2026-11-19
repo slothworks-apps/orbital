@@ -38,6 +38,8 @@ import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
 import type { LinesMode } from '../lib/branchStatus'
 import { archipelagoEnabled } from '../lib/experimental'
+import { isContextCommand } from '../lib/contextReport'
+import { isContextAnswer, useContextReport } from './contextReport'
 import type { MachineEvent } from '@orbital/shared/remote/device'
 import { deviceChips, deviceOf, devicesOn, ideHere, isMemberOffline, machineOffline, withMachine, withMachineOffline } from '../lib/devices'
 import type {
@@ -1874,6 +1876,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           [sessionId]: [...existing, msg.message],
         },
       })
+      if (isContextAnswer(msg.message)) useContextReport.getState().answered(sessionId, msg.message)
       return
     }
 
@@ -2448,6 +2451,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (browserSelection) get().dismissBrowserSelection(id)
 
     const images = attachments?.map((a) => a.entry)
+    // Typing /context asks for the report: its live answer opens the dialog
+    // here, and nowhere else (spec 2026-11-19-context-report-dialog-design).
+    if (isContextCommand(text)) useContextReport.getState().ask(id)
     // What was SENT, not what was typed: the echo that comes back off the
     // transcript carries the block too, and an optimistic turn that showed
     // less would be replaced by a longer one a moment later.
@@ -2510,6 +2516,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         })
       }
     } catch (err) {
+      useContextReport.getState().forget(id)
       // Whatever refused the turn — offline, 409, 500, the network — the
       // browser selection did not go out: back above the composer, unless a
       // newer one arrived meanwhile.
