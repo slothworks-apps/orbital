@@ -2480,7 +2480,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // nowhere else (spec 2026-11-19-context-report-dialog-design). A queued
     // one is not asking now: its answer comes after a wait, over whatever the
     // user has turned to since.
-    if (!queues && isContextCommand(text)) useContextReport.getState().ask(id)
+    const asksReport = !queues && isContextCommand(text)
+    if (asksReport) useContextReport.getState().ask(id)
 
     set((state) => ({
       ...(queues
@@ -2522,7 +2523,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         })
       }
     } catch (err) {
-      useContextReport.getState().forget(id)
+      // Only the ask this send made: a later message failing leaves a
+      // pending /context's ask in place.
+      if (asksReport) useContextReport.getState().forget(id)
       // Whatever refused the turn — offline, 409, 500, the network — the
       // browser selection did not go out: back above the composer, unless a
       // newer one arrived meanwhile.

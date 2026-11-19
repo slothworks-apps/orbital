@@ -65,6 +65,21 @@ describe('asking for the report', () => {
     expect(useContextReport.getState().asked).toEqual({})
   })
 
+  it('forgets the ask when the /context itself fails to go out', async () => {
+    seed(session())
+    vi.mocked(api.sendMessage).mockRejectedValueOnce(new Error('offline'))
+    await useOrbital.getState().sendPrompt('s1', '/context')
+    expect(useContextReport.getState().asked).toEqual({})
+  })
+
+  it('keeps a pending ask when a later message fails to go out', async () => {
+    seed(session())
+    await useOrbital.getState().sendPrompt('s1', '/context')
+    vi.mocked(api.sendMessage).mockRejectedValueOnce(new Error('offline'))
+    await useOrbital.getState().sendPrompt('s1', 'and then this')
+    expect(useContextReport.getState().asked).toEqual({ s1: true })
+  })
+
   it('forgets every ask on a reconnect, whose catch-up delivers answers as history', async () => {
     useContextReport.setState({ asked: { s1: true, s2: true } })
     await useOrbital.getState().resyncAfterReconnect()
