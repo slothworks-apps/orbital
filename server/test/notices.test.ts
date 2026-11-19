@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  contextReportOf,
   messageFromLocalCommandEntry,
   noticeFromSdkMessage,
   stripLocalCommandWrapper,
@@ -266,5 +267,140 @@ describe('entriesToMessages with local commands', () => {
     expect(entriesToMessages(parseTranscript(plain))).toEqual([
       { id: 'z:0', role: 'assistant', text: 'hi', timestamp: undefined, model: 'claude-x', uuid: 'z' },
     ]);
+  });
+});
+
+/**
+ * The structured twin as Claude Code 2.1.280 writes it (trimmed from a real
+ * transcript: the shape is real, the lists are cut to a few rows each).
+ */
+function usage(over: Record<string, unknown> = {}) {
+  return {
+    model: 'claude-opus-5-5[1m]',
+    total_tokens: 108805,
+    raw_max_tokens: 1000000,
+    percentage: 11,
+    categories: [
+      { name: 'System prompt', tokens: 2758, kind: 'used' },
+      { name: 'MCP tools (deferred)', tokens: 25954, kind: 'deferred' },
+      { name: 'Messages', tokens: 84421, kind: 'used' },
+      { name: 'Autocompact buffer', tokens: 33000, kind: 'buffer' },
+      { name: 'Free space', tokens: 858195, kind: 'free' },
+    ],
+    mcp_tools: [{ name: 'mcp__atlas__docs_create', server_name: 'atlas', tokens: 286 }],
+    memory_files: [{ path: '/Users/me/.claude/CLAUDE.md', type: 'User', tokens: 142 }],
+    agents: [{ agent_type: 'code-reviewer', source: 'userSettings', tokens: 92 }],
+    skills: [
+      { name: 'code-review:code-review', source: 'plugin', plugin_name: 'code-review', tokens: 18 },
+      { name: 'dataviz', source: 'built-in', tokens: 482 },
+    ],
+    ...over,
+  };
+}
+
+describe('contextReportOf', () => {
+  it('reads the twin into camelCase, keeping the CLI order', () => {
+    expect(contextReportOf(usage())).toEqual({
+      model: 'claude-opus-5-5[1m]',
+      totalTokens: 108805,
+      rawMaxTokens: 1000000,
+      percentage: 11,
+      categories: [
+        { name: 'System prompt', tokens: 2758, kind: 'used' },
+        { name: 'MCP tools (deferred)', tokens: 25954, kind: 'deferred' },
+        { name: 'Messages', tokens: 84421, kind: 'used' },
+        { name: 'Autocompact buffer', tokens: 33000, kind: 'buffer' },
+        { name: 'Free space', tokens: 858195, kind: 'free' },
+      ],
+      mcpTools: [{ name: 'mcp__atlas__docs_create', serverName: 'atlas', tokens: 286 }],
+      memoryFiles: [{ path: '/Users/me/.claude/CLAUDE.md', type: 'User', tokens: 142 }],
+      agents: [{ agentType: 'code-reviewer', source: 'userSettings', tokens: 92 }],
+      skills: [
+        { name: 'code-review:code-review', source: 'plugin', pluginName: 'code-review', tokens: 18 },
+        { name: 'dataviz', source: 'built-in', tokens: 482 },
+      ],
+    });
+  });
+
+  it('reads over_limit when it is whole', () => {
+    expect(contextReportOf(usage({ over_limit: { tokens_over: 4500, kind: 'compaction_window' } }))?.overLimit).toEqual({
+      tokensOver: 4500,
+      kind: 'compaction_window',
+    });
+    expect(contextReportOf(usage({ over_limit: { kind: 'hard_limit' } }))).not.toHaveProperty('overLimit');
+  });
+
+  it('drops the report whole when a core number or the categories are missing', () => {
+    expect(contextReportOf(usage({ total_tokens: undefined }))).toBeNull();
+    expect(contextReportOf(usage({ raw_max_tokens: '1m' }))).toBeNull();
+    expect(contextReportOf(usage({ raw_max_tokens: 0 }))).toBeNull();
+    expect(contextReportOf(usage({ categories: null }))).toBeNull();
+    expect(contextReportOf(null)).toBeNull();
+    expect(contextReportOf('report')).toBeNull();
+  });
+
+  it('empties a list that is missing or malformed, and keeps the rest', () => {
+    const report = contextReportOf(usage({ mcp_tools: 'none', skills: undefined, agents: { a: 1 } }));
+    expect(report?.mcpTools).toEqual([]);
+    expect(report?.skills).toEqual([]);
+    expect(report?.agents).toEqual([]);
+    expect(report?.memoryFiles).toHaveLength(1);
+  });
+
+  it('skips a row without numeric tokens or a name, and keeps its neighbours', () => {
+    const report = contextReportOf(
+      usage({
+        categories: [
+          { name: 'System prompt', tokens: '2.8k', kind: 'used' },
+          null,
+          { tokens: 12, kind: 'used' },
+          { name: 'Messages', tokens: 84421, kind: 'used' },
+        ],
+        mcp_tools: [{ name: 'mcp__a__b', server_name: 'a' }, { name: 'mcp__a__c', server_name: 'a', tokens: 9 }],
+      }),
+    );
+    expect(report?.categories).toEqual([{ name: 'Messages', tokens: 84421, kind: 'used' }]);
+    expect(report?.mcpTools).toEqual([{ name: 'mcp__a__c', serverName: 'a', tokens: 9 }]);
+  });
+
+  it('keeps a category of a kind it does not know, as it came', () => {
+    const report = contextReportOf(usage({ categories: [{ name: 'Pinned', tokens: 40, kind: 'pinned' }] }));
+    expect(report?.categories).toEqual([{ name: 'Pinned', tokens: 40, kind: 'pinned' }]);
+  });
+
+  it('works the percentage out when the CLI left it off', () => {
+    expect(contextReportOf(usage({ percentage: undefined }))?.percentage).toBe(11);
+  });
+});
+
+describe('the /context report on a notice', () => {
+  it('rides on the SDK frame as context_usage', () => {
+    const row = noticeFromSdkMessage(syntheticAssistant({ context_usage: usage() }), 'id-c');
+    expect(row?.notice?.command).toBe('/context');
+    expect(row?.notice?.contextReport?.totalTokens).toBe(108805);
+    // The printout stays: it is the fallback and the dialog's "As text".
+    expect(row?.text).toBe('## Context Usage\n\n**Model:** claude-fable-5-1');
+  });
+
+  it('rides on the file entry as contextUsage', () => {
+    const row = messageFromLocalCommandEntry(
+      {
+        type: 'system',
+        subtype: 'local_command',
+        content: '<local-command-stdout>## Context Usage</local-command-stdout>',
+        timestamp: '2026-11-19T08:34:42.615Z',
+        contextUsage: usage(),
+      },
+      'u9:0',
+    );
+    expect(row?.notice?.contextReport?.rawMaxTokens).toBe(1000000);
+    expect(row?.timestamp).toBe('2026-11-19T08:34:42.615Z');
+  });
+
+  it('leaves the notice as it was when the twin cannot be read', () => {
+    expect(noticeFromSdkMessage(syntheticAssistant({ context_usage: { total_tokens: 5 } }), 'id-d')?.notice).toEqual({
+      level: 'notice',
+      command: '/context',
+    });
   });
 });

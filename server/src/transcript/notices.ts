@@ -1,5 +1,5 @@
 import { STOP_HOOK_EVENT, hookNoticeText, type LiveHookNotice } from '@orbital/shared/hookNotice';
-import type { ChatMessage, LoginKind, NoticeLevel } from '../types.js';
+import type { ChatMessage, ContextReport, LoginKind, NoticeLevel } from '../types.js';
 
 /**
  * The CLI wraps a local command's own output in one of these before it writes
@@ -51,6 +51,7 @@ function notice(
   text: string,
   level: NoticeLevel,
   command?: string | null,
+  contextReport?: ContextReport | null,
 ): ChatMessage | null {
   const body = text.replace(/^\n+/, '').replace(/\s+$/, '');
   if (!body) return null;
@@ -58,7 +59,85 @@ function notice(
     id,
     role: 'notice',
     text: body,
-    notice: { level, ...(command ? { command } : {}) },
+    notice: { level, ...(command ? { command } : {}), ...(contextReport ? { contextReport } : {}) },
+  };
+}
+
+// ---- The /context report as data (spec 2026-11-19-context-report-dialog-design)
+
+const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isText = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+/**
+ * The rows of one list of the twin. A list that is missing or not an array
+ * is empty; a row that is not an object, has no numeric `tokens`, or lacks
+ * what names it is skipped — the rest of the list still reads.
+ */
+function rowsOf<T>(list: unknown, read: (row: Record<string, unknown>, tokens: number) => T | null): T[] {
+  if (!Array.isArray(list)) return [];
+  const out: T[] = [];
+  for (const row of list) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    if (!isNumber(r.tokens)) continue;
+    const item = read(r, r.tokens);
+    if (item) out.push(item);
+  }
+  return out;
+}
+
+/**
+ * The structured twin of a `/context` answer — `context_usage` on the SDK
+ * frame, `contextUsage` on the file entry, the same snake_case object either
+ * way — as `notice.contextReport`, or null.
+ *
+ * The format is undocumented and moves with the CLI, so the reader keeps
+ * what it can: a report without a numeric `total_tokens`, a positive
+ * `raw_max_tokens` and a `categories` array is dropped whole (the row falls
+ * back to the printout); a list that is missing or malformed is empty; a row
+ * without a numeric `tokens` is skipped. A category whose `kind` is not one
+ * this was written against is kept as it came — classifying it is the
+ * client's business, and it does so by `kind`, never by the English `name`.
+ */
+export function contextReportOf(raw: unknown): ContextReport | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (!isNumber(r.total_tokens) || !isNumber(r.raw_max_tokens) || r.raw_max_tokens <= 0) return null;
+  if (!Array.isArray(r.categories)) return null;
+
+  const over = r.over_limit as Record<string, unknown> | undefined;
+  const overLimit = over && typeof over === 'object' && isNumber(over.tokens_over) && isText(over.kind)
+    ? { tokensOver: over.tokens_over, kind: over.kind }
+    : null;
+
+  return {
+    model: isText(r.model) ? r.model : null,
+    totalTokens: r.total_tokens,
+    rawMaxTokens: r.raw_max_tokens,
+    percentage: isNumber(r.percentage) ? r.percentage : Math.round((r.total_tokens / r.raw_max_tokens) * 100),
+    ...(overLimit ? { overLimit } : {}),
+    categories: rowsOf(r.categories, (c, tokens) =>
+      isText(c.name) ? { name: c.name, tokens, kind: typeof c.kind === 'string' ? c.kind : '' } : null,
+    ),
+    mcpTools: rowsOf(r.mcp_tools, (t, tokens) =>
+      isText(t.name) ? { name: t.name, serverName: typeof t.server_name === 'string' ? t.server_name : '', tokens } : null,
+    ),
+    memoryFiles: rowsOf(r.memory_files, (f, tokens) =>
+      isText(f.path) ? { path: f.path, type: typeof f.type === 'string' ? f.type : '', tokens } : null,
+    ),
+    agents: rowsOf(r.agents, (a, tokens) =>
+      isText(a.agent_type) ? { agentType: a.agent_type, source: typeof a.source === 'string' ? a.source : '', tokens } : null,
+    ),
+    skills: rowsOf(r.skills, (k, tokens) =>
+      isText(k.name)
+        ? {
+            name: k.name,
+            source: typeof k.source === 'string' ? k.source : '',
+            ...(isText(k.plugin_name) ? { pluginName: k.plugin_name } : {}),
+            tokens,
+          }
+        : null,
+    ),
   };
 }
 
@@ -106,10 +185,10 @@ export function textOfContent(content: unknown): string {
  * 3. `system`/`informational`, the loop's text banner — hook feedback and
  *    status lines, which the SDK documents as transcript-only output.
  *
- * The `context_usage` and `usage_report` siblings that ride along on (1) are
- * deliberately not read: the SDK calls the text in `message.content` the
- * canonical form and the structured twins a convenience for clients that
- * render a card, which Orbital does not yet do
+ * The `context_usage` sibling that rides along on (1) for `/context` is read
+ * into `notice.contextReport`, which the clients draw as the report dialog
+ * (spec 2026-11-19-context-report-dialog-design); the text stays the
+ * canonical form and the fallback. `/usage`'s `usage_report` is not read yet
  * (`docs/domains/locally-answered-slash-commands.md`).
  */
 export function noticeFromSdkMessage(msg: unknown, id: string): ChatMessage | null {
@@ -128,6 +207,7 @@ export function noticeFromSdkMessage(msg: unknown, id: string): ChatMessage | nu
       fromBlocks || source.text,
       source.stream === 'stderr' ? 'warning' : 'notice',
       commandNameOf(m),
+      contextReportOf(m.context_usage),
     );
   }
 
@@ -167,9 +247,13 @@ const BARE_COMMAND = /^\/[A-Za-z0-9][A-Za-z0-9:_-]*(?:\s.*)?$/;
  * The entry's own `level` is not read. It is `info` on every local command the
  * CLI writes, and honouring it would style a reloaded answer differently from
  * the live one that said exactly the same thing.
+ *
+ * A `/context` answer carries the report as data in `contextUsage`, the same
+ * object the stream calls `context_usage`; it becomes `notice.contextReport`
+ * here too, so history and terminal sessions draw the same dialog.
  */
 export function messageFromLocalCommandEntry(
-  entry: { type: string; subtype?: unknown; content?: unknown; timestamp?: string },
+  entry: { type: string; subtype?: unknown; content?: unknown; timestamp?: string; contextUsage?: unknown },
   id: string,
 ): ChatMessage | null {
   if (entry.type !== 'system' || entry.subtype !== 'local_command') return null;
@@ -188,7 +272,13 @@ export function messageFromLocalCommandEntry(
     return { id, role: 'user', text, ...stamp };
   }
 
-  const row = notice(id, source.text, source.stream === 'stderr' ? 'warning' : 'notice', null);
+  const row = notice(
+    id,
+    source.text,
+    source.stream === 'stderr' ? 'warning' : 'notice',
+    null,
+    source.stream === 'stdout' ? contextReportOf(entry.contextUsage) : null,
+  );
   return row ? { ...row, ...stamp } : null;
 }
 

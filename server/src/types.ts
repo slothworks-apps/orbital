@@ -197,6 +197,14 @@ export interface ChatMessage {
      * this; `text` says the same for a client that predates it.
      */
     hook?: LiveHookNotice;
+    /**
+     * `/context` answers only: the structured twin of the printout in
+     * `text`, read tolerantly from the SDK frame's `context_usage` or the
+     * file entry's `contextUsage` (`transcript/notices.ts`). Absent when the
+     * CLI attached none or what it attached could not be read; `text` is
+     * always there as the fallback.
+     */
+    contextReport?: ContextReport;
   };
   /** Images this message carries — refs into the image store, never data.
    * A pasted user image is its own message (no text); a tool_result keeps
@@ -217,6 +225,26 @@ export interface ChatMessage {
    * never counted.
    */
   rewind?: { hiddenCount: number | null };
+}
+
+/**
+ * The CLI's `/context` report as data (`SDKContextUsage`, camelCased). The
+ * window is `rawMaxTokens`, which can be a compaction window smaller than the
+ * model's. Rows are kept in the CLI's order; a category's `kind` is the CLI's
+ * (`used` / `free` / `buffer` / `deferred`) or one it has since added.
+ * Spec 2026-11-19-context-report-dialog-design.
+ */
+export interface ContextReport {
+  model: string | null;
+  totalTokens: number;
+  rawMaxTokens: number;
+  percentage: number;
+  overLimit?: { tokensOver: number; kind: string };
+  categories: { name: string; tokens: number; kind: string }[];
+  mcpTools: { name: string; serverName: string; tokens: number }[];
+  memoryFiles: { path: string; type: string; tokens: number }[];
+  agents: { agentType: string; source: string; tokens: number }[];
+  skills: { name: string; source: string; pluginName?: string; tokens: number }[];
 }
 
 /**

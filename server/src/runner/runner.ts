@@ -2043,7 +2043,10 @@ export class Runner {
       // after the turn edge above, which is real: the turn did run.
       const localCommand = noticeFromSdkMessage(msg, `${sessionId}:${++this.seq}:0`);
       if (localCommand) {
-        this.hub.publish(topic, { event: 'message', message: localCommand });
+        // Stamped as the file entry is, so the live row carries the time
+        // its reload does (and the /context report says when it was taken).
+        const stamped = localCommand.timestamp ? localCommand : { ...localCommand, timestamp: new Date().toISOString() };
+        this.hub.publish(topic, { event: 'message', message: stamped });
         return;
       }
       // A turn that failed on the login is the CLI's synthetic assistant
