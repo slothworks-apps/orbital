@@ -104,16 +104,18 @@
      `Feature - Context report` 70e, data-1 … data-7: system prompt, system
      tools, MCP tools, custom agents, memory files, skills, messages). Chosen
      there in OKLCH away from the gauge's green, amber and red, the tag hues
-     and the accent; the canvas writes them as these sRGB values. Data
-     colours, not chrome, so they are not palette tokens; a theme can still
-     override them here. */
-  --data-1: #488acb;
-  --data-2: #7750b1;
-  --data-3: #1ca3b9;
-  --data-4: #b23e88;
-  --data-5: #8788da;
-  --data-6: #006c9d;
-  --data-7: #b776c1;
+     and the accent; the canvas writes them only as these sRGB values, so
+     the oklch beside each is converted from the hex, not read off the
+     canvas. Data colours, not chrome, so they are not palette tokens; a
+     theme can still override them here. Light themes are not designed for
+     them yet: they keep these values. */
+  --data-1: #488acb; /* oklch(61.9% 0.120 250.0) */
+  --data-2: #7750b1; /* oklch(52.0% 0.150 299.8) */
+  --data-3: #1ca3b9; /* oklch(65.9% 0.110 212.3) */
+  --data-4: #b23e88; /* oklch(55.0% 0.170 344.9) */
+  --data-5: #8788da; /* oklch(66.0% 0.121 282.0) */
+  --data-6: #006c9d; /* oklch(50.5% 0.113 238.4) */
+  --data-7: #b776c1; /* oklch(66.1% 0.129 322.1) */
 
   --state-input: var(--color-warning);
   --state-interrupted: var(--color-danger-soft);
