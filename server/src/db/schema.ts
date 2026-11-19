@@ -926,6 +926,10 @@ export const contextReports = sqliteTable('context_reports', {
   /** Epoch ms: when the report was taken. */
   takenAt: integer('taken_at').notNull(),
   report: text('report').notNull(),
+  /** `transcript` — a typed `/context`'s twin, at `entryUuid`; `readout` — taken from the read-out. */
+  origin: text('origin', { enum: ['transcript', 'readout'] }).notNull(),
+  /** The `/context` answer's entry uuid when `origin` is `transcript`, else null. */
+  entryUuid: text('entry_uuid'),
 });
 
 /**

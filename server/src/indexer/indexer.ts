@@ -12,7 +12,7 @@ import { STATS_VERSION } from '../stats/constants.js';
 import { readPermissionWaits, upsertSessionStats, type SessionStatsWritten } from '../stats/store.js';
 import { readSubagentEntries } from '../stats/transcript.js';
 import { FIRST_CLAUDE_DIR_ID } from '../claudeDirs/paths.js';
-import { keepContextReport, latestContextTwin } from '../contextReport/store.js';
+import { followLiveBranch, latestContextTwin } from '../contextReport/store.js';
 
 /** One transcript to consider: the project directory it sits in, and its file name. */
 interface TranscriptFile {
@@ -296,10 +296,6 @@ function writePass(
           : '';
         const live = liveBranch(entries);
         const meta = extractMeta(live, harnessSaid);
-        // A typed /context's report, kept as the session's latest unless one
-        // taken from the read-out since is newer.
-        const twin = latestContextTwin(live);
-        if (twin && keepContextReport(db, id, twin)) reports.push(id);
         if (!meta.title) meta.title = harnessName;
         // A title, once there is one, is never derived again: the user's
         // next message in a harness session is often a bare "yes".
@@ -353,6 +349,11 @@ function writePass(
             },
           })
           .run();
+        // A typed /context's report, kept as the session's latest unless one
+        // taken from the read-out since is newer, and following the live
+        // branch through a rewind. After the session's row, in the same
+        // transaction: a kept row never stands without its session.
+        if (followLiveBranch(db, id, latestContextTwin(live))) reports.push(id);
         upsertSessionStats(db, id, rollup, (sessionId) => statsWritten.push(sessionId));
         indexed++;
       } catch (err) {
