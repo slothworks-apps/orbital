@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useState } from 'react'
 import { fn } from 'storybook/test'
 import { Button } from './Button'
-import { Dialog, type DialogProps } from './Dialog'
+import { Dialog, REVIEW_SCROLLBAR, ReviewHeader, type DialogProps } from './Dialog'
 
 const CLEAR_BODY = (
   <p className="fs-14 leading-[1.55] text-ink-400/90">
@@ -264,8 +264,9 @@ export const Review: Story = {
 
 /**
  * `review` at `xl`: the Report Dialog's 760px, as the `/context` report
- * draws it (canvas `Feature - Context report` 70a). The caller draws the
- * header, body and footer; the dialog owns the scrim, motion and Escape.
+ * draws it (canvas `Feature - Context report` 70a), with the variant's ruled
+ * header and × (`ReviewHeader`). The caller draws the title block, body and
+ * footer; the dialog owns the scrim, motion and Escape.
  */
 export const ReviewReport: Story = {
   args: {
@@ -274,11 +275,15 @@ export const ReviewReport: Story = {
     maxHeight: 820,
     title: 'Context report',
     children: (
-      <div className="flex flex-col gap-2 px-[26px] py-5">
-        <span className="font-mono fs-10 tracking-[0.2em] text-ink-900/65">/context</span>
-        <span className="fs-20 font-bold">Settings migration to the new store</span>
-        <span className="fs-13 text-ink-400/90">The caller's header, body and footer go here.</span>
-      </div>
+      <>
+        <ReviewHeader onClose={fn()}>
+          <div className="font-mono fs-10 tracking-[0.2em] text-ink-900/65">/context</div>
+          <h2 className="mt-1.5 fs-20 font-bold">Settings migration to the new store</h2>
+        </ReviewHeader>
+        <div className={`max-h-40 overflow-y-auto px-[26px] py-5 fs-13 text-ink-400/90 ${REVIEW_SCROLLBAR}`}>
+          The caller's body and footer go here; `ReviewHeader` and `REVIEW_SCROLLBAR` are the variant's.
+        </div>
+      </>
     ),
   },
 }

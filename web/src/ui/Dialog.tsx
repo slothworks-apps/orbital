@@ -558,3 +558,31 @@ export function Dialog({
     document.body,
   )
 }
+
+/**
+ * The `review` variant's thin scrollbar (canvas `Feature - Feedback` 61d), for
+ * whatever scrolls inside it: the report's body, its printout, the issue's
+ * markdown.
+ */
+export const REVIEW_SCROLLBAR =
+  '[scrollbar-color:color-mix(in_oklab,_var(--color-line)_25%,_transparent)_transparent] [scrollbar-width:thin]'
+
+/**
+ * The `review` variant's ruled header (canvas 61d, 70c): the caller's title
+ * block on the left, the × that closes the dialog on the right.
+ */
+export function ReviewHeader({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="flex shrink-0 items-start gap-3 border-b border-line/10 pb-4 pl-[26px] pr-[18px] pt-[22px]">
+      <div className="min-w-0 flex-1">{children}</div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="grid h-[30px] w-[30px] shrink-0 cursor-pointer place-items-center rounded-[7px] fs-16 leading-(--text-base--line-height) text-ink-900/70 transition-colors hover:bg-line/8 hover:text-ink-100"
+      >
+        ×
+      </button>
+    </div>
+  )
+}

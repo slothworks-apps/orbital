@@ -20,7 +20,7 @@ import { useOrbital } from '../../store/store'
 import { AutoHeight } from '../../ui/AutoHeight'
 import { Collapse } from '../../ui/Collapse'
 import { Button } from '../../ui/Button'
-import { Dialog } from '../../ui/Dialog'
+import { Dialog, REVIEW_SCROLLBAR, ReviewHeader } from '../../ui/Dialog'
 import { Select } from '../../ui/Select'
 import { formatRecordForCopy } from '../../lib/errorRecord'
 import {
@@ -248,22 +248,12 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
 
   return (
     <>
-      <div className="flex shrink-0 items-start gap-3 border-b border-line/10 pb-4 pl-[26px] pr-[18px] pt-[22px]">
-        <div className="min-w-0 flex-1">
-          <div key={eyebrow} className="orbital-arrive font-mono fs-10 tracking-[0.2em] text-ink-900/65">
-            {eyebrow}
-          </div>
-          <h2 className="mt-1.5 fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em]">{phase === 'done' ? 'Issue created' : 'Review the issue'}</h2>
+      <ReviewHeader onClose={onClose}>
+        <div key={eyebrow} className="orbital-arrive font-mono fs-10 tracking-[0.2em] text-ink-900/65">
+          {eyebrow}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="grid h-[30px] w-[30px] shrink-0 cursor-pointer place-items-center rounded-[7px] fs-16 leading-(--text-base--line-height) text-ink-900/70 transition-colors hover:bg-line/8 hover:text-ink-100"
-        >
-          ×
-        </button>
-      </div>
+        <h2 className="mt-1.5 fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em]">{phase === 'done' ? 'Issue created' : 'Review the issue'}</h2>
+      </ReviewHeader>
 
       <div className="mx-[26px] mt-4 flex shrink-0 items-start gap-3 rounded-[10px] border border-line/16 bg-space/45 px-3.5 py-[11px]">
         <span className="mt-px flex-none rounded border border-ink-500/50 px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.16em] text-ink-100">
@@ -308,7 +298,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                   }}
                   readOnly={locked}
                   style={{ opacity: fieldOpacity }}
-                  className={`${FIELD_BOX} h-[268px] resize-none whitespace-pre-wrap px-3 py-2.5 font-mono fs-11 leading-[1.6] text-ink-500/90 [scrollbar-color:color-mix(in_oklab,_var(--color-line)_25%,_transparent)_transparent] [scrollbar-width:thin]`}
+                  className={`${FIELD_BOX} h-[268px] resize-none whitespace-pre-wrap px-3 py-2.5 font-mono fs-11 leading-[1.6] text-ink-500/90 ${REVIEW_SCROLLBAR}`}
                 />
               </label>
             )}
