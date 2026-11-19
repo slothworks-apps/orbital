@@ -1319,7 +1319,7 @@ export function TranscriptView({
           // a hook's banner. Never `MessageView`: it is neither speech nor a
           // turn, and it carries no model, so the divider logic above leaves
           // it alone as well.
-          <NoticeRow message={group.item.message} />
+          <NoticeRow message={group.item.message} sessionId={sessionId} phone={phone} />
         ) : (
           // `thinking` lands here too and reads as the assistant's own prose
           // (adr thinking-is-its-own-chatmessage-role).

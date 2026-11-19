@@ -84,6 +84,8 @@ const SIZES: NonNullable<ButtonProps['size']>[] = [
   'choice',
   'choice-touch',
   'touch',
+  'copy',
+  'copy-touch',
   'pill',
   'strip',
   'row-action',

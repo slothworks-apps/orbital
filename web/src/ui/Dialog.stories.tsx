@@ -261,3 +261,24 @@ export const Review: Story = {
     ),
   },
 }
+
+/**
+ * `review` at `xl`: the Report Dialog's 760px, as the `/context` report
+ * draws it (canvas `Feature - Context report` 70a). The caller draws the
+ * header, body and footer; the dialog owns the scrim, motion and Escape.
+ */
+export const ReviewReport: Story = {
+  args: {
+    variant: 'review',
+    size: 'xl',
+    maxHeight: 820,
+    title: 'Context report',
+    children: (
+      <div className="flex flex-col gap-2 px-[26px] py-5">
+        <span className="font-mono fs-10 tracking-[0.2em] text-ink-900/65">/context</span>
+        <span className="fs-20 font-bold">Settings migration to the new store</span>
+        <span className="fs-13 text-ink-400/90">The caller's header, body and footer go here.</span>
+      </div>
+    ),
+  },
+}
