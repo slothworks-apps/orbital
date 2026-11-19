@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- New session with a harness no longer opens with its top cut off when the options before it had been scrolled down.
 
 ## [0.49.2] — 2026-11-16
 ### Changed
