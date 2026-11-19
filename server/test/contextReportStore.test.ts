@@ -123,7 +123,7 @@ describe('the kept report', () => {
       write([q1, typed]);
       index();
       const readAt = Date.parse('2026-11-19T10:00:00Z');
-      keepContextReport(db, 's1', { report: report(9) as any, takenAt: readAt, origin: READOUT });
+      keepContextReport(db, 's1', { report: report(9), takenAt: readAt, origin: READOUT });
 
       write([q1, typed, user('q2', typed.uuid, '2026-11-19T10:30:00Z')]);
       expect(index()).toEqual([]);
