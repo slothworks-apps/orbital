@@ -47,6 +47,7 @@ import {
 import type { ArchiveOutcome, ListedSession } from '../runner/sessionsTools.js';
 import { mergeCompactionFailures, type CompactionFailureRecord } from '../transcript/compaction.js';
 import { RETENTION_KEY, deleteSessions } from '../retention.js';
+import { keepContextReport, keptContextReport } from '../contextReport/store.js';
 import type { LiveSessions } from '../watcher/registry.js';
 import { endCli, type EndCliOutcome } from '../watcher/endCli.js';
 import type { Hub } from './hub.js';
@@ -1051,30 +1052,46 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   /**
-   * The `/context` report taken now, without a `/context` turn: the session's
-   * live query is asked for its full context breakdown on the side, and
-   * nothing is published or written to the transcript (spec
+   * The session's `/context` report, for the context read-out (spec
    * 2026-11-19-context-report-dialog-design § Opening it from the context
-   * read-out). `{ report, takenAt }`, `takenAt` an ISO time.
+   * read-out). Never a `/context` turn: nothing goes into the transcript.
    *
-   * Every refusal names why, so the client can open the last `/context` in
-   * the transcript instead: 404 `not_found`, a session nobody knows; 409
-   * `terminal_session`, one a terminal holds; 409 `not_running`, one with no
-   * live query (ended, asleep, still starting); 409 `unsupported`, a query
-   * without the control request; 504 `timeout`; 502 `failed`, the CLI
-   * refused or answered with nothing readable.
+   * - A session Orbital runs now is asked for a fresh one on the side
+   *   (`Runner.contextReport`), which is kept as its latest and answered
+   *   `{ report, takenAt, fresh: true }`; its `contextReportAt` is republished.
+   * - Any other — ended, asleep, still starting, held by a terminal — answers
+   *   its kept report, the newer of a typed `/context` and one taken here
+   *   (`contextReport/store.ts`), as `{ report, takenAt, fresh: false }`.
+   *
+   * `takenAt` is an ISO time. Refusals name why: 404 `not_found`, a session
+   * nobody knows; 404 `no_report`, one that is not running and has none
+   * kept. Taking a fresh one can fail with 504 `timeout`, 502 `failed` (the
+   * CLI refused or answered with nothing readable) or 409 `unsupported` (a
+   * query without the control request); those carry the kept report as
+   * `earlier` when there is one.
    */
   app.get('/api/sessions/:id/context-report', async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (ctx.registry.get(id)) return reply.code(409).send({ error: 'terminal_session' });
-    if (!ctx.runner.status(id)) {
-      const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
-      return reply.code(row ? 409 : 404).send({ error: row ? 'not_running' : 'not_found' });
+    const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    const kept = () => {
+      const k = keptContextReport(db, id);
+      return k ? { report: k.report, takenAt: new Date(k.takenAt).toISOString() } : null;
+    };
+    const answer = !ctx.registry.get(id) && ctx.runner.status(id) ? await ctx.runner.contextReport(id) : null;
+    if (answer && 'report' in answer) {
+      const takenAt = Date.now();
+      if (keepContextReport(db, id, { report: answer.report, takenAt })) publishSession(id);
+      return { report: answer.report, takenAt: new Date(takenAt).toISOString(), fresh: true };
     }
-    const answer = await ctx.runner.contextReport(id);
-    if ('report' in answer) return { report: answer.report, takenAt: new Date().toISOString() };
+    // Not running, or no live query after all (still starting, just stopped): the kept one.
+    if (!answer || answer.error === 'not_running') {
+      const earlier = kept();
+      return earlier ? { ...earlier, fresh: false } : reply.code(404).send({ error: 'no_report' });
+    }
     const code = answer.error === 'timeout' ? 504 : answer.error === 'failed' ? 502 : 409;
-    return reply.code(code).send({ error: answer.error });
+    const earlier = kept();
+    return reply.code(code).send({ error: answer.error, ...(earlier ? { earlier } : {}) });
   });
 
   // Transcript images, served straight from the content-addressed store.

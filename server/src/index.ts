@@ -1425,9 +1425,12 @@ export async function buildServer(overrides: {
       projectsDir,
       (batch) => enqueueIndex(async () => {
         if (stopped.signal.aborted) return;
-        if (batch.all) {
-          if (await indexFullPass(db, projectsDir, statsWritten, owner, stopped.signal) === null) return;
-        } else indexPaths(db, projectsDir, batch.paths, statsWritten, owner);
+        const pass = batch.all
+          ? await indexFullPass(db, projectsDir, statsWritten, owner, stopped.signal)
+          : indexPaths(db, projectsDir, batch.paths, statsWritten, owner);
+        if (pass === null) return;
+        // A typed /context became the session's kept report: its read-out can open it now.
+        for (const id of pass.reports) republish(id);
         // The same writes are what the line-change count follows: a tool that
         // edited files, a turn that ended. Hooked here, where transcripts are
         // read — Orbital's own sessions and the terminal's alike — and not in

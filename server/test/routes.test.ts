@@ -35,6 +35,7 @@ import { registerRoutes, type RouteClaudeDirContext, type RouteContext } from '.
 import { ClaudeDirsService, seedClaudeDirs } from '../src/claudeDirs/service.js';
 import { McpConfig } from '../src/mcp/config.js';
 import { buildServer, publishLiveSession, republishCwds } from '../src/index.js';
+import { keepContextReport, keptContextReport } from '../src/contextReport/store.js';
 import { Hub } from '../src/api/hub.js';
 import { GitStore } from '../src/git/store.js';
 import { BranchStatusStore } from '../src/git/branchStatusStore.js';
@@ -5367,10 +5368,10 @@ describe('issue routes', () => {
 });
 
 describe('GET /api/sessions/:id/context-report', () => {
-  const REPORT = {
-    model: 'claude-opus-5', totalTokens: 1000, rawMaxTokens: 200000, percentage: 1,
+  const report = (totalTokens: number) => ({
+    model: 'claude-opus-5', totalTokens, rawMaxTokens: 200000, percentage: 1,
     categories: [], mcpTools: [], memoryFiles: [], agents: [], skills: [],
-  };
+  });
 
   /** `w1`, an Orbital session whose live query answers `answer`. */
   function withLive(answer: unknown) {
@@ -5382,34 +5383,49 @@ describe('GET /api/sessions/:id/context-report', () => {
     return { ...made, contextReport };
   }
 
-  it('answers the live report with when it was taken, publishing nothing', async () => {
-    const { app, hub, contextReport } = withLive({ report: REPORT });
-    const published = subscribeFake(hub, 'session:w1');
-    const res = await app.inject({ url: '/api/sessions/w1/context-report' });
-    const body = res200(res);
-    expect(body.report).toEqual(REPORT);
-    expect(Number.isNaN(Date.parse(body.takenAt))).toBe(false);
+  it('takes a fresh one from a live session, keeps it and republishes the session, adding nothing to the transcript', async () => {
+    const { app, hub, db, contextReport } = withLive({ report: report(1000) });
+    const transcript = subscribeFake(hub, 'session:w1');
+    const list = subscribeFake(hub, 'sessions');
+    const body = res200(await app.inject({ url: '/api/sessions/w1/context-report' }));
+    expect(body).toMatchObject({ report: report(1000), fresh: true });
     expect(contextReport).toHaveBeenCalledWith('w1');
-    expect(published).toEqual([]);
+    expect(transcript).toEqual([]);
+    const at = keptContextReport(db, 'w1')?.takenAt;
+    expect(at).toBe(Date.parse(body.takenAt));
+    expect(list.at(-1)).toMatchObject({ event: 'upsert', session: { id: 'w1', contextReportAt: at } });
   });
 
-  it('refuses a terminal session, one with no live query and one nobody knows, by name', async () => {
-    const { app, contextReport } = withLive({ report: REPORT });
-    // s1 is held by a terminal; s2 has a row and no process; nope has neither.
-    const terminal = await app.inject({ url: '/api/sessions/s1/context-report' });
-    expect([terminal.statusCode, terminal.json().error]).toEqual([409, 'terminal_session']);
-    const asleep = await app.inject({ url: '/api/sessions/s2/context-report' });
-    expect([asleep.statusCode, asleep.json().error]).toEqual([409, 'not_running']);
-    const unknown = await app.inject({ url: '/api/sessions/nope/context-report' });
-    expect([unknown.statusCode, unknown.json().error]).toEqual([404, 'not_found']);
+  it('answers the kept report for a session that is not running, or held by a terminal', async () => {
+    const { app, db, contextReport } = withLive({ report: report(1000) });
+    keepContextReport(db, 's1', { report: report(7) as any, takenAt: Date.parse('2026-11-19T10:00:00Z') });
+    keepContextReport(db, 's2', { report: report(8) as any, takenAt: Date.parse('2026-11-19T11:00:00Z') });
+    // s1 is held by a terminal; s2 has a row and no process.
+    expect(res200(await app.inject({ url: '/api/sessions/s1/context-report' })))
+      .toEqual({ report: report(7), takenAt: '2026-11-19T10:00:00.000Z', fresh: false });
+    expect(res200(await app.inject({ url: '/api/sessions/s2/context-report' })))
+      .toEqual({ report: report(8), takenAt: '2026-11-19T11:00:00.000Z', fresh: false });
     expect(contextReport).not.toHaveBeenCalled();
   });
 
-  it('passes the Runner’s refusal on with its own status', async () => {
-    for (const [error, code] of [['not_running', 409], ['unsupported', 409], ['timeout', 504], ['failed', 502]] as const) {
-      const { app } = withLive({ error });
-      const res = await app.inject({ url: '/api/sessions/w1/context-report' });
-      expect([res.statusCode, res.json().error]).toEqual([code, error]);
+  it('says no_report for a session with none, and not_found for one nobody knows', async () => {
+    const { app } = withLive({ error: 'not_running' });
+    for (const id of ['s2', 'w1']) {
+      const res = await app.inject({ url: `/api/sessions/${id}/context-report` });
+      expect([res.statusCode, res.json().error]).toEqual([404, 'no_report']);
+    }
+    const unknown = await app.inject({ url: '/api/sessions/nope/context-report' });
+    expect([unknown.statusCode, unknown.json().error]).toEqual([404, 'not_found']);
+  });
+
+  it('passes a failed taking on with its own status, and the kept report as earlier', async () => {
+    for (const [error, code] of [['unsupported', 409], ['timeout', 504], ['failed', 502]] as const) {
+      const { app, db } = withLive({ error });
+      const bare = await app.inject({ url: '/api/sessions/w1/context-report' });
+      expect([bare.statusCode, bare.json()]).toEqual([code, { error }]);
+      keepContextReport(db, 'w1', { report: report(5) as any, takenAt: Date.parse('2026-11-19T09:00:00Z') });
+      const withEarlier = await app.inject({ url: '/api/sessions/w1/context-report' });
+      expect(withEarlier.json()).toEqual({ error, earlier: { report: report(5), takenAt: '2026-11-19T09:00:00.000Z' } });
     }
   });
 });

@@ -913,6 +913,22 @@ export const harnessEvents = sqliteTable(
 );
 
 /**
+ * The latest `/context` report of each session, whichever way it was taken
+ * (spec 2026-11-19-context-report-dialog-design § Opening it from the context
+ * read-out): a typed `/context`'s twin, which the indexer reads off the
+ * transcript, or one taken on demand from the context read-out, which only
+ * lives here. A newer one replaces the row; nothing older is kept. `report`
+ * is the wire's `ContextReport`, as JSON. No foreign key is enforced here, so
+ * the retention sweep deletes these rows itself.
+ */
+export const contextReports = sqliteTable('context_reports', {
+  sessionId: text('session_id').primaryKey(),
+  /** Epoch ms: when the report was taken. */
+  takenAt: integer('taken_at').notNull(),
+  report: text('report').notNull(),
+});
+
+/**
  * Projects a table's columns keyed by their actual DB column name
  * (snake_case) rather than the JS-side camelCase accessor used elsewhere in
  * this file. Passed straight into `db.select(...)`, this keeps the JSON
