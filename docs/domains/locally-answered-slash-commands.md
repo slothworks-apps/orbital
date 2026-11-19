@@ -63,12 +63,23 @@ would for a real turn.
 a `usage_report` (`SDKUsageReport`), both at wrapper level so the model never
 replays them. The SDK calls the markdown in `message.content` the canonical
 form and the twins a convenience for clients that render a card from data.
-Orbital does not render such a card, so it does not read them. Note that
-`context_usage.total_tokens` is *not* the same shape as the flat `totalTokens`
-the `get_context_usage` control request answers with — the arc's one source is
-still that control request (adr `context-usage-has-one-source`), and a
-`/context` turn's `result` triggers it anyway, so nothing is lost by ignoring
-the twin.
+
+Orbital reads `/context`'s twin (spec `2026-11-19-context-report-dialog-design`):
+`transcript/notices.ts` puts it on the notice as `notice.contextReport`,
+camelCased, with a tolerant reader — a report without numeric
+`total_tokens` / `raw_max_tokens` and a `categories` array is dropped whole,
+a malformed list is empty, a row without numeric `tokens` is skipped, an
+unknown `kind` is kept. The clients draw it as a one-line row and a report
+dialog (a sheet on the phone); the text stays as the fallback and the
+dialog's "As text". `usage_report` is still not read.
+
+The twin is not the arc's source. `context_usage.total_tokens` is the CLI's
+estimate against `raw_max_tokens`, which can be a compaction window smaller
+than the model's (the 200K boundary on a 1M model); the arc's one source is
+still the `get_context_usage` control request (adr
+`context-usage-has-one-source`), which a `/context` turn's `result` triggers
+anyway. The dialog shows the CLI's own figures and does not reconcile them
+with the arc.
 
 ## On the SDK stream: the `system` subtypes that exist but were not used
 
@@ -107,6 +118,13 @@ echo, and a command it refuses before expanding (`/status`, `/permissions`)
 writes an echo and no user turn at all.
 
 `level` is `info` on every one of them, so it says nothing worth rendering.
+
+The `/context` answer entry carries the same twin as `contextUsage` (the
+stream's object under a camelCase key, its fields still snake_case), and a
+`commandRun: { command, args }` beside it — measured on 2.1.280, 2026-11-19.
+The parser reads `contextUsage`; it does not read `commandRun`, so a
+reloaded local command still names no command (the `/context` row names
+itself from its report).
 
 Older CLIs wrapped the same `<local-command-stdout>` payload around ANSI-coloured
 terminal output rather than markdown (transcripts from 2.1.228 carry the block
@@ -166,12 +184,15 @@ OWN VOICE", with **20a** for where the row sits between messages.
 
 - **Markdown is still not rendered.** 20c C sets `/context`'s pipe table as a
   three-column grid in the notice's own mono type, numerics right-aligned,
-  headers as mono eyebrows. The row still prints it verbatim — which is better
-  than a markdown renderer reflowing it, but worse than 20c C.
-- **Nothing renders the structured twins.** A `/context` card drawn from
-  `context_usage` rather than from a markdown table is a real improvement and
-  the data is already on the wire — and it is what would let 20c C's grid be
-  drawn from data rather than parsed back out of a table.
+  headers as mono eyebrows. A `/context` answer with its twin no longer shows
+  the table (it is the report row, canvas `Feature - Context report` 70b), but
+  one from a CLI too old to attach it, and every other command's table, still
+  print verbatim.
+- **`/usage`'s twin is not rendered.** `usage_report` is on the wire beside
+  `/usage`'s text; the code that draws `/context`'s report could draw it next.
+- **The reloaded rows name no command.** The file's `commandRun` would give a
+  reloaded local command the same `CLI` + chip header the live one has; the
+  parser does not read it yet.
 - **20c F's trailing action is undrawn.** A suggestion row in the artboard ends
   in the command that answers it (`/compact →`). Nothing on the wire says what
   that command is.
