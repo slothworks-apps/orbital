@@ -332,6 +332,17 @@ const SHEET_VARIANTS = {
       'flex h-[84%] flex-col rounded-t-[26px] border-t border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_98%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_99%,_transparent))]',
     handle: 'h-5 shrink-0',
   },
+  /**
+   * `Feature - Context report` 70f: the /context report, the sheet of 50o /
+   * StopTask as a column — a fixed head, a middle that scrolls at the full
+   * detent, a fixed Close. Its height is the caller's (`height`): the detent.
+   */
+  report: {
+    backdrop: 'bg-space/62',
+    panel:
+      'flex flex-col overflow-hidden rounded-t-[26px] border-t border-line/18 bg-panel/98 shadow-[0_-20px_60px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)] transition-[height] duration-200 ease-out',
+    handle: 'h-5 shrink-0',
+  },
   /** `Feature - Feedback` 61i: Settings → Send feedback, a short sheet of two choices. */
   feedback: {
     backdrop: 'bg-space/55',
@@ -346,6 +357,7 @@ export function BottomSheet({
   onDismiss,
   variant = 'menu',
   swipeToDismiss = false,
+  height,
   children,
 }: {
   /** The sheet's accessible name: its title, or what its menu is for. */
@@ -359,6 +371,8 @@ export function BottomSheet({
    * list instead; mark such a list `data-sheet-scroll`.
    */
   swipeToDismiss?: boolean
+  /** A fixed height for the panel (a CSS length): a sheet with detents sets it. */
+  height?: string
   children: ReactNode
 }) {
   const entry = useRef({ dismiss: onDismiss })
@@ -396,6 +410,7 @@ export function BottomSheet({
             : undefined
         }
         onTouchEnd={swipeToDismiss ? () => (touchY.current = null) : undefined}
+        style={height ? { height } : undefined}
         className={['orbital-sheet-panel relative pb-[max(22px,env(safe-area-inset-bottom))]', look.panel].join(' ')}
       >
         <div aria-hidden className={['grid place-items-center', look.handle].join(' ')}>
