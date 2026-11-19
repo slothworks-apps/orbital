@@ -207,7 +207,9 @@ export function noticeFromSdkMessage(msg: unknown, id: string): ChatMessage | nu
       fromBlocks || source.text,
       source.stream === 'stderr' ? 'warning' : 'notice',
       commandNameOf(m),
-      contextReportOf(m.context_usage),
+      // Only on stdout, as `messageFromLocalCommandEntry` reads it from the
+      // file: a live answer and its reload carry the report alike.
+      source.stream === 'stdout' ? contextReportOf(m.context_usage) : null,
     );
   }
 

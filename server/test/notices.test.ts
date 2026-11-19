@@ -397,6 +397,28 @@ describe('the /context report on a notice', () => {
     expect(row?.timestamp).toBe('2026-11-19T08:34:42.615Z');
   });
 
+  it('reads the twin on stdout only, live and from the file alike', () => {
+    const live = noticeFromSdkMessage(
+      syntheticAssistant({
+        local_command_source: '<local-command-stderr>## Context Usage</local-command-stderr>',
+        context_usage: usage(),
+      }),
+      'id-e',
+    );
+    const reloaded = messageFromLocalCommandEntry(
+      {
+        type: 'system',
+        subtype: 'local_command',
+        content: '<local-command-stderr>## Context Usage</local-command-stderr>',
+        contextUsage: usage(),
+      },
+      'u9:1',
+    );
+    expect(live?.notice?.level).toBe('warning');
+    expect(live?.notice).not.toHaveProperty('contextReport');
+    expect(reloaded?.notice).not.toHaveProperty('contextReport');
+  });
+
   it('leaves the notice as it was when the twin cannot be read', () => {
     expect(noticeFromSdkMessage(syntheticAssistant({ context_usage: { total_tokens: 5 } }), 'id-d')?.notice).toEqual({
       level: 'notice',

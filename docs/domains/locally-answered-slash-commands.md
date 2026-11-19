@@ -69,7 +69,9 @@ Orbital reads `/context`'s twin (spec `2026-11-19-context-report-dialog-design`)
 camelCased, with a tolerant reader — a report without numeric
 `total_tokens` / `raw_max_tokens` and a `categories` array is dropped whole,
 a malformed list is empty, a row without numeric `tokens` is skipped, an
-unknown `kind` is kept. The clients draw it as a one-line row and a report
+unknown `kind` is kept. It is read only from a `stdout` answer, on the
+stream and in the file alike, so a live row and its reload agree. The
+clients draw it as a one-line row and a report
 dialog (a sheet on the phone); the text stays as the fallback and the
 dialog's "As text". `usage_report` is still not read.
 
