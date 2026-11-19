@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ChatMessage, ContextReport } from '../../lib/types'
-import { useContextReport } from '../../store/contextReport'
+import { useContextReport, type OpenContextReport } from '../../store/contextReport'
 import { useOrbital } from '../../store/store'
 import { Button } from '../../ui/Button'
 import { Dialog, REVIEW_SCROLLBAR, ReviewHeader } from '../../ui/Dialog'
@@ -13,7 +12,8 @@ const DIALOG_LABEL = 'Context report'
  * The open `/context` report on the Mac (canvas `Feature - Context report`
  * 70a/70c/70d): the Report Dialog at 760px over the map or the desk.
  * Mounted once per window; what is open lives in `useContextReport`, opened
- * from the transcript row or by the answer to a `/context` sent from here.
+ * from the transcript row, by the answer to a `/context` sent from here, or
+ * taken on demand from the context read-out (`takeReport`).
  */
 export function ContextReportDialogHost() {
   const open = useContextReport((s) => s.open)
@@ -26,29 +26,19 @@ export function ContextReportDialogHost() {
   // shows the report rather than an empty frame.
   const [shown, setShown] = useState(open)
   if (open && open !== shown) setShown(open)
-  const report = shown?.message.notice?.contextReport
   return (
-    <Dialog open={Boolean(open?.message.notice?.contextReport)} variant="review" size="xl" maxHeight={820} title={DIALOG_LABEL} onClose={close}>
-      {shown && report && (
+    <Dialog open={open !== null} variant="review" size="xl" maxHeight={820} title={DIALOG_LABEL} onClose={close}>
+      {shown && (
         // Keyed per opening, so its sections and Copied start fresh each time.
-        <ReportContent key={shown.message.id} sessionId={shown.sessionId} message={shown.message} report={report} onClose={close} />
+        <ReportContent key={shown.key} shown={shown} onClose={close} />
       )}
     </Dialog>
   )
 }
 
-function ReportContent({
-  sessionId,
-  message,
-  report,
-  onClose,
-}: {
-  sessionId: string
-  message: ChatMessage
-  report: ContextReport
-  onClose: () => void
-}) {
-  const { title, thresholds, view, sections, time } = useReport(sessionId, message, report)
+function ReportContent({ shown, onClose }: { shown: OpenContextReport; onClose: () => void }) {
+  const { report, text } = shown
+  const { title, thresholds, view, sections, time } = useReport(shown.sessionId, shown.takenAt, report)
 
   return (
     <>
@@ -67,7 +57,8 @@ function ReportContent({
         <Legend report={report} view={view} phone={false} />
         <div className="flex flex-col">
           <Breakdowns sections={sections} phone={false} />
-          <AsText text={message.text ?? ''} phone={false} />
+          {/* A report taken on demand has no CLI printout (no /context ran). */}
+          {text !== null && <AsText text={text} phone={false} />}
         </div>
       </div>
 

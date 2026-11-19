@@ -221,13 +221,13 @@ describe('opening by itself', () => {
     notice: { level: 'notice', command: '/context', contextReport: report(), ...over },
   })
 
-  beforeEach(() => useContextReport.setState({ open: null, asked: {}, onScreen: null }))
+  beforeEach(() => useContextReport.setState({ open: null, asked: {}, onScreen: null, taking: null }))
 
   it('opens the answer to a /context sent from here while its session is on screen', () => {
     useContextReport.getState().view('s1')
     useContextReport.getState().ask('s1')
     useContextReport.getState().answered('s1', answer())
-    expect(useContextReport.getState().open?.message.id).toBe('n1')
+    expect(useContextReport.getState().open?.key).toBe('n1')
     expect(useContextReport.getState().asked).toEqual({})
   })
 

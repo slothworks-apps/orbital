@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ChatMessage } from '../lib/types'
+import type { ChatMessage, ContextReport } from '../lib/types'
 
 /**
  * The `/context` report that is open (the Mac's dialog, the phone's sheet),
@@ -16,8 +16,25 @@ import type { ChatMessage } from '../lib/types'
  */
 export interface OpenContextReport {
   sessionId: string
-  /** The `/context` notice, as it was when it opened: a report is a snapshot. */
-  message: ChatMessage
+  /** What tells one opening from another: the notice's id, or `taken:<takenAt>` for a report taken on demand. */
+  key: string
+  /** The report as it was when it opened: a report is a snapshot. */
+  report: ContextReport
+  /** When it was taken (ISO), or null when the row carries no time. */
+  takenAt: string | null
+  /**
+   * The CLI's printout, the `/context` notice's `text` — the dialog's As
+   * text. Null for a report taken on demand from the context read-out: no
+   * `/context` ran, so there is no printout, and none is made up.
+   */
+  text: string | null
+}
+
+/** A `/context` answer as the report it opens, or null when it carries none. */
+export function openingOf(sessionId: string, message: ChatMessage): OpenContextReport | null {
+  const report = message.notice?.contextReport
+  if (!report) return null
+  return { sessionId, key: message.id, report, takenAt: message.timestamp ?? null, text: message.text ?? null }
 }
 
 interface ContextReportState {
@@ -31,7 +48,16 @@ interface ContextReportState {
    * no lock stands in front of it. Null when none is.
    */
   onScreen: string | null
+  /**
+   * The session whose report is being taken on demand right now
+   * (`takeReport`, spec § Opening it from the context read-out); null when
+   * none is. What the read-out's loading state reads.
+   */
+  taking: string | null
+  /** Opens a `/context` answer's report; one without a report opens nothing. */
   show(sessionId: string, message: ChatMessage): void
+  /** Opens a report that is not a transcript message: one taken on demand. */
+  showReport(open: OpenContextReport): void
   close(): void
   /** A `/context` went out from this composer. */
   ask(sessionId: string): void
@@ -60,7 +86,12 @@ export const useContextReport = create<ContextReportState>()((set, get) => ({
   open: null,
   asked: {},
   onScreen: null,
-  show: (sessionId, message) => set({ open: { sessionId, message } }),
+  taking: null,
+  show: (sessionId, message) => {
+    const open = openingOf(sessionId, message)
+    if (open) set({ open })
+  },
+  showReport: (open) => set({ open }),
   close: () => set({ open: null }),
   ask: (sessionId) => set((s) => ({ asked: { ...s.asked, [sessionId]: true } })),
   forget: (sessionId) => {

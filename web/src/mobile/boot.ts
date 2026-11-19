@@ -38,6 +38,7 @@ import { makeImageResolver } from './transport/imageResolver'
 import { makeTunnelFetch } from './transport/tunnelFetch'
 import { TunnelSocket } from './transport/tunnelSocket'
 import { sessionSupports } from './version'
+import { configureTakeReport } from '../store/takeContextReport'
 import { decideWhatsNew } from './WhatsNew'
 import { makeTunnelUpload } from './transport/tunnelUpload'
 import { applySystemTextScale } from './platform/textScale'
@@ -87,6 +88,8 @@ export async function boot(): Promise<void> {
     canShowPath: (path) => !isPdfPath(path) || servesPdf(useOrbital.getState().ui.selectedId ?? useMobile.getState().sessionId),
   })
   configurePdf({ load: makePdfLoader(readNamed, undefined, servesPdf) })
+  // The /context report is taken on demand only from a Mac that serves the route.
+  configureTakeReport({ servesOnDemand: (sessionId) => sessionSupports('contextReportOnDemand', sessionId) })
   installFileOpen()
   clientRef.on(onClientEvent)
   wireSocket()

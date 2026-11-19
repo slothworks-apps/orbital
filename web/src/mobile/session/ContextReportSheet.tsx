@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, type TouchEvent } from 'react'
-import type { ChatMessage, ContextReport } from '../../lib/types'
 import { AsText, Breakdowns, Headline, Legend, WindowChart, snapshotLine } from '../../panels/contextReport/parts'
 import { useReport } from '../../panels/contextReport/useReport'
-import { useContextReport } from '../../store/contextReport'
+import { useContextReport, type OpenContextReport } from '../../store/contextReport'
 import { isGated, useMobile } from '../state'
 import { BottomSheet, SecondaryButton, SheetPresence } from '../ui'
 
@@ -36,26 +35,16 @@ export function ContextReportSheetHost({ sessionId }: { sessionId: string }) {
     if (useContextReport.getState().open?.sessionId === sessionId) useContextReport.getState().close()
   }, [sessionId])
   const shown = open?.sessionId === sessionId ? open : null
-  const report = shown?.message.notice?.contextReport
   return (
     <SheetPresence>
-      {shown && report && <ContextReportSheet key={shown.message.id} sessionId={sessionId} message={shown.message} report={report} onClose={close} />}
+      {shown && <ContextReportSheet key={shown.key} shown={shown} onClose={close} />}
     </SheetPresence>
   )
 }
 
-function ContextReportSheet({
-  sessionId,
-  message,
-  report,
-  onClose,
-}: {
-  sessionId: string
-  message: ChatMessage
-  report: ContextReport
-  onClose: () => void
-}) {
-  const { title, thresholds, view, sections, time } = useReport(sessionId, message, report)
+function ContextReportSheet({ shown, onClose }: { shown: OpenContextReport; onClose: () => void }) {
+  const { report, text } = shown
+  const { title, thresholds, view, sections, time } = useReport(shown.sessionId, shown.takenAt, report)
   const [detent, setDetent] = useState<Detent>('medium')
   const full = detent === 'full'
 
@@ -121,7 +110,8 @@ function ContextReportSheet({
           <Legend report={report} view={view} phone />
           <div className="flex flex-col">
             <Breakdowns sections={sections} phone />
-            <AsText text={message.text ?? ''} phone />
+            {/* A report taken on demand has no CLI printout (no /context ran). */}
+            {text !== null && <AsText text={text} phone />}
             <div className="px-1 pt-3.5 font-mono fs-10 leading-[1.6] text-ink-900/50">{snapshotLine(time)}</div>
           </div>
         </div>

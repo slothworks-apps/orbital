@@ -3,6 +3,7 @@ import { NOT_A_NAME, type FindFilesAnswer, type FoundFile } from './findByName'
 import type {
   ApiSession,
   AttachmentUpload,
+  ContextReport,
   LimitsSnapshot,
   ClaudeDirInfo,
   LoginKind,
@@ -1238,6 +1239,22 @@ export const api = {
     return request<SessionStatsDetail>('GET', apiPath`/api/stats/sessions/${id}` + query)
   },
 
+  /**
+   * The `/context` report taken now from the session's live query, without a
+   * `/context` in the transcript (spec 2026-11-19-context-report-dialog-design
+   * § Opening it from the context read-out). A named refusal comes back as
+   * `{ error }`; anything else — an older Mac without the route, the network —
+   * throws. Either way the caller opens the last `/context` in the transcript.
+   */
+  async contextReport(id: string): Promise<{ report: ContextReport; takenAt: string } | { error: ContextReportRefusal }> {
+    return remoteCall('GET', apiPath`/api/sessions/${id}/context-report`, undefined, {
+      404: ['not_found'] as const,
+      409: ['terminal_session', 'not_running', 'unsupported'] as const,
+      502: ['failed'] as const,
+      504: ['timeout'] as const,
+    })
+  },
+
   // Reports to Orbital's GitHub (spec 2026-10-20-report-to-github-design).
   // Mac only: the phone opens the prefilled form instead. `gh` missing or
   // logged out comes back as `{ error }`; anything gh says otherwise throws.
@@ -1913,6 +1930,9 @@ async function remoteCall<T, E extends string>(
   if (refusal !== undefined) return { ...parsed, error: refusal }
   throw new ApiError(text || response.statusText, response.status, url)
 }
+
+/** Why `GET /api/sessions/:id/context-report` took no report (`server/src/api/routes.ts`). */
+export type ContextReportRefusal = 'not_found' | 'terminal_session' | 'not_running' | 'unsupported' | 'failed' | 'timeout'
 
 export type ServerHealth = {
   app?: string
