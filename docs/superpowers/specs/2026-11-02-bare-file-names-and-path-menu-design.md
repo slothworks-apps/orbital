@@ -138,6 +138,11 @@ at most `FIND_LIST_MAX` matches, `more` counting the rest.
   and without optional locks. A `git` that fails or times out (the walk
   stands in) and a listing that fails outright are recorded in the error
   log.
+- **An ignored file at the top** (author's call): when a sandbox's listing
+  has no match, the name is tried directly in the sandbox directory, so a
+  `.gitignore`d file there (`CLAUDE.local.md`, `.env`) is still found. An
+  ignored file deeper in the tree is not: listing ignored files would list
+  `node_modules` with them.
 - **Confinement.** Every match is confined the way `resolveForSession`
   confines a path, against the sandbox it was found in: its real path must
   lie inside the sandbox's, so a symlink out of it is dropped like any other

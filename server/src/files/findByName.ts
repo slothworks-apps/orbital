@@ -247,8 +247,10 @@ async function findInFirst(
 async function findIn(
   sandbox: string, name: string, transcripts: () => string[], listings: ListingCache,
 ): Promise<FoundFile[]> {
-  const relatives = (await listings.files(sandbox)).filter((rel) => rel === name || rel.endsWith(`/${name}`));
-  if (relatives.length === 0) return [];
+  const listed = (await listings.files(sandbox)).filter((rel) => rel === name || rel.endsWith(`/${name}`));
+  // A `.gitignore`d file is left out of a git listing; one at the sandbox's top
+  // (`CLAUDE.local.md`, `.env`) is still found, by its name alone.
+  const relatives = listed.length > 0 ? listed : [name];
   let realSandbox: string;
   try {
     realSandbox = await realpath(sandbox);
