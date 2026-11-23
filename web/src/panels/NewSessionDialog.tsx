@@ -1123,11 +1123,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 as it was. 65e: in step 1 the columns scroll on their own and FIRST
                 PROMPT takes the height they leave; in step 2 the templates take it
                 and the note keeps its three lines. The 4px inset keeps the fields'
-                focus rings inside the scroll's clip. */}
+                focus rings inside the scroll's clip. Step 2 clips rather than
+                hides: a hidden box still scrolls, and it would keep step 1's
+                scroll offset and slide the templates up out of view. */}
             <div
               className={[
                 'relative min-h-0',
-                step2 ? 'flex-1 overflow-hidden' : '-m-1 flex-[0_1_auto] overflow-y-auto p-1',
+                step2 ? 'flex-1 overflow-clip' : '-m-1 flex-[0_1_auto] overflow-y-auto p-1',
               ].join(' ')}
             >
             <div
