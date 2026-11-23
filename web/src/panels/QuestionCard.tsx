@@ -57,6 +57,7 @@ import {
 } from './decisionCardStyles'
 import { isReadOnly } from '../lib/types'
 import type { AskUserQuestionInput, ChatMessage, QuestionSpec } from '../lib/types'
+import { stampTime } from '../lib/format'
 
 /**
  * The `AskUserQuestion` tool call, rendered as the thing it is: a decision
@@ -124,7 +125,7 @@ function answeredAt(timestamp: string | undefined): string {
   if (!timestamp) return ''
   const at = new Date(timestamp)
   if (Number.isNaN(at.getTime())) return ''
-  return ` ${at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+  return ` ${stampTime(at.getTime())}`
 }
 
 /**

@@ -7,6 +7,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - New session with a harness no longer opens with its top cut off when the options before it had been scrolled down.
 - After you log in again from a session, the "Logged in" line shows above the message Orbital sends to continue, not below it, so the chat no longer looks like it is waiting for you while the session already works.
 - A file name pressed in a transcript finds a file at the top of the project that git ignores, such as `CLAUDE.local.md` or `.env`, instead of saying there is no file by that name.
+### Changed
+- Times in a transcript show the date when they are not from today (`Sep 12, 09:05`); today's stay `14:32`. The same goes for the media viewer.
 
 ## [0.49.2] — 2026-11-16
 ### Changed
