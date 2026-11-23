@@ -32,7 +32,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'muted-chip'
     | 'outline-soft'
     | 'outline-touch'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action' | 'labs' | 'labs-row' | 'block-chip' | 'block-half' | 'copy' | 'copy-touch' | 'report-action'
+    | 'outline-quiet'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action' | 'labs' | 'labs-row' | 'block-chip' | 'block-half' | 'copy' | 'copy-touch' | 'report-action' | 'view' | 'view-touch'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -125,6 +126,9 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   'outline-soft': 'bg-transparent text-ink-200/90 font-semibold border border-line/20 hover:bg-line/8',
   // 66d `act('…', 'sec')` on the phone: `rgba(150,205,255,.22)` edge, the bright ink.
   'outline-touch': 'bg-transparent text-ink-100 font-semibold border border-line/22 active:bg-line/8',
+  // `Feature - Views` 69c: a view's Reload, Don't load and Send the error — a
+  // line/16 hairline, no fill, the bright ink; the hairline brightens on hover.
+  'outline-quiet': 'bg-transparent text-ink-100 font-semibold border border-line/16 hover:border-line/30',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -204,6 +208,10 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   // report from …: 7px/14px at 12.5px, the default 8px radius.
   'report-action': 'px-3.5 py-[7px] fs-12.5',
   'copy-touch': 'h-11 whitespace-nowrap px-4 fs-14',
+  // `Feature - Views` 69c: the buttons inside a view, 7px/13px at 12.5px, 8px radius;
+  // on the phone the same at least 44px tall.
+  view: 'px-[13px] py-[7px] fs-12.5',
+  'view-touch': 'min-h-11 px-[13px] py-[7px] fs-12.5',
 }
 
 export function Button({

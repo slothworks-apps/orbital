@@ -75,6 +75,17 @@ export function composerPlaceholder(input: {
   return { text: input.ended ? 'Continue conversation…' : 'Reply to Claude…', answering: false }
 }
 
+/**
+ * The line beside Send while a view waits on the user (canvas `Feature -
+ * Views` 69e, WAITING FOR YOU): a message written now answers the view
+ * (spec 2026-11-18-generated-views-design § The bridge). Null for any other
+ * decision, or none.
+ */
+export function viewWaitingHint(pending: PendingDecision | undefined): string | null {
+  if (pending?.kind !== 'view') return null
+  return `${pending.title.trim() || 'The view'} is waiting · ⏎ sends this as your answer`
+}
+
 /** The reopened composer's line beside Send (canvas 10b, third phone). */
 export function reopenHint(step: number): string {
   return `to step ${step} · stays a gate`

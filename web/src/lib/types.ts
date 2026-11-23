@@ -6,6 +6,7 @@ import type { LiveHookNotice } from '@orbital/shared/hookNotice'
 import type { ContextReport } from '@orbital/shared/contextReport'
 import type { ProgressRow } from './progressList'
 import type { SessionSetup } from '@orbital/shared/worktree'
+import type { VIEW_TOOL } from '@orbital/shared/views'
 
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
@@ -708,7 +709,7 @@ export interface AskUserQuestionInput {
  * `server/src/runner/runner.ts` — this repo has no shared types package, so
  * the two must move together.
  */
-export type DecisionKind = 'question' | 'permission' | 'plan'
+export type DecisionKind = 'question' | 'permission' | 'plan' | 'view'
 
 /**
  * A decision the session is blocked on — the CLI is inside a `canUseTool`
@@ -725,7 +726,7 @@ export type DecisionKind = 'question' | 'permission' | 'plan'
  * server would mean merging an `answers` key into a shell command
  * (spec 2026-09-23-permission-and-plan-decisions-design).
  */
-export type PendingDecision = PendingQuestionDecision | PendingVerdictDecision
+export type PendingDecision = PendingQuestionDecision | PendingVerdictDecision | PendingViewDecision
 
 export interface PendingQuestionDecision {
   id: string
@@ -754,6 +755,22 @@ export interface PendingVerdictDecision {
   description?: string
   /** The CLI flagged this ask as one no stray keystroke may approve. */
   defaultToNo?: boolean
+}
+
+/**
+ * A generated view that waits on the user (spec
+ * 2026-11-18-generated-views-design): the session waits as it does on a
+ * question, and a message typed meanwhile answers the view. Answered from
+ * the view itself, never through a decision route's body.
+ */
+export interface PendingViewDecision {
+  id: string
+  kind: 'view'
+  input: { viewId: string; title: string }
+  createdAt: number
+  toolName: typeof VIEW_TOOL
+  /** The view's title. */
+  title: string
 }
 
 /**
@@ -1619,6 +1636,7 @@ export type ErrorKind =
   | 'branch_naming_failed'
   /** A live session refused the context report request from the read-out, or answered it with nothing readable. */
   | 'context_report_failed'
+  | 'view_files_failed'
 
 export interface ErrorRecord {
   id: number

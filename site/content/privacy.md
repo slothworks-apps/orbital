@@ -71,6 +71,15 @@ terms and privacy policy, not this one.
   like everything else between them; the profile's e-mail, organisation
   and plan go the other way, only to devices you gave the "Upkeep of this
   Mac" permission.
+- **Views** (Labs). A view is a small page a session writes and Orbital
+  shows in its transcript, on the Mac and on your phone. A view that loads
+  a library fetches it from a public code host: cdnjs, jsDelivr, unpkg,
+  esm.sh, or a host you add in Settings → Labs → Views. A view that shows
+  live data fetches it only from the domains it names, and only after you
+  allow them for that session. Those hosts see the request, as any web
+  page's would, including your IP address. The view's code and data stay
+  on your Mac, in Orbital's data folder, and reach your phone encrypted end
+  to end like everything else between them.
 - **MCP servers** you add yourself are contacted by Claude Code at the
   addresses you give.
 - **The relay**, if you turn on the phone app (below).

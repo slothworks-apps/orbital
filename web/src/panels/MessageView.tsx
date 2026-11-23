@@ -20,6 +20,8 @@ import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { copyToClipboard } from '../lib/clipboard'
 import { RewindGlyph } from '../ui/UtilityButton'
+import { parseViewMessage } from '@orbital/shared/views'
+import { ViewMessageBubble } from './ViewMessage'
 
 /** 7a: two or more images share one wrapping row, each capped narrower. */
 const TWO_UP_WIDTH_PX = 171
@@ -119,7 +121,8 @@ function CodeFrame({ code, children }: { code: string; children: ReactNode }) {
   )
 }
 
-function CodeBlock({ code, lang }: { code: string; lang: string }) {
+/** A block of code, highlighted by shiki once it has loaded, plain until then. */
+export function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const [html, setHtml] = useState<string | null>(null)
 
   useEffect(() => {
@@ -512,6 +515,13 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
       })}
     </div>
   )
+
+  // A message a generated view sent (spec 2026-11-18-generated-views-design §
+  // The bridge): its value, not its block, with the line back to the view.
+  const fromView = isUser ? parseViewMessage(message.text) : null
+  if (fromView) {
+    return <ViewMessageBubble parsed={fromView} time={!waiting && message.timestamp ? clockTime(message.timestamp) : undefined} />
+  }
 
   return (
     <FileMessageContext.Provider value={fileMessage}>

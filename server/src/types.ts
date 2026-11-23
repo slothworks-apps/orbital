@@ -359,7 +359,9 @@ export type ErrorKind =
   /** The call naming a worktree's branch failed, timed out or answered nothing usable; the temporary name stood in. */
   | 'branch_naming_failed'
   /** A live session refused the context report request from the read-out, or answered it with nothing readable. */
-  | 'context_report_failed';
+  | 'context_report_failed'
+  /** The retention sweep could not remove a swept session's generated-view files; they were left. */
+  | 'view_files_failed';
 
 export interface ErrorRecord {
   id: number;

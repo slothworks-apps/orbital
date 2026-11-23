@@ -67,6 +67,8 @@ import {
   LIMIT_SUNS_ENABLED_KEY,
   PROGRESS_LIST_ENABLED_KEY,
   progressListEnabled,
+  VIEWS_CDN_HOSTS_KEY,
+  VIEWS_ENABLED_KEY,
   LIMIT_SUN_COLORS_KEY,
   LIMIT_SUN_POSITIONS_KEY,
   LIMIT_SUN_STYLE_KEY,
@@ -114,6 +116,7 @@ import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
 import { DevicesSection } from './DevicesSection'
 import { BrowserBridgeRows } from './BrowserBridgeSection'
+import { ViewsSettingsRows } from './ViewsSettingsRows'
 import { BROWSER_BRIDGE_SETTING } from '../lib/browserBridge'
 import { browserBridgeOfferedHere } from '../lib/useBrowserBridge'
 import { UpdatesSection } from './UpdatesSection'
@@ -373,8 +376,9 @@ const SECTION_KEYS = {
   approving: ['permission_guard_gesture', 'questions_review_before_send'],
   reports: [ISSUE_CHECK_ENABLED_KEY],
   // The browser bridge, offered only where it can work (`browserBridgeOfferedHere`),
-  // and the progress list (spec 2026-11-09-progress-list-design).
-  labs: [PROGRESS_LIST_ENABLED_KEY, BROWSER_BRIDGE_SETTING] as string[],
+  // the progress list (spec 2026-11-09-progress-list-design) and views with
+  // their CDN hosts (spec 2026-11-18-generated-views-design).
+  labs: [PROGRESS_LIST_ENABLED_KEY, VIEWS_ENABLED_KEY, VIEWS_CDN_HOSTS_KEY, BROWSER_BRIDGE_SETTING] as string[],
   experimental: [
     ARCHIPELAGO_ENABLED_KEY,
     WALKTHROUGH_ENABLED_KEY,
@@ -1622,6 +1626,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(checked) => void patchAndSet({ [PROGRESS_LIST_ENABLED_KEY]: checked ? 'true' : 'false' })}
                         />
                       </Row>
+                      {/* `Feature - Views` 69f: above the Browser bridge. */}
+                      <ViewsSettingsRows settings={settings} patchAndSet={patchAndSet} />
                       {browserBridgeOfferedHere() && <BrowserBridgeRows settings={settings} patchAndSet={patchAndSet} />}
                       </ScopeSection>
                     </>

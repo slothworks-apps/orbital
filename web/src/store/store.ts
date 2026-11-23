@@ -41,6 +41,7 @@ import { archipelagoEnabled } from '../lib/experimental'
 import { isContextCommand } from '../lib/contextReport'
 import { isContextAnswer, useContextReport } from './contextReport'
 import type { MachineEvent } from '@orbital/shared/remote/device'
+import { VIEW_DOMAINS_EVENT, type ViewDomainsEvent, type ViewResult } from '@orbital/shared/views'
 import { deviceChips, deviceOf, devicesOn, ideHere, isMemberOffline, machineOffline, withMachine, withMachineOffline } from '../lib/devices'
 import type {
   ApiSession,
@@ -75,6 +76,9 @@ export type SessionsEvent =
   | { event: 'remove'; sessionId: string }
   /** A member of the group came online, went offline or was renamed: every session of it takes `machine`. */
   | MachineEvent
+
+/** What this tab answered a waiting view with, and when (ms). */
+export type ViewAnswer = ({ value: unknown } | { text: string }) & { at: number }
 
 /** Events delivered on the `session:<id>` topic. */
 export type SessionEvent =
@@ -113,7 +117,12 @@ export type SessionEvent =
    * the session ending. A question answered carries its answers; an older
    * Mac sends none.
    */
-  | { event: 'decision_resolved'; decisionId: string; answers?: AnswerMap }
+  /**
+   * `view`: a waiting generated view's outcome (spec
+   * 2026-11-18-generated-views-design § The bridge), cut to what a client
+   * shows (`echoViewResult`).
+   */
+  | { event: 'decision_resolved'; decisionId: string; answers?: AnswerMap; view?: ViewResult }
   /**
    * The transcript's live branch changed under the rows held — a rewind done
    * in the terminal, or an interrupt's dangling call dropped (spec
@@ -135,6 +144,13 @@ export type SessionEvent =
    * Carries nothing; an open walkthrough page asks again.
    */
   | { event: 'walkthrough_narration' }
+  /**
+   * The domains the session's generated views may fetch from changed — allowed
+   * here, in another window or on the phone (spec
+   * 2026-11-18-generated-views-design § Isolation and network). Every domain
+   * allowed now.
+   */
+  | ViewDomainsEvent
   /**
    * The CLI refused a pending rewind's send: nothing was sent, the hidden
    * messages are back (a `transcript_reset` follows) and the edited text
@@ -482,6 +498,15 @@ export interface OrbitalState {
    */
   decisionVerdicts: Record<string, { approved: boolean; message?: string }>
   /**
+   * What this tab answered a waiting view with, keyed by its call's tool_use
+   * id (spec 2026-11-18-generated-views-design § The bridge): the value the
+   * page sent or the words typed instead, and when. The view turns read-only
+   * on the click, before the tool_result comes back.
+   */
+  viewAnswers: Record<string, ViewAnswer>
+  /** The domains each session's views may fetch from, as the server last said (`view_domains`). */
+  viewDomains: Record<string, string[]>
+  /**
    * The editor selection each session has dismissed, keyed by SESSION id and
    * holding the dismissed selection's id (spec
    * 2026-09-23-ide-bridge-design § Behaviour).
@@ -762,6 +787,28 @@ export interface OrbitalActions {
    * (spec 2026-09-23-permission-and-plan-decisions-design § Answering).
    */
   resolveDecision(sessionId: string, verdict: { approved: boolean; message?: string }): void
+  /**
+   * Answers the generated view the session waits on: what its page sent, or
+   * words typed in the composer instead. A no-op that answers false unless
+   * that view is waiting — the session's pending decision, or, for what its
+   * page sent, `behind` another decision (a permission asked while the view
+   * waits: the Mac takes the view's answer by its id all the same) — and no
+   * answer of this tab is already on its way.
+   */
+  answerView(
+    sessionId: string,
+    toolUseId: string,
+    answer: { value: unknown } | { text: string },
+    opts?: { behind?: boolean },
+  ): boolean
+  /**
+   * A message from a view that does not wait (`viewMessageText`): the user's
+   * message to the session, as typed ones are, but with nothing riding on it —
+   * no editor selection, no browser selection. Resolves to whether it went.
+   */
+  sendViewMessage(sessionId: string, text: string): Promise<boolean>
+  /** The session's allowed view domains, as the server answered them. */
+  setViewDomains(sessionId: string, domains: string[]): void
   /**
    * A request about `sessionId` was refused because its device is offline
    * (409 `member_offline`): every session of that device reads offline from
@@ -1472,6 +1519,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   decisionDrafts: readQuestionDrafts(),
   questionCursors: {},
   decisionVerdicts: {},
+  viewAnswers: {},
+  viewDomains: {},
   ideDismissed: {},
   browserSelections: {},
   composerDrafts: {},
@@ -1979,6 +2028,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       return
     }
 
+    if (msg.event === VIEW_DOMAINS_EVENT) {
+      if (Array.isArray(msg.domains)) get().setViewDomains(sessionId, msg.domains.filter((d) => typeof d === 'string'))
+      return
+    }
+
     if (msg.event === 'transcript_reset') {
       get().reloadTranscript(sessionId).catch((err) => {
         console.error('orbital: failed to reload a transcript after its branch changed', err)
@@ -2043,6 +2097,13 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // send already stands there and is not replaced.
       if (msg.answers && !state.decisionAnswers[msg.decisionId]) {
         set({ decisionAnswers: { ...state.decisionAnswers, [msg.decisionId]: msg.answers } })
+      }
+      // A view answered elsewhere turns read-only here at once, saying what
+      // was sent, before its payload is read again.
+      const view = msg.view
+      if (view && !state.viewAnswers[msg.decisionId] && (view.outcome === 'sent' || view.outcome === 'answered')) {
+        const answer: ViewAnswer = view.outcome === 'sent' ? { value: view.value, at: Date.now() } : { text: view.text, at: Date.now() }
+        set({ viewAnswers: { ...state.viewAnswers, [msg.decisionId]: answer } })
       }
       // Whoever settled it — this tab, the other window, an interrupt — the
       // card locks. Guarded on the id so a late broadcast for a decision
@@ -2393,6 +2454,15 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // way.
     const decision = get().pendingDecisions[id]
     if (decision && text.trim()) {
+      // A waiting view: the words become its answer, as they would a question's
+      // (spec 2026-11-18-generated-views-design § The bridge).
+      // An answer already on its way takes nothing more: the words stay in
+      // the composer rather than vanish.
+      if (decision.kind === 'view') {
+        if (get().answerView(id, decision.id, { text })) return true
+        if (!get().composerDrafts[id]) get().setComposerDraft(id, text)
+        return false
+      }
       if (decision.kind === 'question') {
         const target = questionComposerTarget(get(), id)
         if (target?.kind === 'question') {
@@ -2632,9 +2702,82 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     })
   },
 
+  answerView(sessionId, toolUseId, answer, opts) {
+    const decision = get().pendingDecisions[sessionId]
+    const front = decision?.kind === 'view' && decision.id === toolUseId
+    // Words go as a message, which answers only the decision in front.
+    const behind = opts?.behind === true && 'value' in answer
+    if ((!front && !behind) || get().viewAnswers[toolUseId]) return false
+    const recorded: ViewAnswer = { ...answer, at: Date.now() }
+    set((state) => ({ viewAnswers: { ...state.viewAnswers, [toolUseId]: recorded } }))
+    // Words go as the user's message: while the view waits, the server makes
+    // them its answer, as it does a question's.
+    const sent = 'text' in answer ? api.sendMessage(sessionId, answer.text) : api.answerView(sessionId, toolUseId, answer.value)
+    const unrecord = () =>
+      set((state) => {
+        if (state.viewAnswers[toolUseId] !== recorded) return {}
+        const viewAnswers = { ...state.viewAnswers }
+        delete viewAnswers[toolUseId]
+        return { viewAnswers }
+      })
+    sent.catch((err: unknown) => {
+      // Someone answered first, or the wait ended: this answer did not go, so
+      // the view shows what the call came to (its payload, read again once
+      // the wait is over), not what this tab tried to send.
+      if (err instanceof ApiError && err.status === 404) {
+        unrecord()
+        get().applySessionEvent(sessionId, { event: 'decision_resolved', decisionId: toolUseId })
+        return
+      }
+      unrecord()
+      if ('text' in answer && !get().composerDrafts[sessionId]) get().setComposerDraft(sessionId, answer.text)
+      if (get().refusedOffline(sessionId, err)) return
+      const message = err instanceof Error ? err.message : 'Failed to send the answer'
+      set({ toast: { kind: 'error', message } })
+    })
+    return true
+  },
+
+  async sendViewMessage(sessionId, text) {
+    const session = get().sessions[sessionId]
+    // Queued like a typed message where the server queues it (a limit wait, a
+    // worktree not started): no optimistic turn, the queue shows it.
+    const queues =
+      Boolean(session?.limitWait) ||
+      (session != null && (pendingSetup(session) !== null || (session.setup?.queued.length ?? 0) > 0))
+    const optimistic = optimisticTurn(text)
+    if (!queues) {
+      set((state) => ({
+        transcripts: { ...state.transcripts, [sessionId]: [...(state.transcripts[sessionId] ?? []), optimistic] },
+      }))
+    }
+    try {
+      await api.sendMessage(sessionId, text)
+      return true
+    } catch (err) {
+      set((state) => ({
+        transcripts: {
+          ...state.transcripts,
+          [sessionId]: (state.transcripts[sessionId] ?? []).filter((m) => m.id !== optimistic.id),
+        },
+      }))
+      if (get().refusedOffline(sessionId, err)) return false
+      const message = err instanceof Error ? err.message : 'Failed to send message'
+      set({ toast: { kind: 'error', message } })
+      return false
+    }
+  },
+
+  setViewDomains(sessionId, domains) {
+    const before = get().viewDomains[sessionId]
+    if (before && before.length === domains.length && before.every((d, i) => d === domains[i])) return
+    set((state) => ({ viewDomains: { ...state.viewDomains, [sessionId]: domains } }))
+  },
+
   resolveDecision(sessionId, verdict) {
     const decision = get().pendingDecisions[sessionId]
-    if (!decision || decision.kind === 'question') return
+    // A view is answered from the view, or in words (`answerView`), never with a verdict.
+    if (!decision || decision.kind === 'question' || decision.kind === 'view') return
 
     // Recorded before the POST for the same reason the question card records
     // its answers: the card flips to its settled form on the click, and the

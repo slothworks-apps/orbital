@@ -10,7 +10,7 @@ import { questionComposerTarget, useOrbital, type SentAttachment } from '../../s
 import { refreshQuestionSetting } from '../questionSetting'
 import {
   DESKTOP_COMMAND_LINE, composerPlaceholder, footerMode, humanizeError, isDesktopCommand, phoneError,
-  reopenHint,
+  reopenHint, viewWaitingHint,
 } from '../composer'
 import type { PhotoSource } from '../platform/photo'
 import { useMobile } from '../state'
@@ -190,7 +190,7 @@ function LiveComposer({ id }: { id: string }) {
         </div>
       )}
       <Controls
-        hint={reopenStep !== null ? reopenHint(reopenStep) : undefined}
+        hint={reopenStep !== null ? reopenHint(reopenStep) : (viewWaitingHint(pending) ?? undefined)}
         toolsDisabled={!ready || locked}
         onPhoto={(source) => attachPhoto(source, attachments, stillHere, setError)}
         onSlash={() => composer.current?.startCommand()}
@@ -213,7 +213,10 @@ function Controls(
     | { inert: true }
     | {
         inert?: false
-        /** A line in the photos' place: where a reopened step's message goes (canvas 10b, third phone). */
+        /**
+         * A line in the photos' place: where a reopened step's message goes (canvas 10b, third
+         * phone), or that a waiting view takes it as its answer (69e).
+         */
         hint?: string
         toolsDisabled: boolean
         onPhoto(source: PhotoSource): void

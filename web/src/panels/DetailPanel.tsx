@@ -1423,7 +1423,7 @@ export function DetailPanel({
                     ? '⏎ is held — this stays here until the answers are sent'
                     : '⏎ here won’t send them · ⇧⇥ jumps to Send'
                 : openVerdictKind
-                  ? composerHintFor(openVerdictKind)
+                  ? composerHintFor(openVerdictKind, pendingDecision?.kind === 'view' ? pendingDecision.title : undefined)
                   : (setupWords?.hint ?? '⏎ send · ⇧⏎ newline · ⌘V paste image')
             }
             answering={

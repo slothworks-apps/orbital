@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { composerPlaceholderFor } from '../lib/decisionCard'
 import type { PendingDecision, QuestionSpec } from '../lib/types'
 import {
-  UNNAMED_MAC, composerPlaceholder, footerMode, humanizeError, isDesktopCommand, phoneError,
+  UNNAMED_MAC, composerPlaceholder, footerMode, humanizeError, isDesktopCommand, phoneError, viewWaitingHint,
 } from '../mobile/composer'
 
 describe('footerMode', () => {
@@ -38,6 +38,28 @@ const question = (...questions: QuestionSpec[]): PendingDecision => ({
   createdAt: 0,
 })
 const verdict = (kind: 'permission' | 'plan'): PendingDecision => ({ id: 'd2', kind, input: {}, createdAt: 0 })
+
+const waitingView = (title: string): PendingDecision => ({
+  id: 'v1',
+  kind: 'view',
+  input: { viewId: 'v1', title },
+  createdAt: 0,
+  toolName: 'mcp__orbital__show_view',
+  title,
+})
+
+describe('a waiting view (69e)', () => {
+  it('takes words as its answer', () => {
+    expect(composerPlaceholder({ pending: waitingView('Release latency'), target: null, ended: false }).answering).toBe(true)
+  })
+
+  it('names the view beside Send, and nothing else does', () => {
+    expect(viewWaitingHint(waitingView('Release latency'))).toContain('Release latency')
+    expect(viewWaitingHint(waitingView('  '))).not.toBeNull()
+    expect(viewWaitingHint(verdict('permission'))).toBeNull()
+    expect(viewWaitingHint(undefined)).toBeNull()
+  })
+})
 
 describe('composerPlaceholder', () => {
   it('names the open question and answers it', () => {

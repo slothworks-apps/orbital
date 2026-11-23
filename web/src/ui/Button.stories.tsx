@@ -42,6 +42,9 @@ const VARIANTS: NonNullable<ButtonProps['variant']>[] = [
   'choice',
   'choice-on',
   'dashed-link',
+  'outline-soft',
+  'outline-touch',
+  'outline-quiet',
 ]
 
 export const Variants: Story = {
@@ -93,6 +96,10 @@ const SIZES: NonNullable<ButtonProps['size']>[] = [
   'link-mono',
   'grant-summary',
   'inline',
+  'block-chip',
+  'block-half',
+  'view',
+  'view-touch',
 ]
 
 export const Sizes: Story = {

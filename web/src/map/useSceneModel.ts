@@ -112,6 +112,8 @@ export function useSceneModel(): SceneModel {
           decisionDrafts: {},
           questionCursors: {},
           decisionVerdicts: {},
+          viewAnswers: {},
+          viewDomains: {},
           ideDismissed: {},
           browserSelections: {},
           composerDrafts: {},
