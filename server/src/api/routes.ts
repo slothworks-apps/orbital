@@ -1,4 +1,5 @@
 import { TAGS_TOPIC, type TagsChangedFrame } from '@orbital/shared/tags';
+import type { ContextReportAnswer } from '@orbital/shared/contextReport';
 import { isSharedSetting } from '@orbital/shared/sharedSettings';
 import { UPDATE_CHANNEL_KEY } from '@orbital/shared/updateChannel';
 import { PROGRESS_TOOL } from '@orbital/shared/progress';
@@ -47,6 +48,7 @@ import {
 import type { ArchiveOutcome, ListedSession } from '../runner/sessionsTools.js';
 import { mergeCompactionFailures, type CompactionFailureRecord } from '../transcript/compaction.js';
 import { RETENTION_KEY, deleteSessions } from '../retention.js';
+import { keepContextReport, keptContextReport } from '../contextReport/store.js';
 import type { LiveSessions } from '../watcher/registry.js';
 import { endCli, type EndCliOutcome } from '../watcher/endCli.js';
 import type { Hub } from './hub.js';
@@ -1048,6 +1050,69 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const tail = readOutputTail(path, Math.min(maxBytes ?? OUTPUT_TAIL_BYTES, OUTPUT_TAIL_BYTES));
     if (!tail) return reply.code(410).send({ error: 'output_gone' });
     return tail;
+  });
+
+  /**
+   * The session's `/context` report, for the context read-out (spec
+   * 2026-11-19-context-report-dialog-design § Opening it from the context
+   * read-out). Never a `/context` turn: nothing goes into the transcript.
+   *
+   * - A session Orbital runs now is asked for a fresh one on the side
+   *   (`Runner.contextReport`), which is kept as its latest and answered
+   *   `{ report, takenAt, fresh: true }`; its `contextReportAt` is republished.
+   * - Any other — ended, asleep, still starting, held by a terminal — answers
+   *   its kept report, the newer of a typed `/context` and one taken here
+   *   (`contextReport/store.ts`), as `{ report, takenAt, fresh: false }`.
+   *
+   * `takenAt` is an ISO time. Refusals name why: 404 `not_found`, a session
+   * nobody knows; 404 `no_report`, one that is not running and has none
+   * kept. Taking a fresh one can fail with 504 `timeout`, 502 `failed` (the
+   * CLI refused or answered with nothing readable) or 409 `unsupported` (a
+   * query without the control request); those carry the kept report as
+   * `earlier` when there is one. A session that stopped or ended while it
+   * counted answers its kept report instead, and a `failed` is recorded in
+   * the error log. The answer's type is `ContextReportAnswer` (`shared/`).
+   */
+  app.get('/api/sessions/:id/context-report', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const known = () => db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get() !== undefined;
+    if (!known()) return reply.code(404).send({ error: 'not_found' } satisfies ContextReportAnswer);
+    const kept = () => {
+      const k = keptContextReport(db, id);
+      return k ? { report: k.report, takenAt: new Date(k.takenAt).toISOString() } : null;
+    };
+    const keptAnswer = () => {
+      const earlier = kept();
+      return earlier
+        ? ({ ...earlier, fresh: false } satisfies ContextReportAnswer)
+        : reply.code(404).send({ error: 'no_report' } satisfies ContextReportAnswer);
+    };
+    const running = () => !ctx.registry.get(id) && ctx.runner.status(id) !== undefined;
+    const answer = running() ? await ctx.runner.contextReport(id) : null;
+    if (answer && 'report' in answer) {
+      const takenAt = Date.now();
+      // The retention sweep may have deleted the session while it counted: a
+      // row kept for it now would never be deleted, and there is nothing to
+      // publish.
+      if (!known()) return reply.code(404).send({ error: 'not_found' } satisfies ContextReportAnswer);
+      if (keepContextReport(db, id, { report: answer.report, takenAt, origin: { kind: 'readout' } })) publishSession(id);
+      return { report: answer.report, takenAt: new Date(takenAt).toISOString(), fresh: true } satisfies ContextReportAnswer;
+    }
+    // Not running, no live query after all (still starting, just stopped), or
+    // a session that stopped or ended while it counted: the kept one.
+    if (!answer || answer.error === 'not_running' || !running()) return keptAnswer();
+    if (answer.error === 'failed') {
+      // The control answer is the CLI's undocumented format: a refusal or an
+      // answer this reader cannot read is kept (adr errors-are-recorded-not-announced).
+      console.warn(`orbital: context report for ${id} failed: ${answer.message}`);
+      ctx.errors.record({
+        source: 'server', kind: 'context_report_failed', sessionId: id,
+        message: answer.message, detail: answer.detail,
+      });
+    }
+    const code = answer.error === 'timeout' ? 504 : answer.error === 'failed' ? 502 : 409;
+    const earlier = kept();
+    return reply.code(code).send({ error: answer.error, ...(earlier ? { earlier } : {}) } satisfies ContextReportAnswer);
   });
 
   // Transcript images, served straight from the content-addressed store.

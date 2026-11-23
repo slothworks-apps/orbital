@@ -23,6 +23,7 @@ import { HarnessPanel } from './panels/HarnessPanel'
 import { ProgressPanel } from './panels/ProgressPanel'
 import { ErrorLog } from './panels/ErrorLog'
 import { CompactDialog } from './panels/CompactDialog'
+import { ContextReportDialogHost } from './panels/contextReport/ContextReportDialog'
 import { McpDialog } from './panels/McpDialog'
 import { useFeedbackNotice } from './ui/FeedbackNotice'
 import { MapNoticeHost } from './ui/MapNoticeHost'
@@ -249,6 +250,7 @@ export function SessionWindow({ id }: { id: string }) {
         <SessionDialogs standalone />
         {/* A `/compact` past running subagents, from the composer or the map's badge. */}
         <CompactDialog />
+        <ContextReportDialogHost />
         <McpDialog />
         {/* The window's replies, across the whole window: it has no map. */}
         <MapNoticeHost inWindow />

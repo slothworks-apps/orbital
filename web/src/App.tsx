@@ -36,6 +36,7 @@ import { Settings } from './panels/Settings'
 import { ErrorLog } from './panels/ErrorLog'
 import { AllTips } from './tips/AllTips'
 import { CompactDialog } from './panels/CompactDialog'
+import { ContextReportDialogHost } from './panels/contextReport/ContextReportDialog'
 import { McpDialog } from './panels/McpDialog'
 import { PairConfirmDialog } from './panels/PairConfirmDialog'
 import { TerminalDock, TerminalSidePanel } from './terminal/TerminalFrames'
@@ -448,6 +449,7 @@ export default function App() {
       <SessionDialogs />
       {/* A `/compact` past running subagents, from the composer or the map's badge. */}
       <CompactDialog />
+      <ContextReportDialogHost />
       {/* `/mcp` from the composer (spec 2026-10-01-mcp-servers-in-the-session-design). */}
       <McpDialog />
       {/* A phone asking to pair (spec 2026-10-01-settings-mobile-design § 4). */}

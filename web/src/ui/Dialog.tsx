@@ -104,6 +104,10 @@ export interface DialogProps {
    * buttons — in a plain-bordered 460px card with no corner brackets, no
    * bloom and no footer row. `size`, `tone` and the footer props do not
    * apply to it.
+   *
+   * `review` is the `Report Dialog` (canvas `Feature - Feedback` 61d): the
+   * caller draws header, body and footer. 900px wide; at `size="xl"` the
+   * 760px of the `/context` report (canvas `Feature - Context report` 70a).
    */
   variant?: 'frame' | 'card' | 'review'
   /**
@@ -365,7 +369,8 @@ export function Dialog({
         // `Report Dialog` (canvas `Feature - Feedback` 61d): 900px, a 16px
         // radius over a .2 hairline, no corner brackets and no bloom. The
         // caller draws the header, body and footer; this owns the scrim, the
-        // motion, Escape and the cap at the viewport.
+        // motion, Escape and the cap at the viewport. `xl` is the /context
+        // report's 760px (70a).
         <div
           ref={setSurface}
           role="dialog"
@@ -374,10 +379,11 @@ export function Dialog({
           data-variant="review"
           style={{
             boxShadow: BASE_SHADOW,
+            ...(maxHeight !== undefined && { maxHeight: `min(100%, ${maxHeight}px)` }),
             ...(anchored && { marginTop: anchor }),
           }}
           className={[
-            'relative flex max-h-full w-[900px] max-w-full flex-col rounded-2xl border border-line/20 bg-gradient-to-b from-raised/97 to-space-deep/98 text-left font-sans text-ink-100 backdrop-blur-[28px]',
+            `relative flex max-h-full ${size === 'xl' ? 'w-[760px]' : 'w-[900px]'} max-w-full flex-col rounded-2xl border border-line/20 bg-gradient-to-b from-raised/97 to-space-deep/98 text-left font-sans text-ink-100 backdrop-blur-[28px]`,
             MODAL_TRANSITION,
             duration,
             entered ? MODAL_OPEN : MODAL_CLOSED,
@@ -550,5 +556,33 @@ export function Dialog({
     </div>
     </EscapeBoundary>,
     document.body,
+  )
+}
+
+/**
+ * The `review` variant's thin scrollbar (canvas `Feature - Feedback` 61d), for
+ * whatever scrolls inside it: the report's body, its printout, the issue's
+ * markdown.
+ */
+export const REVIEW_SCROLLBAR =
+  '[scrollbar-color:color-mix(in_oklab,_var(--color-line)_25%,_transparent)_transparent] [scrollbar-width:thin]'
+
+/**
+ * The `review` variant's ruled header (canvas 61d, 70c): the caller's title
+ * block on the left, the × that closes the dialog on the right.
+ */
+export function ReviewHeader({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="flex shrink-0 items-start gap-3 border-b border-line/10 pb-4 pl-[26px] pr-[18px] pt-[22px]">
+      <div className="min-w-0 flex-1">{children}</div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="grid h-[30px] w-[30px] shrink-0 cursor-pointer place-items-center rounded-[7px] fs-16 leading-(--text-base--line-height) text-ink-900/70 transition-colors hover:bg-line/8 hover:text-ink-100"
+      >
+        ×
+      </button>
+    </div>
   )
 }

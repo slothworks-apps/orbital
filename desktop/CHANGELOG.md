@@ -11,6 +11,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - Times in a transcript show the date when they are not from today (`Sep 12, 09:05`); today's stay `14:32`. The same goes for the media viewer.
 ### Added
 - A tips button on the map, above the error log, shows short hints about what Orbital can do, one at a time or all together. A quiet dot on it means there is a tip you have not seen yet.
+### Added
+- /context answers as a report: one line in the transcript with how full the window is, and a click opens a dialog with a chart of what fills it and the heaviest MCP servers, memory files, agents and skills; it opens by itself for a /context you send. A click on the context bar in the session's header opens the same report without typing anything, freshly counted for a running session and the last one for an ended or terminal session. The CLI's printout is still there under As text.
 
 ## [0.49.2] — 2026-11-16
 ### Changed
