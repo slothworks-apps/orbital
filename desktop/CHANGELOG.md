@@ -5,6 +5,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [Unreleased]
 ### Fixed
 - New session with a harness no longer opens with its top cut off when the options before it had been scrolled down.
+- After you log in again from a session, the "Logged in" line shows above the message Orbital sends to continue, not below it, so the chat no longer looks like it is waiting for you while the session already works.
 
 ## [0.49.2] — 2026-11-16
 ### Changed
