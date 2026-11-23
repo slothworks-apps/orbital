@@ -11,7 +11,6 @@ import {
   waitingLine,
   type LoginNoticePlace,
 } from '../lib/profileLogin'
-import { openSettingsSection } from '../lib/sessionUrl'
 import { stateColor, stateDot } from '../lib/stateStyle'
 import type { ApiSession, ChatMessage, LoginLostNotice, LoginRestoredNotice, LoginRun } from '../lib/types'
 import {
@@ -23,7 +22,7 @@ import {
   submitLoginCode,
   useProfileLogin,
 } from '../store/profileLogins'
-import { useOrbital } from '../store/store'
+import { openSettingsSection, useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { StateDot } from '../ui/StateDot'
 

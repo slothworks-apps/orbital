@@ -18,7 +18,6 @@ import {
   isComplete,
   isOtherRow,
   joinSelection,
-  moveFocus,
   notTakenLine,
   optionIndexForDigit,
   parseResultAnswers,
@@ -26,6 +25,7 @@ import {
   rowCount,
   toggleSelection,
 } from '../lib/questionCard'
+import { wrapIndex } from '../lib/wrapIndex'
 
 const OPTIONS = [
   { label: 'In place', description: 'One ALTER.' },
@@ -153,13 +153,13 @@ describe('rows and focus', () => {
   })
 
   it('moves focus and wraps at both ends', () => {
-    expect(moveFocus(0, 1, 4)).toBe(1)
-    expect(moveFocus(3, 1, 4)).toBe(0)
-    expect(moveFocus(0, -1, 4)).toBe(3)
+    expect(wrapIndex(0, 1, 4)).toBe(1)
+    expect(wrapIndex(3, 1, 4)).toBe(0)
+    expect(wrapIndex(0, -1, 4)).toBe(3)
   })
 
   it('never divides by an empty row list', () => {
-    expect(moveFocus(0, 1, 0)).toBe(0)
+    expect(wrapIndex(0, 1, 0)).toBe(0)
   })
 })
 

@@ -120,16 +120,6 @@ export function isOtherRow(question: QuestionSpec, index: number): boolean {
 }
 
 /**
- * Focus movement for ↑ ↓ (canvas 9d KEYS). Wraps, because a list of three
- * rows that stops dead at either end makes the keyboard feel broken; ⇥ is
- * the browser's own and is not routed through here.
- */
-export function moveFocus(current: number, delta: number, count: number): number {
-  if (count <= 0) return 0
-  return (((current + delta) % count) + count) % count
-}
-
-/**
  * The option a `1`–`4` keypress names, or null when the key is not a digit
  * in range (canvas 9d: "1 – 4 · answer that option"). Never resolves to the
  * Other… row — that one is `↩`, not a number.

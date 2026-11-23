@@ -36,8 +36,21 @@ export async function discardSetup(id: string): Promise<void> {
   useOrbital.setState((s) => (s.ui.selectedId === id ? { ui: { ...s.ui, selectedId: null } } : s))
 }
 
-/** The New Session prefill Without a worktree left for the dialog's next open. */
-export const useNewSessionPrefill = create<{ prefill: NewSessionPrefill | null }>(() => ({ prefill: null }))
+/**
+ * What New Session's next open starts from: `prefill`, the launch Without a
+ * worktree left; `prompt`, a first prompt written in and nothing else (a
+ * tip's action, spec 2026-11-16-tips-design). Either is for one open.
+ */
+export const useNewSessionPrefill = create<{ prefill: NewSessionPrefill | null; prompt: string | null }>(() => ({
+  prefill: null,
+  prompt: null,
+}))
+
+/** Opens New Session with `prompt` written in. Nothing is launched: the person reads it and launches it. */
+export function openNewSessionWithPrompt(prompt: string): void {
+  useNewSessionPrefill.setState({ prompt })
+  useOrbital.getState().setDialog('new')
+}
 
 /**
  * Leaves this session's launch, Worktree off, for New Session's next open —

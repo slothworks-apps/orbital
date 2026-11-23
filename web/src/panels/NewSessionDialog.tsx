@@ -550,11 +550,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       loadProjects(startDevice, startDevice !== LOCAL_DEVICE && !startCwd ? { fallback: '' } : false)
       setPrefill(pendingPrefill)
       if (pendingPrefill) applyPrefill(pendingPrefill)
+      // A tip's prompt: only the text, over what the open reset to.
+      const seededPrompt = useNewSessionPrefill.getState().prompt
+      if (!pendingPrefill && seededPrompt) setPrompt(seededPrompt)
     }
     // The prefill is for one open: cancelling leaves both sessions as they were.
     if (!open && wasOpenRef.current) {
       setPrefill(null)
-      useNewSessionPrefill.setState({ prefill: null })
+      useNewSessionPrefill.setState({ prefill: null, prompt: null })
     }
     // Closing drops the chips and aborts whatever was still uploading — a
     // dialog that was dismissed is not a turn that will be sent. The chips a

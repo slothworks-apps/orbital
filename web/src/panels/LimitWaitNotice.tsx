@@ -2,10 +2,9 @@ import { useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { limitSettings, limitWaitCopy } from '../lib/limits'
-import { openSettingsSection } from '../lib/sessionUrl'
 import type { LimitWait } from '../lib/types'
 import { LIMITS_PATH } from '../limits/route'
-import { useOrbital } from '../store/store'
+import { openSettingsSection, useOrbital } from '../store/store'
 import { QueuedBubble } from '../ui/QueuedBubble'
 
 /** The one action of a transcript notice: the wait's Cancel and Undo, and the Stop hook's Cancel. */

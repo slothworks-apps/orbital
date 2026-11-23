@@ -9,6 +9,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - A file name pressed in a transcript finds a file at the top of the project that git ignores, such as `CLAUDE.local.md` or `.env`, instead of saying there is no file by that name.
 ### Changed
 - Times in a transcript show the date when they are not from today (`Sep 12, 09:05`); today's stay `14:32`. The same goes for the media viewer.
+### Added
+- A tips button on the map, above the error log, shows short hints about what Orbital can do, one at a time or all together. A quiet dot on it means there is a tip you have not seen yet.
 
 ## [0.49.2] — 2026-11-16
 ### Changed
