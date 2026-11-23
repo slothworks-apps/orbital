@@ -38,6 +38,8 @@ export const SHARED_SETTING_KEYS: readonly string[] = [
   'worktree_auto_on_when_occupied',
   // Labs (spec 2026-11-09-progress-list-design).
   'progress_list_enabled',
+  // Labs (spec 2026-11-18-generated-views-design).
+  'views_enabled',
 ];
 
 /**
@@ -61,6 +63,8 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   'notify_only_when_background', 'notify_tip',
   // Bookkeeping.
   'whats_new_seen', 'models_catalog', 'model_context_windows', 'cli_built_in_commands',
+  // The tips this Mac has shown (web `lib/tips` `TIPS_SEEN_KEY`): its dot is about this Mac, as WHAT'S NEW's is.
+  'tips_seen',
   // Found after the first list: the terminal's place on this screen, and what this device has shown or unlocked.
   'terminal_placement', 'terminal_dock_height', 'gh_tip', 'experimental_unlocked',
   // The colour theme: a bright room and macOS's appearance belong to this Mac, as text size does.
@@ -69,6 +73,8 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   'worktree_copy_patterns', 'worktree_dismissed',
   // The browser bridge: the extension pairs with this Mac's server, and its browser sits beside this Mac.
   'browser_bridge_enabled',
+  // Generated views: the CDN hosts the Mac's sessions load scripts from; the phone edits the Mac's list.
+  'views_cdn_hosts',
 ];
 
 const PER_DEVICE_PREFIXES = ['remote_', 'new_session_last_'];

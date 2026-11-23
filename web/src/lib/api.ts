@@ -1,3 +1,4 @@
+import type { ContextReportAnswer } from '@orbital/shared/contextReport'
 import type { McpjsonDecisions, McpjsonServer } from './mcpjson'
 import { NOT_A_NAME, type FindFilesAnswer, type FoundFile } from './findByName'
 import type {
@@ -57,6 +58,7 @@ import type {
   SessionDefaults,
 } from './types'
 import { markUnauthorized } from './unauthorized'
+import type { ViewPayload } from '@orbital/shared/views'
 import type { BrowserOutcome, BrowserStatus } from './browserBridge'
 import {
   parseServerUpdateState,
@@ -372,9 +374,49 @@ export const api = {
    * 2026-10-09-session-media-design § Data). References only — the bytes
    * come through the image store and `/api/files/image`.
    */
-  async sessionMedia(id: string): Promise<MediaItem[]> {
-    const data = await request<{ items: MediaItem[] }>('GET', apiPath`/api/sessions/${id}/media`)
+  async sessionMedia(id: string, opts: { views?: boolean } = {}): Promise<MediaItem[]> {
+    // `views=1`: this client reads view items (spec 2026-11-18-generated-views-design
+    // § Media) — asked only while Labs → Views is on, so a view never lands in
+    // a list that has no row to filter it by.
+    const query = opts.views ? '?views=1' : ''
+    const data = await request<{ items: MediaItem[] }>('GET', apiPath`/api/sessions/${id}/media` + query)
     return data.items
+  },
+
+  /**
+   * What a generated view at this call needs to be drawn (spec
+   * 2026-11-18-generated-views-design § Phone): the newest call of its view,
+   * compiled, with its data when small, its domains and its state.
+   */
+  async viewPayload(id: string, toolUseId: string): Promise<ViewPayload> {
+    return request<ViewPayload>('GET', apiPath`/api/sessions/${id}/views/${toolUseId}`)
+  },
+
+  /** A view's data copy, as text, when its payload does not carry it inline. */
+  async viewData(id: string, toolUseId: string): Promise<string> {
+    const url = apiPath`/api/sessions/${id}/views/${toolUseId}/data`
+    const response = await apiFetch(url, { method: 'GET' })
+    const text = await response.text()
+    if (!response.ok) throw new ApiError(text || response.statusText, response.status, url)
+    return text
+  },
+
+  /** Allows the session's views to fetch from `domains`; answers every domain the session allows now. */
+  async approveViewDomains(id: string, domains: readonly string[]): Promise<{ domains: string[] }> {
+    return request<{ domains: string[] }>('POST', apiPath`/api/sessions/${id}/view-domains`, { domains })
+  },
+
+  /**
+   * Answers a view that waits on the user with what its page sent — the
+   * decision route the other kinds use, with a view's body (spec
+   * 2026-11-18-generated-views-design § The bridge). Words typed in the
+   * composer instead go as an ordinary message, which the server turns into
+   * the view's answer. 404: the wait is over.
+   */
+  async answerView(id: string, toolUseId: string, value: unknown): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('POST', apiPath`/api/sessions/${id}/decision/${toolUseId}`, {
+      value: value === undefined ? null : value,
+    })
   },
 
   /**
@@ -1238,6 +1280,23 @@ export const api = {
     return request<SessionStatsDetail>('GET', apiPath`/api/stats/sessions/${id}` + query)
   },
 
+  /**
+   * The session's `/context` report for the context read-out (spec
+   * 2026-11-19-context-report-dialog-design § Opening it from the context
+   * read-out): taken now from a session Orbital runs (`fresh`), else the one
+   * the Mac keeps. A named refusal comes back as `{ error }`, a failed taking
+   * with the kept report as `earlier`; anything else — an older Mac without
+   * the route, the network, the tunnel — throws.
+   */
+  async contextReport(id: string): Promise<ContextReportAnswer> {
+    return remoteCall('GET', apiPath`/api/sessions/${id}/context-report`, undefined, {
+      404: ['not_found', 'no_report'] as const,
+      409: ['unsupported'] as const,
+      502: ['failed'] as const,
+      504: ['timeout'] as const,
+    })
+  },
+
   // Reports to Orbital's GitHub (spec 2026-10-20-report-to-github-design).
   // Mac only: the phone opens the prefilled form instead. `gh` missing or
   // logged out comes back as `{ error }`; anything gh says otherwise throws.
@@ -1926,6 +1985,9 @@ export interface SessionTip {
   title: string
   text: string
 }
+
+/** `GET /api/sessions/:id/context-report`'s answer, declared once in `shared/` for the route and the web. */
+export type { ContextReportAnswer }
 
 // Export types for convenience
 export type {

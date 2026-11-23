@@ -98,17 +98,6 @@ export function newestFailedCompactionId(messages: readonly ChatMessage[]): stri
 }
 
 /**
- * A mark's time: the time of day for today, a date for anything older
- * (26d: `14:32`, `Sep 12, 09:05`).
- */
-export function formatMarkTime(at: number, now: number): string {
-  const date = new Date(at)
-  const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
-  if (date.toDateString() === new Date(now).toDateString()) return time
-  return `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${time}`
-}
-
-/**
  * A duration on a mark's meta line: `38s` under a minute, `2m 36s` past it.
  * Real compactions run 74–156 s, so the minute form is the common one.
  */

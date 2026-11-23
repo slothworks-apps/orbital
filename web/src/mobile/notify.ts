@@ -78,6 +78,8 @@ export function bannerLine(n: SessionNotification, pending: PendingDecision | un
     const header = pending.input.questions[0]?.header?.trim()
     return header ? oneLine(`Question · ${header}`) : n.body
   }
+  // A waiting view (spec 2026-11-18-generated-views-design): named by its title, as a question by its header.
+  if (pending.kind === 'view') return pending.title.trim() ? oneLine(`View · ${pending.title}`) : n.body
   return oneLine(`${decisionChipLabel(pending.kind)} · ${inputSummary(pending.input) ?? decisionHeadline(pending)}`)
 }
 

@@ -4,6 +4,13 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-11-23
+### Added
+- /context answers as a report: one line in the transcript with how full the window is, and a tap opens a sheet with a chart of what fills it and the heaviest MCP servers, memory files, agents and skills; it opens by itself for a /context you send from the phone. A tap on the context read-out in the session's header opens the same report without typing anything. Needs a Mac on the new version; with an older one the printout shows as before.
+- Views a session shows on the Mac appear on the phone too: live in the transcript, full screen in the session's media, and a view waiting for you can be answered from the phone. Settings → Labs keeps the Mac's list of extra script hosts. Needs Orbital for Mac with Views.
+### Changed
+- Screenshots and images show the date beside their time when they are not from today.
+
 ## [0.26.1] — 2026-11-11
 ### Added
 - Settings → About shows this phone's install ID, to send when you want the data the update server holds about this phone deleted.

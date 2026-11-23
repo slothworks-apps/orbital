@@ -4,16 +4,22 @@
  * and the phone read the same list.
  */
 export interface MediaItem {
-  /** Stable across reads: `${messageId}:${index}`, the index counting this message's media. */
+  /**
+   * Stable across reads: `${messageId}:${index}`, the index counting this
+   * message's media; a view's is `view:${viewId}`, one item however often
+   * it was updated.
+   */
   id: string;
-  kind: 'image' | 'pdf';
+  /** `view`: a generated view (spec 2026-11-18-generated-views-design), listed only to a client that says it reads them. */
+  kind: 'image' | 'pdf' | 'view';
   /**
    * `you` attached or pasted it, a tool's result carried it, the agent named
    * its path in a reply, or a tool call wrote it to a path no reply named
    * (spec 2026-10-13-session-media-more-design). A reader that does not know a
    * source shows the item by its `ref` or `path` and leaves the source unsaid.
+   * `view`: a generated view the session showed.
    */
-  source: 'you' | 'tool' | 'agent' | 'written';
+  source: 'you' | 'tool' | 'agent' | 'written' | 'view';
   /** The transcript message it belongs to — what Show in transcript scrolls to. */
   messageId: string;
   /** The message's timestamp. */
@@ -39,4 +45,14 @@ export interface MediaItem {
    * moon's name — the call's description, else its subagent type.
    */
   subagent?: { toolUseId: string; name: string };
+  /**
+   * `view` only: the view's id, the call drawn (its newest), and its title.
+   * `messageId` is the message of that call.
+   */
+  view?: { id: string; toolUseId: string; title: string };
+}
+
+/** A generated view's media item id: one item per view, however often it was updated. */
+export function viewMediaId(viewId: string): string {
+  return `view:${viewId}`;
 }

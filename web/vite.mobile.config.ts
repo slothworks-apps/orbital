@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import { changelogSection } from './changelogSection.ts'
+import { viewRuntime } from './viewRuntime.ts'
 
 /**
  * The phone's build (spec 2026-10-02-mobile-app-design § 1): its own HTML
@@ -83,7 +84,7 @@ function chunkModules(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [tailwindcss(), react(), mobileEntry(), chunkModules(), changelogSection()],
+  plugins: [tailwindcss(), react(), mobileEntry(), chunkModules(), changelogSection(), viewRuntime()],
   define: {
     __MOBILE_DEV__: JSON.stringify(process.env.ORBITAL_MOBILE_DEV === '1'),
     __MOBILE_VERSION__: JSON.stringify(mobileVersion),

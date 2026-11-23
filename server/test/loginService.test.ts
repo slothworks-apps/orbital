@@ -358,8 +358,10 @@ describe('continuing after a login', () => {
     h.status.auth = '{"loggedIn":true,"email":"new@example.com"}';
     h.children[0].exit(0);
     await vi.waitFor(() => expect(h.delivered).toEqual([{ sessionId: 's1', text: 'Continue where you left off.' }]));
-    // The turn first: the notice says "continued" only of a turn that started.
-    const [turn, notice] = h.toSession.map((m) => m.payload.message);
+    // The notice above the turn: below it, the transcript would end on the
+    // login and read as waiting for the user while the turn runs.
+    const [notice, turn] = h.toSession.map((m) => m.payload.message);
+    expect(notice.timestamp <= turn.timestamp).toBe(true);
     expect(notice.notice).toEqual({
       level: 'info', kind: 'login_restored',
       login: { kind: 'claude', email: 'new@example.com', previousEmail: 'old@example.com', continued: true },

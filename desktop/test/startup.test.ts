@@ -3,6 +3,7 @@ import {
   classifyChildExit,
   classifyProbe,
   decideAttach,
+  decideFrameNavigation,
   decideNavigation,
   decideStartup,
   decideWindowTarget,
@@ -130,6 +131,28 @@ describe('decideNavigation', () => {
     expect(decideNavigation('file:///etc/passwd', 4737)).toBe('deny');
     expect(decideNavigation('javascript:alert(1)', 4737)).toBe('deny');
     expect(decideNavigation('not a url', 4737)).toBe('deny');
+  });
+});
+
+describe('decideFrameNavigation', () => {
+  it('lets a view’s frame load its srcdoc, a blank page or a page of Orbital’s', () => {
+    expect(decideFrameNavigation('about:srcdoc', 4737)).toBe('allow');
+    expect(decideFrameNavigation('about:blank', 4737)).toBe('allow');
+    expect(decideFrameNavigation('http://127.0.0.1:4737/api/views/x', 4737)).toBe('allow');
+    expect(decideFrameNavigation('http://localhost:4839/', 4737)).toBe('allow');
+    // A blob Orbital made carries Orbital's origin.
+    expect(decideFrameNavigation('blob:http://127.0.0.1:4737/0f0e', 4737)).toBe('allow');
+  });
+
+  it('stops a frame that tries to leave, instead of opening it anywhere', () => {
+    expect(decideFrameNavigation('https://example.com/', 4737)).toBe('deny');
+    expect(decideFrameNavigation('http://127.0.0.1:9999/', 4737)).toBe('deny');
+    expect(decideFrameNavigation('blob:https://example.com/0f0e', 4737)).toBe('deny');
+    expect(decideFrameNavigation('data:text/html,<p>hi</p>', 4737)).toBe('deny');
+    expect(decideFrameNavigation('javascript:alert(1)', 4737)).toBe('deny');
+    expect(decideFrameNavigation('about:srcdoc2', 4737)).toBe('deny');
+    expect(decideFrameNavigation('file:///etc/passwd', 4737)).toBe('deny');
+    expect(decideFrameNavigation('not a url', 4737)).toBe('deny');
   });
 });
 

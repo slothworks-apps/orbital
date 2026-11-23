@@ -12,6 +12,7 @@ import { STATS_VERSION } from '../stats/constants.js';
 import { readPermissionWaits, upsertSessionStats, type SessionStatsWritten } from '../stats/store.js';
 import { readSubagentEntries } from '../stats/transcript.js';
 import { FIRST_CLAUDE_DIR_ID } from '../claudeDirs/paths.js';
+import { followLiveBranch, latestContextTwin } from '../contextReport/store.js';
 
 /** One transcript to consider: the project directory it sits in, and its file name. */
 interface TranscriptFile {
@@ -35,6 +36,17 @@ export interface IndexOwner {
   onCollision?: (sessionId: string, ownerId: number) => void;
 }
 
+/**
+ * What a pass did: how many transcripts it looked at and reparsed, and the
+ * sessions whose kept `/context` report it replaced with a newer one from
+ * the transcript (`contextReport/store.ts`), whose `contextReportAt` moved.
+ */
+export interface IndexResult {
+  scanned: number;
+  indexed: number;
+  reports: string[];
+}
+
 /** The owner a pass has when the caller names none — the first directory. */
 const FIRST_DIRECTORY: IndexOwner = { id: FIRST_CLAUDE_DIR_ID };
 
@@ -48,7 +60,7 @@ export function indexProjects(
   /** Told for each session whose rollup this pass rewrote — see `SessionStatsWritten`. */
   onStats?: SessionStatsWritten,
   owner: IndexOwner = FIRST_DIRECTORY,
-): { scanned: number; indexed: number } {
+): IndexResult {
   return indexFiles(db, projectsDir, transcriptsUnder(projectsDir), onStats, owner);
 }
 
@@ -73,13 +85,14 @@ export async function indexProjectsSliced(
   owner: IndexOwner = FIRST_DIRECTORY,
   signal?: AbortSignal,
   sliceMs: number = BACKFILL_SLICE_MS,
-): Promise<{ scanned: number; indexed: number } | null> {
+): Promise<IndexResult | null> {
   await yieldToEventLoop();
   if (signal?.aborted) return null;
   const files = transcriptsUnder(projectsDir);
   let scanned = 0;
   let indexed = 0;
   let ruleInputsChanged = false;
+  const reports: string[] = [];
   let from = 0;
   while (from < files.length) {
     if (from > 0) {
@@ -90,10 +103,11 @@ export async function indexProjectsSliced(
     scanned += slice.scanned;
     indexed += slice.indexed;
     ruleInputsChanged ||= slice.ruleInputsChanged;
+    reports.push(...slice.reports);
     from = slice.next;
   }
   if (ruleInputsChanged) regenerateRuleTags(db);
-  return { scanned, indexed };
+  return { scanned, indexed, reports };
 }
 
 /** Every transcript under `projectsDir`, project by project. */
@@ -123,7 +137,7 @@ export function indexPaths(
   relativePaths: Iterable<string>,
   onStats?: SessionStatsWritten,
   owner: IndexOwner = FIRST_DIRECTORY,
-): { scanned: number; indexed: number } {
+): IndexResult {
   const files: TranscriptFile[] = [];
   for (const rel of relativePaths) {
     const [projectDir, file, ...deeper] = rel.split('/');
@@ -150,9 +164,9 @@ function indexFiles(
   files: TranscriptFile[],
   onStats: SessionStatsWritten | undefined,
   owner: IndexOwner,
-): { scanned: number; indexed: number } {
-  const { scanned, indexed } = writePass(db, projectsDir, files, 0, Infinity, onStats, owner, true);
-  return { scanned, indexed };
+): IndexResult {
+  const { scanned, indexed, reports } = writePass(db, projectsDir, files, 0, Infinity, onStats, owner, true);
+  return { scanned, indexed, reports };
 }
 
 /**
@@ -171,8 +185,9 @@ function writePass(
   onStats: SessionStatsWritten | undefined,
   owner: IndexOwner,
   rulesNow: boolean,
-): { scanned: number; indexed: number; ruleInputsChanged: boolean; next: number } {
+): IndexResult & { ruleInputsChanged: boolean; next: number } {
   let next = from;
+  const reports: string[] = [];
   let scanned = 0;
   let indexed = 0;
   /**
@@ -279,7 +294,8 @@ function writePass(
           ? db.select({ name: sessionHarnesses.name }).from(sessionHarnesses)
             .where(eq(sessionHarnesses.sessionId, id)).get()?.name ?? ''
           : '';
-        const meta = extractMeta(liveBranch(entries), harnessSaid);
+        const live = liveBranch(entries);
+        const meta = extractMeta(live, harnessSaid);
         if (!meta.title) meta.title = harnessName;
         // A title, once there is one, is never derived again: the user's
         // next message in a harness session is often a bare "yes".
@@ -333,6 +349,11 @@ function writePass(
             },
           })
           .run();
+        // A typed /context's report, kept as the session's latest unless one
+        // taken from the read-out since is newer, and following the live
+        // branch through a rewind. After the session's row, in the same
+        // transaction: a kept row never stands without its session.
+        if (followLiveBranch(db, id, latestContextTwin(live))) reports.push(id);
         upsertSessionStats(db, id, rollup, (sessionId) => statsWritten.push(sessionId));
         indexed++;
       } catch (err) {
@@ -351,5 +372,5 @@ function writePass(
   // becomes a savepoint inside this one.
   pass();
   if (onStats) for (const id of statsWritten) onStats(id);
-  return { scanned, indexed, ruleInputsChanged, next };
+  return { scanned, indexed, reports, ruleInputsChanged, next };
 }

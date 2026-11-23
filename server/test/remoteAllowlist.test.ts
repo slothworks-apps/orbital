@@ -17,6 +17,7 @@ describe('remote allowlist', () => {
       ['GET', '/api/sessions'], ['GET', '/api/sessions/abc'], ['GET', '/api/sessions/abc/messages'],
       ['GET', '/api/sessions/abc/messages?limit=30&before=x'],
       ['GET', '/api/sessions/abc/subagents/toolu_1/messages'], ['GET', '/api/sessions/abc/media'], ['GET', '/api/sessions/abc/progress-calls'],
+      ['GET', '/api/sessions/abc/context-report'],
       ['POST', '/api/sessions'], ['POST', '/api/sessions/abc/messages'],
       ['POST', '/api/sessions/abc/decision/d1'], ['POST', '/api/sessions/abc/interrupt'],
       ['POST', '/api/sessions/abc/model'], ['POST', '/api/sessions/abc/permission-mode'],
@@ -34,6 +35,13 @@ describe('remote allowlist', () => {
       // The `.mcp.json` question's *View file*, read where the session would run.
       ['GET', '/api/mcpjson/file?cwd=/w/x&server=a'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
+  });
+  it("allows a view's payload and its session's domains, but not its data route, which travels as file_get", () => {
+    expect(isAllowed('GET', '/api/sessions/abc/views/toolu_01Ab-x')).toBe(true);
+    expect(isAllowed('POST', '/api/sessions/abc/view-domains')).toBe(true);
+    expect(isAllowed('GET', '/api/sessions/abc/views/toolu_1/data')).toBe(false);
+    expect(isAllowed('GET', '/api/sessions/abc/views/..%2Fx')).toBe(false);
+    expect(isAllowed('DELETE', '/api/sessions/abc/view-domains')).toBe(false);
   });
   it('allows what a desktop drives a session with, and what a federated Settings needs', () => {
     for (const [m, p] of [

@@ -14,7 +14,6 @@ import {
   cursorRight,
   joinSelection,
   selectionCount,
-  moveFocus,
   notTakenLine,
   optionIndexForDigit,
   parseResultAnswers,
@@ -26,6 +25,7 @@ import {
   type QuestionCursor,
   type ReadAnswer,
 } from '../lib/questionCard'
+import { wrapIndex } from '../lib/wrapIndex'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { command, isTypingTarget, matches } from '../lib/keymap'
 // Every value below was transcribed from canvas 9b/9d and now lives beside
@@ -57,6 +57,7 @@ import {
 } from './decisionCardStyles'
 import { isReadOnly } from '../lib/types'
 import type { AskUserQuestionInput, ChatMessage, QuestionSpec } from '../lib/types'
+import { stampTime } from '../lib/format'
 
 /**
  * The `AskUserQuestion` tool call, rendered as the thing it is: a decision
@@ -124,7 +125,7 @@ function answeredAt(timestamp: string | undefined): string {
   if (!timestamp) return ''
   const at = new Date(timestamp)
   if (Number.isNaN(at.getTime())) return ''
-  return ` ${at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+  return ` ${stampTime(at.getTime())}`
 }
 
 /**
@@ -1173,7 +1174,7 @@ function LiveBody({
     // `dialogs.move` wants the bare arrow: ⌘↑ is somebody else's chord.
     if (command('dialogs.move').chords.some((chord) => matches(chord, e))) {
       e.preventDefault()
-      focusRow(moveFocus(focus, e.key === 'ArrowDown' ? 1 : -1, rows))
+      focusRow(wrapIndex(focus, e.key === 'ArrowDown' ? 1 : -1, rows))
       return
     }
     if (e.key === ' ' && !question.multiSelect) {

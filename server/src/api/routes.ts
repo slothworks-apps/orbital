@@ -1,4 +1,5 @@
 import { TAGS_TOPIC, type TagsChangedFrame } from '@orbital/shared/tags';
+import type { ContextReportAnswer } from '@orbital/shared/contextReport';
 import { isSharedSetting } from '@orbital/shared/sharedSettings';
 import { UPDATE_CHANNEL_KEY } from '@orbital/shared/updateChannel';
 import { PROGRESS_TOOL } from '@orbital/shared/progress';
@@ -23,6 +24,9 @@ import { isBareFileName } from '@orbital/shared/paths';
 import { createDirectory, directoryState, listDirs } from '../files/directory.js';
 import { locateOnDisk } from '../media/items.js';
 import { SubagentMedia, sessionMedia, type SessionMediaContext } from '../media/sessionMedia.js';
+import { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY, VIEW_SEND_MAX_BYTES, readCdnHosts, viewValueBytes } from '@orbital/shared/views';
+import { viewMediaItems, type ViewsService } from '../views/service.js';
+import { registerViewRoutes } from '../views/routes.js';
 import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
 import type { OrbitalDb } from '../db/database.js';
@@ -47,6 +51,7 @@ import {
 import type { ArchiveOutcome, ListedSession } from '../runner/sessionsTools.js';
 import { mergeCompactionFailures, type CompactionFailureRecord } from '../transcript/compaction.js';
 import { RETENTION_KEY, deleteSessions } from '../retention.js';
+import { keepContextReport, keptContextReport } from '../contextReport/store.js';
 import type { LiveSessions } from '../watcher/registry.js';
 import { endCli, type EndCliOutcome } from '../watcher/endCli.js';
 import type { Hub } from './hub.js';
@@ -247,6 +252,11 @@ export interface RouteContext {
    */
   progress?: ProgressService;
   /**
+   * Generated views (spec 2026-11-18-generated-views-design). Absent, their
+   * routes are not registered and the media list carries none.
+   */
+  views?: ViewsService;
+  /**
    * The settings the group shares (spec 2026-10-24-group-shared-settings-design):
    * a local change of one is stamped and pushed, and members read and push
    * them on `/api/settings/shared`. Absent, nothing is shared and those routes do not exist.
@@ -301,6 +311,19 @@ export function settingsChangedEffects(
   if (changed.has(PR_SETTING) || changed.has(LINES_SETTING)) ctx.branchStatus.settingsChanged();
   // Turned off, the browser bridge drops every extension connected.
   if (changed.has(BROWSER_BRIDGE_SETTING)) ctx.browser?.settingsChanged();
+}
+
+/** Whether a `views_cdn_hosts` value is a list `readCdnHosts` reads back unchanged; empty is none. */
+export function cdnHostsRoundTrip(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  if (value.trim() === '') return true;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return false;
+  }
+  return JSON.stringify(readCdnHosts(value)) === JSON.stringify(parsed);
 }
 
 const SIMULATED_OUTCOMES = new Set<string>(['success', 'success_no_post_tokens', 'failed', 'failed_no_error']);
@@ -698,6 +721,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     ctx.harness.sessionEnded(id);
     ctx.limits?.drop(id);
     ctx.logins?.forget(id);
+    ctx.views?.forget([id]);
     ctx.terminals.closeSession(id);
     // The setup's row stays while its rollback runs: `discard` deletes it after.
     deleteSessions(db, [id], { keepSetup: true });
@@ -831,6 +855,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return failures.length ? mergeCompactionFailures(messages, failures) : messages;
   }
 
+  // A view's calls are read off the same parsed transcript.
+  ctx.views?.readMessagesWith((id) => readBranchOf(id)?.messages ?? null);
+
   function readTranscriptMessages(id: string): ChatMessage[] | null {
     const read = readBranchOf(id);
     return read && withCompactionFailures(id, read.messages, null);
@@ -933,6 +960,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     presentTranscript,
     locate: (id, row) => locateOnDisk((cwd) => sandboxesOf(row, cwd), namedBy(id, row)),
     subagents: (id, row) => subagentMedia.read(ctx.transcriptPath(id, row.project_dir, row.claude_dir_id)),
+    views: viewMediaItems,
   };
 
   // Every image and PDF of the session and its subagents, oldest first (specs
@@ -941,9 +969,15 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // is one the panel can scroll to. A path a reply named or a call wrote is
   // located within the file routes' bounds; one the session may not show is
   // left out.
+  //
+  // `?views=1`: the client reads view items (spec 2026-11-18-generated-views-design
+  // § Phone) — a shipped phone would take one for an image. Listed only while
+  // the Labs switch is on, as the transcript draws them only then.
   app.get('/api/sessions/:id/media', (req, reply) => {
     const { id } = req.params as { id: string };
-    const items = sessionMedia(mediaCtx, id);
+    const views = (req.query as { views?: unknown }).views === '1' && ctx.views !== undefined
+      && ctx.settings.get(VIEWS_ENABLED_KEY) === 'true';
+    const items = sessionMedia(mediaCtx, id, { views });
     if (!items) return reply.code(404).send({ error: 'not found' });
     return { items };
   });
@@ -1048,6 +1082,69 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const tail = readOutputTail(path, Math.min(maxBytes ?? OUTPUT_TAIL_BYTES, OUTPUT_TAIL_BYTES));
     if (!tail) return reply.code(410).send({ error: 'output_gone' });
     return tail;
+  });
+
+  /**
+   * The session's `/context` report, for the context read-out (spec
+   * 2026-11-19-context-report-dialog-design § Opening it from the context
+   * read-out). Never a `/context` turn: nothing goes into the transcript.
+   *
+   * - A session Orbital runs now is asked for a fresh one on the side
+   *   (`Runner.contextReport`), which is kept as its latest and answered
+   *   `{ report, takenAt, fresh: true }`; its `contextReportAt` is republished.
+   * - Any other — ended, asleep, still starting, held by a terminal — answers
+   *   its kept report, the newer of a typed `/context` and one taken here
+   *   (`contextReport/store.ts`), as `{ report, takenAt, fresh: false }`.
+   *
+   * `takenAt` is an ISO time. Refusals name why: 404 `not_found`, a session
+   * nobody knows; 404 `no_report`, one that is not running and has none
+   * kept. Taking a fresh one can fail with 504 `timeout`, 502 `failed` (the
+   * CLI refused or answered with nothing readable) or 409 `unsupported` (a
+   * query without the control request); those carry the kept report as
+   * `earlier` when there is one. A session that stopped or ended while it
+   * counted answers its kept report instead, and a `failed` is recorded in
+   * the error log. The answer's type is `ContextReportAnswer` (`shared/`).
+   */
+  app.get('/api/sessions/:id/context-report', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const known = () => db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get() !== undefined;
+    if (!known()) return reply.code(404).send({ error: 'not_found' } satisfies ContextReportAnswer);
+    const kept = () => {
+      const k = keptContextReport(db, id);
+      return k ? { report: k.report, takenAt: new Date(k.takenAt).toISOString() } : null;
+    };
+    const keptAnswer = () => {
+      const earlier = kept();
+      return earlier
+        ? ({ ...earlier, fresh: false } satisfies ContextReportAnswer)
+        : reply.code(404).send({ error: 'no_report' } satisfies ContextReportAnswer);
+    };
+    const running = () => !ctx.registry.get(id) && ctx.runner.status(id) !== undefined;
+    const answer = running() ? await ctx.runner.contextReport(id) : null;
+    if (answer && 'report' in answer) {
+      const takenAt = Date.now();
+      // The retention sweep may have deleted the session while it counted: a
+      // row kept for it now would never be deleted, and there is nothing to
+      // publish.
+      if (!known()) return reply.code(404).send({ error: 'not_found' } satisfies ContextReportAnswer);
+      if (keepContextReport(db, id, { report: answer.report, takenAt, origin: { kind: 'readout' } })) publishSession(id);
+      return { report: answer.report, takenAt: new Date(takenAt).toISOString(), fresh: true } satisfies ContextReportAnswer;
+    }
+    // Not running, no live query after all (still starting, just stopped), or
+    // a session that stopped or ended while it counted: the kept one.
+    if (!answer || answer.error === 'not_running' || !running()) return keptAnswer();
+    if (answer.error === 'failed') {
+      // The control answer is the CLI's undocumented format: a refusal or an
+      // answer this reader cannot read is kept (adr errors-are-recorded-not-announced).
+      console.warn(`orbital: context report for ${id} failed: ${answer.message}`);
+      ctx.errors.record({
+        source: 'server', kind: 'context_report_failed', sessionId: id,
+        message: answer.message, detail: answer.detail,
+      });
+    }
+    const code = answer.error === 'timeout' ? 504 : answer.error === 'failed' ? 502 : 409;
+    const earlier = kept();
+    return reply.code(code).send({ error: answer.error, ...(earlier ? { earlier } : {}) } satisfies ContextReportAnswer);
   });
 
   // Transcript images, served straight from the content-addressed store.
@@ -2567,12 +2664,40 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // The lookup comes first now: which body is valid depends on the kind, so
     // there is nothing to check a payload against until the decision is known.
     // A session with nothing parked is still the same 404 it always was.
-    const pending = ctx.runner.pendingDecision(id);
+    let pending = ctx.runner.pendingDecision(id);
+    // A waiting view is answered by its own id while a decision is shown in front of it.
+    if (pending && pending.id !== decisionId) pending = ctx.runner.waitingView(id);
     if (!pending || pending.id !== decisionId) return reply.code(404).send({ error: 'not found' });
-    const body = (req.body ?? {}) as { answers?: unknown; approved?: unknown; message?: unknown };
+    const body = (req.body ?? {}) as { answers?: unknown; approved?: unknown; message?: unknown; value?: unknown };
 
     let answer: DecisionAnswer;
-    if (pending.kind === 'question') {
+    if (pending.kind === 'view') {
+      // A waiting view (spec 2026-11-18-generated-views-design § The bridge):
+      // `{value}`, what the page sent, or `{approved: false}`, closed unsent.
+      // A phone from before views (0.26.1 and older) draws it as a permission
+      // card: its refusal with a reason answers the view in words
+      // (`Runner.answerDecision`), and its approval, which carries nothing to
+      // answer with, is refused in words the phone shows.
+      if (body.approved === false) {
+        if (body.message !== undefined && typeof body.message !== 'string') {
+          return reply.code(400).send({ error: 'message must be a string' });
+        }
+        answer = { approved: false, ...(typeof body.message === 'string' ? { message: body.message } : {}) };
+      } else {
+        if (!Object.prototype.hasOwnProperty.call(body, 'value') || body.value === undefined) {
+          return reply.code(400).send({
+            error: body.approved === true
+              ? 'This is a view waiting for an answer from its page. Type the answer instead, or update Orbital on this phone to use the view.'
+              : 'view_needs_value',
+          });
+        }
+        const bytes = viewValueBytes(body.value);
+        if (bytes === null || bytes > VIEW_SEND_MAX_BYTES) {
+          return reply.code(400).send({ error: 'value_too_large' });
+        }
+        answer = { value: body.value };
+      }
+    } else if (pending.kind === 'question') {
       const { answers } = body;
       if (
         !answers ||
@@ -3463,6 +3588,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     // The default must name a configured directory; nothing is saved when it does not.
     const patch = req.body as Record<string, string>;
+    // The views' CDN hosts are stored only as `readCdnHosts` reads them back:
+    // a list it would quietly shorten or rewrite is refused instead.
+    if (VIEWS_CDN_HOSTS_KEY in patch && !cdnHostsRoundTrip(patch[VIEWS_CDN_HOSTS_KEY])) {
+      return reply.code(400).send({ error: 'invalid_cdn_hosts' });
+    }
     if (DEFAULT_CLAUDE_DIR_KEY in patch && ctx.claudeDirs.resolveId(patch[DEFAULT_CLAUDE_DIR_KEY]) === null) {
       return reply.code(400).send({ error: 'unknown_claude_dir' });
     }
@@ -3551,6 +3681,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { count: ctx.retention.preview(String(days ?? '')) };
   });
 
+  if (ctx.views) registerViewRoutes(app, { db, hub: ctx.hub, views: ctx.views, settings: ctx.settings });
   registerStatsRoutes(app, ctx);
   registerMcpRoutes(app, ctx);
   registerTerminalRoutes(app, ctx);

@@ -182,6 +182,24 @@ export const claudeDirs = sqliteTable('claude_dirs', {
 });
 
 /**
+ * The domains a session allowed its generated views to fetch from (spec
+ * 2026-11-18-generated-views-design § Isolation and network): one row per
+ * domain, wherever the click was made. A cleared session's successor starts
+ * with none.
+ */
+export const viewDomainApprovals = sqliteTable(
+  'view_domain_approvals',
+  {
+    sessionId: text('session_id').notNull(),
+    /** Lower case, no scheme (`normaliseLiveDomain`). */
+    domain: text('domain').notNull(),
+    /** Epoch ms. */
+    approvedAt: integer('approved_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.sessionId, table.domain] })],
+);
+
+/**
  * Orbital's fingerprint of each `.mcp.json` server the user allowed through
  * it (spec 2026-10-08-mcpjson-approval-design § Behaviour 4). The CLI keys an
  * approval by name alone; a server whose entry no longer hashes to its row
@@ -911,6 +929,26 @@ export const harnessEvents = sqliteTable(
   },
   (table) => [index('idx_harness_events_session').on(table.sessionId, table.at)],
 );
+
+/**
+ * The latest `/context` report of each session, whichever way it was taken
+ * (spec 2026-11-19-context-report-dialog-design § Opening it from the context
+ * read-out): a typed `/context`'s twin, which the indexer reads off the
+ * transcript, or one taken on demand from the context read-out, which only
+ * lives here. A newer one replaces the row; nothing older is kept. `report`
+ * is the wire's `ContextReport`, as JSON. No foreign key is enforced here, so
+ * the retention sweep deletes these rows itself.
+ */
+export const contextReports = sqliteTable('context_reports', {
+  sessionId: text('session_id').primaryKey(),
+  /** Epoch ms: when the report was taken. */
+  takenAt: integer('taken_at').notNull(),
+  report: text('report').notNull(),
+  /** `transcript` — a typed `/context`'s twin, at `entryUuid`; `readout` — taken from the read-out. */
+  origin: text('origin', { enum: ['transcript', 'readout'] }).notNull(),
+  /** The `/context` answer's entry uuid when `origin` is `transcript`, else null. */
+  entryUuid: text('entry_uuid'),
+});
 
 /**
  * Projects a table's columns keyed by their actual DB column name

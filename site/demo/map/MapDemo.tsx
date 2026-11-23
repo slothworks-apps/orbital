@@ -33,7 +33,7 @@ import { COMPOSER_LOCKED } from '../page'
  * log), and the header's Take over, Clear and End — without the desktop bridge, the keymap, URL sync or the pages the
  * app links to (`main.tsx` keeps a visitor on this page). The map is
  * `SpaceMap` directly, never `MapView`: Planets is the only theme the
- * website shows.
+ * website shows. It leaves the tips button out: All tips is not mounted here.
  */
 export function MapDemo() {
   const selectedId = useOrbital((s) => s.ui.selectedId)
@@ -74,7 +74,7 @@ export function MapDemo() {
         <div className="relative h-screen w-screen overflow-hidden bg-space">
           <div className="absolute inset-0">
             <ErrorBoundary label="Space map">
-              <SpaceMap />
+              <SpaceMap showTips={false} />
             </ErrorBoundary>
           </div>
           <div className="absolute inset-y-4 left-4 z-10">

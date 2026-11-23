@@ -91,16 +91,6 @@ export function HeadButton({
   )
 }
 
-/** 30b's ✕: two 1.4 px strokes in a 9 px box. */
-export function CloseGlyph() {
-  return (
-    <span aria-hidden className="relative block size-[9px]">
-      <span className="absolute left-1/2 top-0 -ml-[0.7px] block h-full w-[1.4px] rotate-45 rounded-[1px] bg-current" />
-      <span className="absolute left-1/2 top-0 -ml-[0.7px] block h-full w-[1.4px] -rotate-45 rounded-[1px] bg-current" />
-    </span>
-  )
-}
-
 /** The dashed top seam the side slot's panels share (11b, 30b). */
 export function DashedSeam() {
   return (

@@ -10,11 +10,12 @@ import { ImagePage } from './ImageViewer'
 import { MediaFoot, useSwipe } from './MediaFoot'
 import { stepMedia } from './mediaPaging'
 import { PdfPage } from './PdfViewer'
+import { ViewPage } from './ViewPage'
 
 /**
  * The phone's viewer paging through a session's media (canvas `Feature -
  * Media` 24g; spec 2026-10-09-session-media-design § Phone, Viewer): 10d's
- * image viewer and the PDF viewer, one item at a time, swipe ↔ moving
+ * image viewer, the PDF viewer and a generated view (69e), one item at a time, swipe ↔ moving
  * through the items the Sources filter leaves standing, oldest first. Opened
  * on an item the filter hides, it pages through everything: that item was
  * asked for by name.
@@ -56,6 +57,21 @@ export function MediaPager({
   }
   const media = { item, onShowInChat: showInChat }
 
+  if (item.kind === 'view' && item.view) {
+    // 69e: a generated view, live, in place of a picture.
+    return (
+      <ViewPage
+        key={item.id}
+        sessionId={sessionId}
+        item={{ ...item, view: item.view }}
+        index={at}
+        count={order.length}
+        onBack={onBack}
+        onPage={onPage}
+        onShowInChat={showInChat}
+      />
+    )
+  }
   if (isGone(item)) {
     return <GonePage key={item.id} item={item} index={at} count={order.length} onBack={onBack} onPage={onPage} onShowInChat={showInChat} />
   }

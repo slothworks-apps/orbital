@@ -58,6 +58,8 @@ type ButtonProps = {
   disabled?: boolean
   type?: 'button' | 'submit'
   variant?: 'screen' | 'sheet'
+  /** For a button whose label is a glyph (‹, ›). */
+  'aria-label'?: string
 }
 
 /**
@@ -74,10 +76,13 @@ type ButtonProps = {
  * pressed (canvas `Feature - New session harness` 65d START: "Add a task
  * link to start"): a faint fill with the label in a readable ink, rather
  * than the whole button faded.
+ *
+ * `variant="compact"` is the one at the end of a row (`Feature - Views` 69f
+ * PHONE's Add beside its field): 44px tall, as wide as its word, no bloom.
  */
 export function PrimaryButton({
   children, onClick, disabled, type = 'button', variant = 'screen', ready = true, tone = 'accent', explains = false,
-}: ButtonProps & { ready?: boolean; tone?: 'accent' | 'light'; explains?: boolean }) {
+}: Omit<ButtonProps, 'variant'> & { variant?: ButtonProps['variant'] | 'compact'; ready?: boolean; tone?: 'accent' | 'light'; explains?: boolean }) {
   const fill = tone === 'light'
     ? 'bg-ink-100 text-space disabled:opacity-40'
     : explains
@@ -90,9 +95,11 @@ export function PrimaryButton({
       disabled={disabled}
       aria-disabled={ready ? undefined : true}
       className={[
-        'flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] px-4 fs-15 font-bold',
+        variant === 'compact'
+          ? 'flex h-11 shrink-0 items-center justify-center rounded-[10px] px-4 fs-14 font-bold'
+          : 'flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] px-4 fs-15 font-bold',
         ready ? fill : 'cursor-default border border-line/14 bg-transparent text-ink-900/50',
-        !ready || tone === 'light' ? '' : variant === 'sheet' ? 'shadow-[0_0_18px_color-mix(in_oklab,var(--color-accent)_30%,transparent)]' : 'shadow-[0_0_22px_color-mix(in_oklab,var(--color-accent)_30%,transparent)]',
+        !ready || tone === 'light' || variant === 'compact' ? '' : variant === 'sheet' ? 'shadow-[0_0_18px_color-mix(in_oklab,var(--color-accent)_30%,transparent)]' : 'shadow-[0_0_22px_color-mix(in_oklab,var(--color-accent)_30%,transparent)]',
       ].join(' ')}
     >
       {children}
@@ -108,19 +115,63 @@ export function PrimaryButton({
  * 1d PHONE): a 28px pill drawn inside a 44 × 64 target, which the caller
  * lays out at the pill's height with a negative margin.
  *
+ * `variant="text"` is `compact` without its outline (`Feature - Views` 69f
+ * PHONE's Remove on a host row): a 44px target at 14px, the word alone.
+ *
+ * `variant="square"` and `variant="bar"` are a pager's controls (`Feature -
+ * Views` 69e): ‹ and › in a 44px square, and the wide ↩ between them, in a
+ * fainter outline with 12px corners.
+ *
  * `tone="loses"` is the outlined action that throws something away
  * (`Feature - Work in a worktree` 63f/63g: *Discard, remove*): the soft error
- * ink on its border and label, never a red fill.
+ * ink on its border and label, never a red fill. On `text`, the softer error
+ * ink of 69f's Remove.
  */
 export function SecondaryButton({
-  children, onClick, disabled, type = 'button', variant = 'screen', tone,
-}: Omit<ButtonProps, 'variant'> & { variant?: ButtonProps['variant'] | 'compact' | 'row-pill'; tone?: 'loses' }) {
+  children, onClick, disabled, type = 'button', variant = 'screen', tone, 'aria-label': ariaLabel,
+}: Omit<ButtonProps, 'variant'> & {
+  variant?: ButtonProps['variant'] | 'compact' | 'row-pill' | 'text' | 'square' | 'bar'
+  tone?: 'loses'
+}) {
+  if (variant === 'text') {
+    return (
+      <button
+        type={type}
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        className={[
+          'grid h-11 shrink-0 place-items-center rounded-[10px] px-3 fs-14 font-semibold disabled:opacity-40',
+          tone === 'loses' ? 'text-danger-soft' : 'text-ink-100',
+        ].join(' ')}
+      >
+        {children}
+      </button>
+    )
+  }
+  if (variant === 'square' || variant === 'bar') {
+    return (
+      <button
+        type={type}
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        className={[
+          'grid h-11 place-items-center rounded-[12px] border border-line/16 text-ink-100 disabled:opacity-40',
+          variant === 'square' ? 'w-11 shrink-0 fs-20' : 'w-full font-mono fs-11.5',
+        ].join(' ')}
+      >
+        {children}
+      </button>
+    )
+  }
   if (variant === 'row-pill') {
     return (
       <button
         type={type}
         onClick={onClick}
         disabled={disabled}
+        aria-label={ariaLabel}
         className="grid h-11 min-w-16 shrink-0 place-items-center px-0.5 disabled:opacity-55"
       >
         <span className="flex h-7 items-center rounded-[8px] border border-line/18 px-[11px] fs-13 font-semibold text-ink-200/90">
@@ -134,6 +185,7 @@ export function SecondaryButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
       className={[
         'flex items-center justify-center border font-semibold disabled:opacity-40',
         variant === 'compact'
@@ -332,6 +384,17 @@ const SHEET_VARIANTS = {
       'flex h-[84%] flex-col rounded-t-[26px] border-t border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_98%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_99%,_transparent))]',
     handle: 'h-5 shrink-0',
   },
+  /**
+   * `Feature - Context report` 70f: the /context report, the sheet of 50o /
+   * StopTask as a column — a fixed head, a middle that scrolls at the full
+   * detent, a fixed Close. Its height is the caller's (`height`): the detent.
+   */
+  report: {
+    backdrop: 'bg-space/62',
+    panel:
+      'flex flex-col overflow-hidden rounded-t-[26px] border-t border-line/18 bg-panel/98 shadow-[0_-20px_60px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)] transition-[height] duration-200 ease-out',
+    handle: 'h-5 shrink-0',
+  },
   /** `Feature - Feedback` 61i: Settings → Send feedback, a short sheet of two choices. */
   feedback: {
     backdrop: 'bg-space/55',
@@ -346,6 +409,7 @@ export function BottomSheet({
   onDismiss,
   variant = 'menu',
   swipeToDismiss = false,
+  height,
   children,
 }: {
   /** The sheet's accessible name: its title, or what its menu is for. */
@@ -359,6 +423,8 @@ export function BottomSheet({
    * list instead; mark such a list `data-sheet-scroll`.
    */
   swipeToDismiss?: boolean
+  /** A fixed height for the panel (a CSS length): a sheet with detents sets it. */
+  height?: string
   children: ReactNode
 }) {
   const entry = useRef({ dismiss: onDismiss })
@@ -396,6 +462,7 @@ export function BottomSheet({
             : undefined
         }
         onTouchEnd={swipeToDismiss ? () => (touchY.current = null) : undefined}
+        style={height ? { height } : undefined}
         className={['orbital-sheet-panel relative pb-[max(22px,env(safe-area-inset-bottom))]', look.panel].join(' ')}
       >
         <div aria-hidden className={['grid place-items-center', look.handle].join(' ')}>

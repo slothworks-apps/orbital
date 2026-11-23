@@ -6,6 +6,7 @@ import {
   parseSidebarWidth,
   resolvePanelPairWidths,
   PANEL_GUTTER_PX,
+  openSettingsSection,
 } from './store/store'
 import type { ErrorsEvent, RemoteEvent, SessionEvent, SessionsEvent, SettingsEvent } from './store/store'
 import { SETTINGS_TOPIC } from '@orbital/shared/sharedSettings'
@@ -33,7 +34,9 @@ import { ProgressPanel } from './panels/ProgressPanel'
 import { NewSessionDialog } from './panels/NewSessionDialog'
 import { Settings } from './panels/Settings'
 import { ErrorLog } from './panels/ErrorLog'
+import { AllTips } from './tips/AllTips'
 import { CompactDialog } from './panels/CompactDialog'
+import { ContextReportDialogHost } from './panels/contextReport/ContextReportDialog'
 import { McpDialog } from './panels/McpDialog'
 import { PairConfirmDialog } from './panels/PairConfirmDialog'
 import { TerminalDock, TerminalSidePanel } from './terminal/TerminalFrames'
@@ -48,7 +51,6 @@ import { useWhatsNewNotice } from './panels/WhatsNew'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
 import {
-  openSettingsSection,
   readNewSessionParam,
   readSettingsParam,
   useSessionUrl,
@@ -442,9 +444,12 @@ export default function App() {
       <NewSessionDialog open={dialog === 'new'} onClose={() => setDialog(null)} />
       <Settings open={dialog === 'settings'} onClose={() => setDialog(null)} />
       <ErrorLog open={dialog === 'errors'} onClose={() => setDialog(null)} />
+      {/* From the tips card beside the map's column (spec 2026-11-16-tips-design). */}
+      <AllTips open={dialog === 'tips'} onClose={() => setDialog(null)} />
       <SessionDialogs />
       {/* A `/compact` past running subagents, from the composer or the map's badge. */}
       <CompactDialog />
+      <ContextReportDialogHost />
       {/* `/mcp` from the composer (spec 2026-10-01-mcp-servers-in-the-session-design). */}
       <McpDialog />
       {/* A phone asking to pair (spec 2026-10-01-settings-mobile-design § 4). */}

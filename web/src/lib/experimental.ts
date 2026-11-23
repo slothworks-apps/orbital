@@ -9,7 +9,10 @@
  * Settings is open.
  */
 
+import { VIEWS_ENABLED_KEY } from '@orbital/shared/views'
 import type { KeyboardEventLike } from './keymap'
+
+export { VIEWS_CDN_HOSTS_KEY, VIEWS_ENABLED_KEY } from '@orbital/shared/views'
 
 export const EXPERIMENTAL_UNLOCKED_KEY = 'experimental_unlocked'
 export const WALKTHROUGH_ENABLED_KEY = 'walkthrough_enabled'
@@ -102,6 +105,15 @@ export function limitSunsEnabled(settings: Settings): boolean {
 
 export function progressListEnabled(settings: Settings): boolean {
   return settings[PROGRESS_LIST_ENABLED_KEY] === 'true'
+}
+
+/**
+ * Labs: Orbital sessions may show generated views (spec
+ * 2026-11-18-generated-views-design). Off, no session gets the tool and
+ * views already in a transcript read as tool rows.
+ */
+export function viewsEnabled(settings: Settings): boolean {
+  return settings[VIEWS_ENABLED_KEY] === 'true'
 }
 
 /** The stored limit as a whole number in the slider's range, the default when unset or unparsable. */

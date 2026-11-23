@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MediaItem } from '../lib/types'
 import type { FileOutcome } from '../mobile/files/fileResolver'
-import { mediaItemFor, stepMedia } from '../mobile/files/mediaPaging'
+import { mediaItemFor, pagedMediaFor, stepMedia } from '../mobile/files/mediaPaging'
 import { makeNamedFileResolver, makePdfLoader, parsePdfAddress, pdfAddress, type ReadNamed } from '../mobile/files/namedFiles'
 import { MAC_FEATURES, macSupports } from '../mobile/version'
 import { PHONE_THUMB_EDGE } from '../mobile/transport/imageResolver'
@@ -153,5 +153,23 @@ describe('the phone viewer’s media paging', () => {
     expect(stepMedia(shown, list, 't1', 1)).toBe('c')
     expect(stepMedia(shown, list, 't1', -1)).toBe('a')
     expect(stepMedia([], list, 'a', 1)).toBeNull()
+  })
+  const view = item('view:v1', {
+    kind: 'view', source: 'view', ref: undefined, messageId: 'm-v', view: { id: 'v1', toolUseId: 'tu2', title: 'Release latency' },
+  })
+  const withView = [item('a'), view, item('c')]
+
+  it('opens a view the gallery named, though it has no ref or path', () => {
+    expect(pagedMediaFor({ path: null, mediaId: 'view:v1' }, null, withView, true)?.id).toBe('view:v1')
+    // A pushed file with no kind is no view unless the gallery named one.
+    expect(pagedMediaFor({ path: null, mediaId: 'a' }, null, withView, true)).toBeUndefined()
+    expect(pagedMediaFor({ path: null }, null, withView, true)).toBeUndefined()
+    expect(pagedMediaFor({ path: null, ref: 'r-a', messageId: 'm-a' }, 'image', withView, true)?.id).toBe('a')
+  })
+
+  it('pages through a view as through any other item', () => {
+    expect(stepMedia(withView, withView, 'a', 1)).toBe('view:v1')
+    expect(stepMedia(withView, withView, 'view:v1', 1)).toBe('c')
+    expect(stepMedia(withView, withView, 'view:v1', -1)).toBe('a')
   })
 })

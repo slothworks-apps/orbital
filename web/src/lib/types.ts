@@ -3,8 +3,10 @@ import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ce
 import type { MachineRef } from '@orbital/shared/remote/device'
 import { asksForHuman, gateWaits, loginLost } from '@orbital/shared/parked'
 import type { LiveHookNotice } from '@orbital/shared/hookNotice'
+import type { ContextReport } from '@orbital/shared/contextReport'
 import type { ProgressRow } from './progressList'
 import type { SessionSetup } from '@orbital/shared/worktree'
+import type { VIEW_TOOL } from '@orbital/shared/views'
 
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
@@ -83,6 +85,8 @@ export interface RecentTool {
 
 /** The member of the device group a session runs on: `MachineRef` in `shared/src/remote/device.ts`. */
 export type { MachineRef }
+/** The `/context` report as data: `ContextReport` in `shared/src/contextReport.ts`. */
+export type { ContextReport }
 
 export interface ApiSession {
   id: string
@@ -107,6 +111,14 @@ export interface ApiSession {
    * requiring it would rewrite every session fixture in the suite.
    */
   contextUsedTokens?: number | null
+  /**
+   * When the session's kept `/context` report was taken (epoch ms), or null
+   * when the Mac keeps none — the newer of a typed `/context` and one taken
+   * from the context read-out. Absent from an older Mac, which keeps none and
+   * has no route to ask (spec 2026-11-19-context-report-dialog-design §
+   * Opening it from the context read-out). Mirrors `server/src/api/shape.ts`.
+   */
+  contextReportAt?: number | null
   /**
    * When the user pinned this session (epoch ms), or null. A pinned session
    * stays on the map even once it has ended (spec
@@ -697,7 +709,7 @@ export interface AskUserQuestionInput {
  * `server/src/runner/runner.ts` — this repo has no shared types package, so
  * the two must move together.
  */
-export type DecisionKind = 'question' | 'permission' | 'plan'
+export type DecisionKind = 'question' | 'permission' | 'plan' | 'view'
 
 /**
  * A decision the session is blocked on — the CLI is inside a `canUseTool`
@@ -714,7 +726,7 @@ export type DecisionKind = 'question' | 'permission' | 'plan'
  * server would mean merging an `answers` key into a shell command
  * (spec 2026-09-23-permission-and-plan-decisions-design).
  */
-export type PendingDecision = PendingQuestionDecision | PendingVerdictDecision
+export type PendingDecision = PendingQuestionDecision | PendingVerdictDecision | PendingViewDecision
 
 export interface PendingQuestionDecision {
   id: string
@@ -746,10 +758,27 @@ export interface PendingVerdictDecision {
 }
 
 /**
+ * A generated view that waits on the user (spec
+ * 2026-11-18-generated-views-design): the session waits as it does on a
+ * question, and a message typed meanwhile answers the view. Answered from
+ * the view itself, never through a decision route's body.
+ */
+export interface PendingViewDecision {
+  id: string
+  kind: 'view'
+  input: { viewId: string; title: string }
+  createdAt: number
+  toolName: typeof VIEW_TOOL
+  /** The view's title. */
+  title: string
+}
+
+/**
  * How loudly a notice row speaks — the SDK's own vocabulary. Mirrors
  * `server/src/types.ts`.
  */
 export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning'
+
 
 /**
  * What one compaction left behind (spec 2026-09-28-context-compaction-design).
@@ -881,6 +910,12 @@ export interface ChatMessage {
      * only `text`.
      */
     hook?: LiveHookNotice
+    /**
+     * `/context` answers only: the report as data, drawn as the summary row
+     * and the report dialog (spec 2026-11-19-context-report-dialog-design).
+     * Absent from an older Mac or CLI, where `text` is drawn as before.
+     */
+    contextReport?: ContextReport
   }
   /** `compaction` rows only. Mirrors `server/src/types.ts`. */
   compaction?: CompactionMark
@@ -1599,6 +1634,9 @@ export type ErrorKind =
   | 'worktree_failed'
   /** The call naming a worktree's branch failed or answered nothing usable; the temporary name stood in. */
   | 'branch_naming_failed'
+  /** A live session refused the context report request from the read-out, or answered it with nothing readable. */
+  | 'context_report_failed'
+  | 'view_files_failed'
 
 export interface ErrorRecord {
   id: number

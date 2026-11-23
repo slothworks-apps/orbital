@@ -144,6 +144,14 @@ describe('bannerLine', () => {
     expect(bannerLine(ASKS, question)).toBe('Question · Database')
   })
 
+  it('names a waiting view by its title', () => {
+    const view = {
+      id: 'v1', kind: 'view', createdAt: 0, toolName: 'mcp__orbital__show_view',
+      input: { viewId: 'v1', title: 'Release latency' }, title: 'Release latency',
+    } as PendingDecision
+    expect(bannerLine(ASKS, view)).toBe('View · Release latency')
+  })
+
   it("says the notifier's body when nothing is pending", () => {
     expect(bannerLine(ASKS, undefined)).toBe('Needs your input')
   })

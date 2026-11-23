@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { ProgressItem } from '@orbital/shared/progress'
-import { clock, figureText, itemNote, type ProgressListItem, type ProgressRow } from '../lib/progressList'
+import { figureText, itemNote, type ProgressListItem, type ProgressRow } from '../lib/progressList'
 import type { ChatMessage } from '../lib/types'
+import { stampTime } from '../lib/format'
 import { ProgressGlyph } from '../ui/UtilityButton'
 import { ItemRow } from './progress/parts'
 
@@ -86,7 +87,7 @@ export function ProgressTranscriptRow({ message, onOpenList }: { message: ChatMe
         </span>
         <span className="min-w-0 truncate">{what(row)}</span>
         <span className="flex-1" />
-        {!Number.isNaN(at) && <span className="text-ink-900/50">{clock(at)}</span>}
+        {!Number.isNaN(at) && <span className="text-ink-900/50">{stampTime(at)}</span>}
       </div>
       {row.kind === 'changed' && (
         <>

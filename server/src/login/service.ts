@@ -742,8 +742,13 @@ export class LoginService {
     const text = this.deps.continueText();
     for (const sessionId of ids) {
       const seq = ++this.seq;
-      // The notice comes after the delivery, so "· continued" is said only of a turn that started.
+      // The notice is made after the delivery, so "· continued" is said only
+      // of a turn that started, but it is dated before it and goes out first:
+      // below the sent turn, the transcript would end on the login and read
+      // as waiting for the user while the turn runs.
+      const noticeAt = new Date(this.now()).toISOString();
       let continued = false;
+      let sentTurn: Record<string, unknown> | null = null;
       try {
         if (this.deps.sessions.isEnded(sessionId) || this.deps.sessions.isLimitWaiting(sessionId) || !this.deliver) {
           this.deps.republish(sessionId);
@@ -753,7 +758,7 @@ export class LoginService {
         if (this.deps.autoContinue()) {
           const delivery = await deliverOwnTurn(
             this.deliver,
-            (id, payload) => this.deps.publishToSession(id, payload),
+            (_id, payload) => { sentTurn = payload; },
             { sessionId, text, id: `${sessionId}:login-sent:${seq}` },
             this.now,
           );
@@ -766,11 +771,12 @@ export class LoginService {
         const notice: ChatMessage = {
           id: `${sessionId}:login-restored:${seq}`,
           role: 'notice',
-          timestamp: new Date(this.now()).toISOString(),
+          timestamp: noticeAt,
           text: restoredText(kind, email, continued),
           notice: { level: 'info', kind: 'login_restored', login: { kind, email, previousEmail, continued } },
         };
         this.deps.publishToSession(sessionId, { event: 'message', message: notice });
+        if (sentTurn) this.deps.publishToSession(sessionId, sentTurn);
       } catch (err) {
         this.deps.onError?.(err, 'continuing after a login', sessionId);
       }
