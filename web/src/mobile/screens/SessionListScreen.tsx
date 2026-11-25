@@ -1,6 +1,7 @@
 import { setupRowNote } from '../../lib/setup'
 import { swatch } from '../../lib/palette'
 import { useMemo, useState } from 'react'
+import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
 import { toggleTag } from '../../lib/tagFilter'
@@ -34,6 +35,12 @@ import { usePhoneNotificationsTip } from '../NotificationsTip'
 import { PinnedNoticeHost } from '../PinnedNotice'
 import { usePhoneWhatsNew } from '../WhatsNew'
 
+/** The tag chips that are on, kept while a session is open so going back finds the list as it was left. */
+const useTagFilter = create<{ tagIds: number[]; setTagIds: (tagIds: number[]) => void }>()((set) => ({
+  tagIds: [],
+  setTagIds: (tagIds) => set({ tagIds }),
+}))
+
 /** 9a, updated by 10a (spec 2026-10-05-mobile-next-design): the sessions, grouped by what they need from you. */
 export function SessionListScreen() {
   const sessions = useOrbital(
@@ -53,7 +60,8 @@ export function SessionListScreen() {
   const openSubagent = useMobile((s) => s.openSubagent)
   const openTask = useMobile((s) => s.openTask)
   const go = useMobile((s) => s.go)
-  const [tagIds, setTagIds] = useState<number[]>([])
+  const tagIds = useTagFilter((s) => s.tagIds)
+  const setTagIds = useTagFilter((s) => s.setTagIds)
   const [endedOpen, setEndedOpen] = useState(false)
   const [checking, setChecking] = useState(false)
   const now = useNow(true, CLOCK_TICK_MS)
