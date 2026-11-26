@@ -936,6 +936,21 @@ describe('DetailPanel clear flow', () => {
     expect(screen.queryByRole('checkbox', { name: /don't ask again/i })).not.toBeInTheDocument()
   })
 
+  it('asks anyway for a harness not read yet, from the session\'s harnessStep', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', harnessStep: { index: 0, total: 2 } }) },
+      settings: { confirm_before_clear: 'false' },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<PanelWithDialogs />)
+    await user.click(screen.getByRole('button', { name: /^clear$/i }))
+
+    expect(api.clearSession).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: /clear and start a new session/i })).toBeInTheDocument()
+  })
+
   it('"Clear & start new" calls clearSession with startNew=true and selects the returned sessionId', async () => {
     const user = userEvent.setup()
     vi.mocked(api.clearSession).mockResolvedValue({ ok: true, sessionId: 'b' })

@@ -1,7 +1,6 @@
-import { harnessUnfinished } from '../../lib/harnessSession'
 import { sessionModelLabel } from '../../lib/models'
 import { formatTokens } from '../../lib/format'
-import type { ApiSession, OrbitalModel, SessionHarness, Tag } from '../../lib/types'
+import type { ApiSession, OrbitalModel, Tag } from '../../lib/types'
 import { homePath } from '../../lib/format'
 
 /**
@@ -59,18 +58,7 @@ export function clearKeepsLines(
   return lines
 }
 
-/**
- * Whether Clear sends `carryHarness`: the desktop dialog's default, on
- * whenever a harness has steps left. The held harness decides when the phone
- * has read it; until then the snapshot's `harnessStep` says the same.
- */
-export function carriesHarness(
-  harness: SessionHarness | null | undefined,
-  step: ApiSession['harnessStep'],
-): boolean {
-  if (harness !== undefined) return harnessUnfinished(harness)
-  return step != null && step.index < step.total
-}
+export { carriesHarness } from '../../lib/harnessSession'
 
 /** Rename's Save (canvas 10j): a title with something in it, other than the one it has. */
 export function canSaveTitle(draft: string, current: string): boolean {

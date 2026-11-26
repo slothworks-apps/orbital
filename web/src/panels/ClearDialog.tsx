@@ -8,7 +8,9 @@ import { command, matches } from '../lib/keymap'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Checkbox } from '../ui/Checkbox'
-import { harnessUnfinished } from '../lib/harnessSession'
+import { carriesHarness, harnessUnfinished } from '../lib/harnessSession'
+import { readHarnessOnce } from './HarnessPill'
+import { harnessEnabled } from '../lib/experimental'
 import type { SessionHarness } from '../lib/types'
 
 /** `Build a component · step 4 of 7`: the harness and where the new session picks it up. */
@@ -53,6 +55,13 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
   // Clear is how the "session ended" pause says to continue it.
   const harness = useOrbital((s) => (targetId ? s.harnesses[targetId] : undefined))
   const carryable = harnessUnfinished(harness) ? harness : null
+  // A session never shown has no harness read yet: read it for the row, and
+  // until it lands let `harnessStep` stand in for the carry.
+  const carries = carriesHarness(harness, session?.harnessStep)
+  const harnessOn = useOrbital((s) => harnessEnabled(s.settings))
+  useEffect(() => {
+    if (open && harnessOn && targetId && session?.source === 'web' && harness === undefined) readHarnessOnce(targetId)
+  }, [open, harnessOn, targetId, session?.source, harness])
 
   // Already waived: the dialog is here for the harness, so there is nothing left to waive.
   const confirmWaived = useOrbital((s) => s.settings.confirm_before_clear === 'false')
@@ -92,7 +101,7 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
       setPending(true)
       try {
         await persistDontAskAgain()
-        const result = carryable && carryHarness
+        const result = carries && carryHarness
           ? await api.clearSession(targetId, true, { carryHarness: true })
           : await api.clearSession(targetId, true)
         if (result.sessionId) {
@@ -106,7 +115,7 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [targetId, pending, dontAskAgain, carryable, carryHarness, onClose],
+    [targetId, pending, dontAskAgain, carries, carryHarness, onClose],
   )
 
   // ⏎ clears and starts a new session ("esc · ⏎ new"). Ending without a
