@@ -119,6 +119,19 @@ export function pillReading(harness: SessionHarness): PillReading {
 export const harnessUnfinished = (harness: SessionHarness | null | undefined): harness is SessionHarness =>
   harness != null && harness.removedAt == null && harness.state.some((s) => s.status !== 'done')
 
+/**
+ * Whether a harness has steps left, before it is read too: the held harness
+ * decides once read; until then the session snapshot's `harnessStep` says the
+ * same. What Clear carries by default, and why it asks.
+ */
+export function carriesHarness(
+  harness: SessionHarness | null | undefined,
+  step: ApiSession['harnessStep'],
+): boolean {
+  if (harness !== undefined) return harnessUnfinished(harness)
+  return step != null && step.index < step.total
+}
+
 /** The title of step `index` (0-based) in whichever of the session's harnesses has one. */
 function stepTitle(harnesses: readonly SessionHarness[], index: number): string | undefined {
   for (const h of harnesses) {

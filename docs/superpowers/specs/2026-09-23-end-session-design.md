@@ -89,7 +89,10 @@ The detail panel has no action that simply ends a session. What exists:
 
 - The `/clear` dialog loses "Clear only". It keeps Cancel and
   "Clear & start new"; the footer caption drops the `⇧⏎ clear only` hint.
-  The "Don't ask again" checkbox stays — it belongs to clearing.
+  The "Don't ask again" checkbox stays — it belongs to clearing. It waives
+  the plain confirmation only: a session with an unfinished harness asks
+  every time, and the dialog leaves the box out when it is already off
+  (spec 2026-10-02-harness-redesign-design § As built).
 - The Clear icon changes: the current left arrow reads as "back". Which
   glyph is for Claude Design.
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, within, fireEvent, waitFor, act, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
+import type { ApiSession, OrbitalModel, SessionHarness, Subagent, Tag } from '../lib/types'
 import {
   useOrbital,
   clampDetailPanelWidth,
@@ -111,6 +111,7 @@ function resetStore(
     subagentPanel: null,
     taskOutput: null,
     stoppingTasks: {},
+    harnesses: {},
     // Same reason: a draft typed in one test would sit in the next one's
     // composer.
     composerDrafts: {},
@@ -908,6 +909,46 @@ describe('DetailPanel clear flow', () => {
     expect(api.clearSession).toHaveBeenCalledWith('a', true)
     expect(useOrbital.getState().ui.dialog).toBe(null)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('asks anyway when "don\'t ask again" is set but a harness has a gate waiting', async () => {
+    const user = userEvent.setup()
+    const harness = {
+      sessionId: 'a',
+      name: 'Build a component',
+      steps: [{ id: 's1', title: 'Spec' }, { id: 's2', title: 'Build' }],
+      state: [{ status: 'waiting' }, { status: 'pending' }],
+      removedAt: null,
+    } as unknown as SessionHarness
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web' }) },
+      settings: { confirm_before_clear: 'false' },
+      harnesses: { a: harness },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<PanelWithDialogs />)
+    await user.click(screen.getByRole('button', { name: /^clear$/i }))
+
+    expect(api.clearSession).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: /clear and start a new session/i })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /continue the harness/i })).toBeChecked()
+    expect(screen.queryByRole('checkbox', { name: /don't ask again/i })).not.toBeInTheDocument()
+  })
+
+  it('asks anyway for a harness not read yet, from the session\'s harnessStep', async () => {
+    const user = userEvent.setup()
+    resetStore({
+      sessions: { a: makeSession({ id: 'a', source: 'web', harnessStep: { index: 0, total: 2 } }) },
+      settings: { confirm_before_clear: 'false' },
+      ui: { selectedId: 'a' },
+    })
+
+    render(<PanelWithDialogs />)
+    await user.click(screen.getByRole('button', { name: /^clear$/i }))
+
+    expect(api.clearSession).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: /clear and start a new session/i })).toBeInTheDocument()
   })
 
   it('"Clear & start new" calls clearSession with startNew=true and selects the returned sessionId', async () => {

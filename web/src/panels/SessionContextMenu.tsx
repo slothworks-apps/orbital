@@ -14,6 +14,7 @@ import { removalOffered } from '../lib/worktree'
 import type { Tag } from '../lib/types'
 import {
   askToClear,
+  clearAsks,
   askToRename,
   askToTakeOver,
   changeTag,
@@ -122,7 +123,7 @@ function SessionMenu({
 }) {
   const session = useOrbital((s) => s.sessions[sessionId])
   const tags = useOrbital(useShallow((s) => s.tags))
-  const asksBeforeClear = useOrbital((s) => s.settings.confirm_before_clear !== 'false')
+  const asksBeforeClear = useOrbital((s) => clearAsks(s, sessionId))
   const offline = useOrbital((s) => {
     const it = s.sessions[sessionId]
     return it ? machineOffline(it, s.remote?.group?.members) : false

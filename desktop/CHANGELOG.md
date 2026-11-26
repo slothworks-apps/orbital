@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- Clear asks before starting a new session whenever the session has an unfinished harness, even if you turned the confirmation off; you choose there whether the harness goes on in the new session.
 
 ## [0.50.0] — 2026-11-23
 ### Added

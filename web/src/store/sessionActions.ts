@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import { api, ApiError, errorSentence } from '../lib/api'
 import { reportError } from '../lib/errors'
-import { harnessUnfinished } from '../lib/harnessSession'
+import { carriesHarness } from '../lib/harnessSession'
 import { useOrbital } from './store'
+import type { OrbitalState } from './store'
 
 /** Where a context menu can be opened from. */
 export type SessionMenuSurface = 'map' | 'sidebar'
@@ -125,6 +126,18 @@ export function reportClearFailure(err: unknown): void {
 }
 
 /**
+ * Whether Clear asks first. "Don't ask again" waives the plain confirmation
+ * only: a harness with steps left asks every time, since its conversation (a
+ * gate waiting for your OK, say) is what Clear ends (spec
+ * 2026-10-02-harness-redesign-design § 8). A harness not read yet is judged
+ * by the session's `harnessStep`.
+ */
+export function clearAsks(state: Pick<OrbitalState, 'settings' | 'sessions' | 'harnesses'>, id: string): boolean {
+  if (state.settings.confirm_before_clear !== 'false') return true
+  return carriesHarness(state.harnesses[id], state.sessions[id]?.harnessStep)
+}
+
+/**
  * Clear and start over. "Don't ask again" skips straight to what the
  * dialog's only action does: clear and start new, and open the new session.
  * Ending without a successor is End session's job (spec
@@ -132,11 +145,8 @@ export function reportClearFailure(err: unknown): void {
  */
 export function askToClear(id: string): void {
   const state = useOrbital.getState()
-  if (state.settings.confirm_before_clear === 'false') {
-    // The dialog's default, unasked: a harness with steps left goes on in
-    // the new session (spec 2026-10-02-harness-redesign-design § 8).
-    const carry = harnessUnfinished(state.harnesses[id])
-    void (carry ? api.clearSession(id, true, { carryHarness: true }) : api.clearSession(id, true))
+  if (!clearAsks(state, id)) {
+    void api.clearSession(id, true)
       .then((result) => {
         if (result.sessionId) void useOrbital.getState().select(result.sessionId)
       })

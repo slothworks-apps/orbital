@@ -2370,7 +2370,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       <Row
                         title="Confirm before Clear"
                         setting="confirm_before_clear"
-                        desc={`Show the confirmation dialog when running /clear or ${chordLabel(command('session.clear').chords[0])}.`}
+                        desc={`Show the confirmation dialog when running /clear or ${chordLabel(command('session.clear').chords[0])}. A session with an unfinished harness always asks.`}
                       >
                         <Toggle
                           aria-label="Confirm before clear"

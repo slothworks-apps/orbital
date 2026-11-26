@@ -220,7 +220,11 @@ carries `n` and `of`; `approved` carries `by`; `paused` carries `kind`.
   messages are the row.
 - **Clear** offers "Continue the harness in the new session", on by default,
   whenever the harness has steps left (running or paused, `session_ended`
-  included); with "don't ask again" the default applies unasked.
+  included). "Don't ask again" waives only the plain confirmation: a session
+  whose harness has steps left asks every time, because Clear ends the
+  conversation the step stands in — a gate waiting for your OK included —
+  and the dialog then leaves out the "don't ask again" box it no longer has
+  anything to waive.
 - **Listed nowhere**: `isListable` / `listableSessions` (store) drop a
   `harness_draft` session from the sidebar, history, search and the phone's
   list; the map still draws it while it runs.
