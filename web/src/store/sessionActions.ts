@@ -132,11 +132,11 @@ export function reportClearFailure(err: unknown): void {
  */
 export function askToClear(id: string): void {
   const state = useOrbital.getState()
-  if (state.settings.confirm_before_clear === 'false') {
-    // The dialog's default, unasked: a harness with steps left goes on in
-    // the new session (spec 2026-10-02-harness-redesign-design § 8).
-    const carry = harnessUnfinished(state.harnesses[id])
-    void (carry ? api.clearSession(id, true, { carryHarness: true }) : api.clearSession(id, true))
+  // "Don't ask again" waives the plain confirmation only: a harness with
+  // steps left asks every time, since its conversation (a gate waiting for
+  // your OK, say) is what Clear ends (spec 2026-10-02-harness-redesign-design § 8).
+  if (state.settings.confirm_before_clear === 'false' && !harnessUnfinished(state.harnesses[id])) {
+    void api.clearSession(id, true)
       .then((result) => {
         if (result.sessionId) void useOrbital.getState().select(result.sessionId)
       })

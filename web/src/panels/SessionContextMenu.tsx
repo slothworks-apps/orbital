@@ -29,6 +29,7 @@ import { MENU_SEPARATOR } from '../ui/Menu'
 import type { MenuEntry, MenuItem } from '../ui/Menu'
 import { PinGlyph } from '../ui/PinButton'
 import { ClearGlyph, CopyGlyph, DetachGlyph, EndGlyph, RefreshGlyph } from '../ui/UtilityButton'
+import { harnessUnfinished } from '../lib/harnessSession'
 import { MORE_MENU_PX } from './UtilityStrip'
 
 /**
@@ -122,7 +123,9 @@ function SessionMenu({
 }) {
   const session = useOrbital((s) => s.sessions[sessionId])
   const tags = useOrbital(useShallow((s) => s.tags))
-  const asksBeforeClear = useOrbital((s) => s.settings.confirm_before_clear !== 'false')
+  const asksBeforeClear = useOrbital(
+    (s) => s.settings.confirm_before_clear !== 'false' || harnessUnfinished(s.harnesses[sessionId]),
+  )
   const offline = useOrbital((s) => {
     const it = s.sessions[sessionId]
     return it ? machineOffline(it, s.remote?.group?.members) : false

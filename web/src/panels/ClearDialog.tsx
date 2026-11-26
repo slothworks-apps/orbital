@@ -30,7 +30,8 @@ export interface ClearDialogProps {
  * only" any more — ending without a successor is the header's End session
  * (spec 2026-09-23-end-session-design). "Don't ask again" persists
  * `confirm_before_clear: 'false'` so `DetailPanel`'s header Clear button
- * skips this dialog entirely next time and does the same clear-and-start-new.
+ * skips this dialog next time and does the same clear-and-start-new — unless
+ * the session has a harness with steps left, which asks every time.
  */
 export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
   const tags = useOrbital(useShallow((s) => s.tags))
@@ -52,6 +53,9 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
   // Clear is how the "session ended" pause says to continue it.
   const harness = useOrbital((s) => (targetId ? s.harnesses[targetId] : undefined))
   const carryable = harnessUnfinished(harness) ? harness : null
+
+  // Already waived: the dialog is here for the harness, so there is nothing left to waive.
+  const confirmWaived = useOrbital((s) => s.settings.confirm_before_clear === 'false')
 
   const [dontAskAgain, setDontAskAgain] = useState(false)
   const [carryHarness, setCarryHarness] = useState(true)
@@ -179,20 +183,22 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
           </div>
         )}
 
-        <div className="mt-3">
-          <Checkbox
-            checked={dontAskAgain}
-            onChange={setDontAskAgain}
-            label={
-              <span className="fs-12 text-ink-900/75">
-                Don&apos;t ask again{' '}
-                <span className="font-mono fs-10 text-ink-900/50">
-                  (Settings → Sessions)
+        {!confirmWaived && (
+          <div className="mt-3">
+            <Checkbox
+              checked={dontAskAgain}
+              onChange={setDontAskAgain}
+              label={
+                <span className="fs-12 text-ink-900/75">
+                  Don&apos;t ask again{' '}
+                  <span className="font-mono fs-10 text-ink-900/50">
+                    (Settings → Sessions)
+                  </span>
                 </span>
-              </span>
-            }
-          />
-        </div>
+              }
+            />
+          </div>
+        )}
       </div>
     </Dialog>
   )
