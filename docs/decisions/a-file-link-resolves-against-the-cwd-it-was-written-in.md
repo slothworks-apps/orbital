@@ -44,12 +44,14 @@ project root (`.planning/shot.png`). Resolved only against `e2e`, such a
 link answers "not found" for a file that exists, and session media shows it
 as gone.
 
-So after the recorded `cwd` the server tries one more directory: the deepest
-of the session's own directories (its working tree, its home, another
-recorded `cwd`) that contains the recorded one, provided it lies inside the
-same git tree. A worktree nested in the main checkout
+So after the recorded `cwd` the server tries the session's own directories
+(its working tree, its home, another recorded `cwd`) that contain the
+recorded one, deepest first, provided they lie inside the same git tree.
+Every one of them, not only the deepest: an agent that went
+`cd frontend`, `cd app`, `cd app/components` has recorded `frontend/app`,
+and a path it named from the project root still lives at the root. A worktree nested in the main checkout
 (`.claude/worktrees/x`) stops at its own root, so the checkout's copy of a
-file is still never the answer. Outside a git tree nothing is added. The
+file is still never the answer. Outside a git tree nothing is added. Each
 directory added is one the session already works in, so the sandbox grows by
 nothing the agent could not read.
 

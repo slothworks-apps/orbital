@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- An image or file a session named from the project root opens and shows in the session's media even after the agent moved several folders deep, instead of reading as no longer on disk.
 
 ## [0.50.0] — 2026-11-23
 ### Added

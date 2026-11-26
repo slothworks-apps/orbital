@@ -325,7 +325,7 @@ export function resolveForSession(cwd: string, rawPath: string, named: NamedChec
  * The directories a file request is confined to, tried in order (adr
  * `a-file-link-resolves-against-the-cwd-it-was-written-in`). A `cwd` the
  * client sent counts only when the session's transcripts recorded it, and
- * then it comes first and the only other is its `enclosingRoot` in the same
+ * then it comes first and the only others are its `enclosingDirs` in the same
  * git tree: the link was written there, and a file of the same name in another
  * tree is the wrong version. Without one, or with one
  * the transcripts never named, the tree the session works in now, then its
@@ -336,33 +336,33 @@ export function fileSandboxes(
   treeRoot: (dir: string) => string | null = gitTreeRoot,
 ): string[] {
   if (requested && recorded().has(requested)) {
-    const root = enclosingRoot(requested, [workingDir, home, ...recorded()], treeRoot);
-    return root ? [requested, root] : [requested];
+    return [requested, ...enclosingDirs(requested, [workingDir, home, ...recorded()], treeRoot)];
   }
   return workingDir === home ? [home] : [workingDir, home];
 }
 
 /**
  * Where a link written from a subdirectory falls back to: the agent ran
- * `cd e2e` and then named `.planning/shot.png` from the project root. The
- * deepest of the session's own directories (its working tree, its home, a
- * recorded cwd) that contains `requested`, as long as it lies within the same
- * git tree — a worktree nested under the main checkout stops at its own root,
- * so the checkout's copy of a file is never the answer (adr
- * `a-file-link-resolves-against-the-cwd-it-was-written-in`). Null outside a
- * git tree, or when nothing contains it.
+ * `cd e2e` and then named `.planning/shot.png` from the project root, or
+ * cd-ed several levels down one step at a time and still named paths from
+ * the root. Every one of the session's own directories (its working tree,
+ * its home, a recorded cwd) that contains `requested`, deepest first, as long
+ * as it lies within the same git tree — a worktree nested under the main
+ * checkout stops at its own root, so the checkout's copy of a file is never
+ * the answer (adr `a-file-link-resolves-against-the-cwd-it-was-written-in`).
+ * Empty outside a git tree, or when nothing contains it.
  */
-export function enclosingRoot(
+export function enclosingDirs(
   requested: string, candidates: Iterable<string>, treeRoot: (dir: string) => string | null,
-): string | null {
+): string[] {
   const tree = treeRoot(requested);
-  if (!tree) return null;
-  let best: string | null = null;
+  if (!tree) return [];
+  const dirs = new Set<string>();
   for (const dir of candidates) {
     if (dir === requested || !isWithin(requested, dir) || !(dir === tree || isWithin(dir, tree))) continue;
-    if (!best || dir.length > best.length) best = dir;
+    dirs.add(dir);
   }
-  return best;
+  return [...dirs].sort((a, b) => b.length - a.length);
 }
 
 /** `path` lies strictly below `dir`. */

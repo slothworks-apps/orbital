@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readLastCwd, WorkingTrees, type TreeRow } from '../src/git/workingTrees.js';
-import { enclosingRoot, fileSandboxes, readFilePreview, readInSandboxes } from '../src/files/preview.js';
+import { enclosingDirs, fileSandboxes, readFilePreview, readInSandboxes } from '../src/files/preview.js';
 import type { GitLocation } from '../src/git/gitState.js';
 import type { SubagentInfo } from '../src/transcript/subagents.js';
 import { subagentDirOf } from '../src/walkthrough/subagents.js';
@@ -215,29 +215,41 @@ describe('file sandboxes', () => {
   });
 });
 
-describe('enclosingRoot', () => {
+describe('enclosingDirs', () => {
   // `/repo` is a checkout; `/repo/.claude/worktrees/w` a worktree nested in it.
   const treeRoot = (dir: string) =>
     dir.startsWith('/repo/.claude/worktrees/w') ? '/repo/.claude/worktrees/w' : dir.startsWith('/repo') ? '/repo' : null;
 
   it('falls back from a subdirectory the agent cd-ed into to the session tree around it', () => {
-    expect(enclosingRoot('/repo/e2e', ['/repo', '/home'], treeRoot)).toBe('/repo');
+    expect(enclosingDirs('/repo/e2e', ['/repo', '/home'], treeRoot)).toEqual(['/repo']);
     expect(fileSandboxes('/repo', '/repo', '/repo/e2e', () => new Set(['/repo/e2e']), treeRoot)).toEqual([
       '/repo/e2e',
       '/repo',
     ]);
   });
 
-  it('never climbs out of a nested worktree into the checkout that holds it', () => {
-    expect(enclosingRoot('/repo/.claude/worktrees/w/web', ['/repo'], treeRoot)).toBeNull();
-    expect(enclosingRoot('/repo/.claude/worktrees/w/web', ['/repo', '/repo/.claude/worktrees/w'], treeRoot)).toBe(
-      '/repo/.claude/worktrees/w'
-    );
+  it('climbs every level the agent cd-ed through back to the project root', () => {
+    // cd frontend, cd app, cd app/components: a path named from the root
+    // must still reach the root, not stop at `app`.
+    const recorded = new Set(['/repo/frontend', '/repo/frontend/app', '/repo/frontend/app/components']);
+    expect(fileSandboxes('/repo', '/repo', '/repo/frontend/app/components', () => recorded, treeRoot)).toEqual([
+      '/repo/frontend/app/components',
+      '/repo/frontend/app',
+      '/repo/frontend',
+      '/repo',
+    ]);
   });
 
-  it('takes the deepest directory of the session that holds it, and nothing outside a git tree', () => {
-    expect(enclosingRoot('/repo/a/b/c', ['/repo', '/repo/a'], treeRoot)).toBe('/repo/a');
-    expect(enclosingRoot('/repo', ['/repo'], treeRoot)).toBeNull();
-    expect(enclosingRoot('/tmp/x', ['/tmp'], treeRoot)).toBeNull();
+  it('never climbs out of a nested worktree into the checkout that holds it', () => {
+    expect(enclosingDirs('/repo/.claude/worktrees/w/web', ['/repo'], treeRoot)).toEqual([]);
+    expect(enclosingDirs('/repo/.claude/worktrees/w/web', ['/repo', '/repo/.claude/worktrees/w'], treeRoot)).toEqual([
+      '/repo/.claude/worktrees/w',
+    ]);
+  });
+
+  it('orders the session\'s directories deepest first, once each, and nothing outside a git tree', () => {
+    expect(enclosingDirs('/repo/a/b/c', ['/repo', '/repo/a', '/repo'], treeRoot)).toEqual(['/repo/a', '/repo']);
+    expect(enclosingDirs('/repo', ['/repo'], treeRoot)).toEqual([]);
+    expect(enclosingDirs('/tmp/x', ['/tmp'], treeRoot)).toEqual([]);
   });
 });
