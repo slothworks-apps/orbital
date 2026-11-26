@@ -47,9 +47,10 @@ as gone.
 So after the recorded `cwd` the server tries the session's own directories
 (its working tree, its home, another recorded `cwd`) that contain the
 recorded one, deepest first, provided they lie inside the same git tree.
-Every one of them, not only the deepest: an agent that went
-`cd frontend`, `cd app`, `cd app/components` has recorded `frontend/app`,
-and a path it named from the project root still lives at the root. A worktree nested in the main checkout
+Every one of them, not only the deepest: after `cd frontend`, `cd app`,
+`cd components` the deepest one around `frontend/app/components` is
+`frontend/app`, yet a path the agent named from the project root still
+lives at the root. A worktree nested in the main checkout
 (`.claude/worktrees/x`) stops at its own root, so the checkout's copy of a
 file is still never the answer. Outside a git tree nothing is added. Each
 directory added is one the session already works in, so the sandbox grows by
