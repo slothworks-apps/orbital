@@ -78,6 +78,8 @@ export class FcmPushSender implements PushSender {
       message: {
         token,
         notification: PUSH_TEXT,
+        // The same token again, where a tap can read it: the phone asks its Mac which session it was.
+        data: { tag: payload.tag },
         android: { collapse_key: 'needs-input', priority: 'high', notification: { channel_id: 'needs_input', tag: payload.tag } },
         apns: { headers: { 'apns-collapse-id': payload.tag } },
       },

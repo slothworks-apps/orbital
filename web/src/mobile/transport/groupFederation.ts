@@ -230,6 +230,7 @@ export class GroupFederation implements SwappableClient {
     if ((method === 'GET' && url.pathname === '/api/limits') || (method === 'POST' && url.pathname === LIMITS_REFRESH_PATH)) {
       return this.readAllLimits(method, url.pathname)
     }
+    if (method === 'GET' && /^\/api\/wake\/[0-9a-f]{32}$/.test(url.pathname)) return this.findWake(url.pathname)
     const tagPath = /^\/api\/tags\/(\d+)$/.exec(url.pathname)
     if (tagPath && (method === 'PATCH' || method === 'DELETE')) return this.changeTag(method, Number(tagPath[1]), body)
 
@@ -1024,6 +1025,20 @@ export class GroupFederation implements SwappableClient {
    * that has it owns it. Nobody: a member's 404 when every member answered,
    * else offline — the one that is not up may hold it.
    */
+  /**
+   * Which session a tapped relay push stands for: the push does not say which
+   * device sent it, so every device that is up is asked, and the first that
+   * sent that token answers. A device too old for the route refuses it, which
+   * reads as not found.
+   */
+  private async findWake(path: string): Promise<TunnelResponse> {
+    const answers = await Promise.allSettled(this.readySources().map(([, channel]) => channel.request('GET', path)))
+    for (const answer of answers) {
+      if (answer.status === 'fulfilled' && answer.value.status === 200) return answer.value
+    }
+    return NOT_FOUND
+  }
+
   private async lookUp(sessionId: string): Promise<Lookup> {
     if (this.relisting.size > 0) {
       let timer: ReturnType<typeof setTimeout> | undefined

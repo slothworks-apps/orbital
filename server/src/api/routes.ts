@@ -788,6 +788,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { total: row.total };
   });
 
+  // A tap on the relay's push names its session only by the wake token (spec 2026-11-26-push-tap-opens-the-session-design).
+  app.get('/api/wake/:tag', (req, reply) => {
+    const { tag } = req.params as { tag: string };
+    const sessionId = /^[0-9a-f]{32}$/i.test(tag) ? ctx.remote.sessionForWake(tag) : null;
+    if (!sessionId) return reply.code(404).send({ error: 'not_found' });
+    return { sessionId };
+  });
+
   app.get('/api/sessions/:id', (req, reply) => {
     const { id } = req.params as { id: string };
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as

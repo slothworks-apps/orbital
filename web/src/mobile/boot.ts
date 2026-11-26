@@ -39,7 +39,8 @@ import { groupRef, type GroupHandle } from './transport/groupRef'
 import { makeImageResolver } from './transport/imageResolver'
 import { makeTunnelFetch } from './transport/tunnelFetch'
 import { TunnelSocket } from './transport/tunnelSocket'
-import { sessionSupports } from './version'
+import { anySupports, sessionSupports } from './version'
+import { sessionForWake } from './wakeOpen'
 import { configureTakeReport } from '../store/takeContextReport'
 import { sessionOffline } from './deviceList'
 import { decideWhatsNew } from './WhatsNew'
@@ -67,6 +68,13 @@ export async function boot(): Promise<void> {
   // First, before anything awaits: a cold start from a tap must find its listener (spec § 6.5).
   installPushListeners({
     openList: () => afterBoot(() => openFromNotice(() => useMobile.getState().go('list'))),
+    openWake: (tag) => afterBoot(() => openFromNotice(() => {
+      useMobile.getState().go('list')
+      void sessionForWake(clientRef, tag, () => anySupports('wakeOpen')).then((id) => {
+        // Only while the list the tap opened is still what the user looks at.
+        if (id && useMobile.getState().screen === 'list') useMobile.getState().openSession(id)
+      })
+    })),
     openSession: (id) => afterBoot(() => openFromNotice(() => useMobile.getState().openSession(id))),
   })
   void installNotificationChannels()

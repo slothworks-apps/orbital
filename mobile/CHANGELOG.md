@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-11-26
+### Changed
+- A tap on a notification that arrived while the app was asleep opens its session instead of the list. Needs a Mac on the new version.
+
 ## [0.27.1] — 2026-11-25
 ### Fixed
 - The tag filter on the session list stays on when you open a session and come back.

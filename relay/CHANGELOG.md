@@ -4,6 +4,10 @@ All notable changes to the relay image. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-26
+### Changed
+- A notification carries the session's anonymous token where the phone can read it on a tap.
+
 ## [0.6.3] — 2026-10-29
 ### Changed
 - Updated dependencies.

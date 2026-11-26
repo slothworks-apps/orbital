@@ -40,6 +40,9 @@ import { wakeSecret, wakeToken } from './wake.js';
 import type { Presence } from './presence.js';
 import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from './errors.js';
 import { memberTooOld } from './memberGate.js';
+
+/** How many sessions' wake tokens `sessionForWake` answers for. */
+const WOKEN_KEPT = 500;
 import { parseGrants } from './grants.js';
 
 /** A phone refused at `hello` for an app too old: both versions, and when it was last refused. */
@@ -145,6 +148,13 @@ export class RemoteService {
   /** Pairs that end once the document that ends them is acknowledged. */
   private readonly exits: GroupExitStore;
   private readonly watchers = new Map<string, DeviceWatcher>();
+  /**
+   * The session behind each wake token this device sent, as hex, newest last:
+   * a phone tapping the relay's push asks which session it was
+   * (`GET /api/wake/:tag`). Held in memory only; a restart forgets it and the
+   * tap opens the list, as before.
+   */
+  private readonly woken = new Map<string, string>();
   private readonly channels = new Map<string, Channel>();
   /**
    * The pairing ceremonies: a code shown here and the device that redeemed
@@ -367,6 +377,17 @@ export class RemoteService {
   /** This device's id, known whether or not the remote runs; null when it never had one. */
   selfId(): string | null {
     return this.ownId();
+  }
+
+  /** The session a wake token this device sent stands for, or null when it sent none such since it started. */
+  sessionForWake(tag: string): string | null {
+    return this.woken.get(tag.toLowerCase()) ?? null;
+  }
+
+  private rememberWake(tag: string, sessionId: string): void {
+    this.woken.delete(tag);
+    this.woken.set(tag, sessionId);
+    if (this.woken.size > WOKEN_KEPT) this.woken.delete(this.woken.keys().next().value!);
   }
 
   /** The group's members, this device included (alone, the only one); none when the roster cannot be read. */
@@ -808,9 +829,12 @@ export class RemoteService {
       ...(this.opts.foreign ? { foreign: this.opts.foreign } : {}),
       // Sent whether or not the phone is connected: the relay forwards to a
       // connected phone (which ignores an empty body) and pushes otherwise.
-      onWake: (sessionId) => !this.group.exiting(id) && this.client?.sendData(encodeFrame({
-        peer: phoneKey, flags: FLAG_WAKE | FLAG_STATE, wake: wakeToken(secret, sessionId), body: new Uint8Array(0),
-      })),
+      onWake: (sessionId) => {
+        if (this.group.exiting(id)) return;
+        const wake = wakeToken(secret, sessionId);
+        this.rememberWake(Buffer.from(wake).toString('hex'), sessionId);
+        this.client?.sendData(encodeFrame({ peer: phoneKey, flags: FLAG_WAKE | FLAG_STATE, wake, body: new Uint8Array(0) }));
+      },
     });
     void this.opts.inject({ method: 'GET', url: '/api/sessions?limit=200' }).then((res) => {
       let initial: unknown[] = [];
