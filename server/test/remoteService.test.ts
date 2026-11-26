@@ -1074,7 +1074,7 @@ describe('RemoteService data', () => {
   });
   it('a needs_input transition sends one empty wake frame, flagged and tokened', async () => {
     const phone = generateIdentity();
-    const { fake, hub } = build((d) => d.add({
+    const { fake, hub, service } = build((d) => d.add({
       id: deviceId(phone.publicKey), name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({ notify_needs_input: 'true' }),
     }));
     await tick(); // the watcher starts once its seed fetch answers
@@ -1095,6 +1095,11 @@ describe('RemoteService data', () => {
     expect(frame.wake).toHaveLength(WAKE_BYTES);
     expect(frame.wake.some((b) => b !== 0)).toBe(true);
     expect(frame.body).toHaveLength(0);
+    // A tap on the relay's push asks which session the token stood for.
+    const tag = Buffer.from(frame.wake).toString('hex');
+    expect(service.sessionForWake(tag)).toBe('s1');
+    expect(service.sessionForWake(tag.toUpperCase())).toBe('s1');
+    expect(service.sessionForWake('00'.repeat(WAKE_BYTES))).toBeNull();
   });
 
   it('no wake while the user is at another member of the group', async () => {

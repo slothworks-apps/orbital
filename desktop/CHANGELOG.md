@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.51.0] — 2026-11-26
+### Added
+- A phone that taps a notification sent while it was asleep is told which session it was, so it opens that session.
+
 ## [0.50.0] — 2026-11-23
 ### Added
 - A tips button on the map, above the error log, shows short hints about what Orbital can do, one at a time or all together. A quiet dot on it means there is a tip you have not seen yet.

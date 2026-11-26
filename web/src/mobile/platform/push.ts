@@ -3,6 +3,7 @@ import { LocalNotifications } from '@capacitor/local-notifications'
 import { FirebaseMessaging } from '@capacitor-firebase/messaging'
 import { clientRef } from '../transport/clientRef'
 import { permissionAfterAsking } from './localNotify'
+import { wakeTagOf } from '../wakeOpen'
 
 /**
  * The relay's push and the phone's own notifications (spec 2026-10-02-mobile-app-design
@@ -101,17 +102,22 @@ async function sendToken(): Promise<void> {
 }
 
 /**
- * Where a tap lands: a relay push opens the list, a local notification the
- * session it names. Installed at boot before anything awaits — the plugins
+ * Where a tap lands: a relay push opens the list and, once a device says
+ * which session its wake token stands for, that session; a local
+ * notification opens the session it names. Installed at boot before anything awaits — the plugins
  * hold a cold start's tap until a listener exists, and boot must not be
  * mid-way through choosing a screen of its own unaware of it.
  */
-export function installPushListeners(handlers: { openList(): void; openSession(id: string): void }): void {
+export function installPushListeners(handlers: { openList(): void; openWake(tag: string): void; openSession(id: string): void }): void {
   if (!native()) return
   const failed = (err: unknown) => console.warn('[mobile] could not listen for notifications', err)
   // FCM replaces a token now and then; `registerPush` delivers the first one.
   FirebaseMessaging.addListener('tokenReceived', ({ token }) => clientRef.pushToken(token)).catch(failed)
-  FirebaseMessaging.addListener('notificationActionPerformed', () => handlers.openList()).catch(failed)
+  FirebaseMessaging.addListener('notificationActionPerformed', ({ notification }) => {
+    const tag = wakeTagOf(notification.data)
+    if (tag) handlers.openWake(tag)
+    else handlers.openList()
+  }).catch(failed)
   LocalNotifications.addListener('localNotificationActionPerformed', ({ notification }) => {
     const id: unknown = notification.extra?.sessionId
     if (typeof id === 'string' && id) handlers.openSession(id)

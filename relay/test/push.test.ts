@@ -50,6 +50,7 @@ describe('FcmPushSender', () => {
     expect(sent.message.notification).toEqual({ title: 'Orbital', body: 'A session has an update' });
     expect(sent.message.android.notification.tag).toBe('aa');
     expect(sent.message.apns.headers['apns-collapse-id']).toBe('aa');
+    expect(sent.message.data).toEqual({ tag: 'aa' });
     expect((calls[1].init.headers as Record<string, string>).authorization).toBe('Bearer tok');
   });
 

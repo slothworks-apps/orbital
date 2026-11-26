@@ -51,6 +51,8 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/sessions/count', 'sessions'],
   ['GET', '/api/sessions/defaults', 'sessions'],
   ['GET', '/api/sessions/:id', 'sessions'],
+  // The session a tapped relay push stands for (spec 2026-11-26-push-tap-opens-the-session-design).
+  ['GET', '/api/wake/:tag', 'sessions'],
   ['PATCH', '/api/sessions/:id', 'sessions'],
   ['GET', '/api/sessions/:id/messages', 'sessions'],
   ['GET', '/api/sessions/:id/media', 'sessions'],

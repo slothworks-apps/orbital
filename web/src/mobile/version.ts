@@ -71,6 +71,12 @@ export const MAC_FEATURES = {
    * Mac has no tool, so no views); against one, it asks for none of these.
    */
   views: '0.50.0',
+  /**
+   * A tapped relay push opens its session: `GET /api/wake/:tag` (spec
+   * 2026-11-26-push-tap-opens-the-session-design). Against an older Mac the tap opens the list,
+   * as before.
+   */
+  wakeOpen: '0.51.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES
