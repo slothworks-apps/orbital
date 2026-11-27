@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Fixed
+- New session and the model switch show the models your Mac's Claude Code offers right now, including one added by a CLI update since the app opened.
 
 ## [0.27.1] — 2026-11-25
 ### Fixed

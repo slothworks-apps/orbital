@@ -50,19 +50,25 @@ export function useClaudeDirModels(
   const key = read?.key ?? null
   const dir = read?.dir
 
+  // Read again on every open, the store's catalog included: the store reads
+  // it once when the window loads, and models a CLI update adds meanwhile
+  // stayed hidden until a reload. The server answers from its stored list
+  // and re-probes the CLI behind it, so an update shows by the next open.
   useEffect(() => {
-    if (key === null || own?.key === key) return
+    if (!enabled) return
     let live = true
     api
       .listModels(dir, machine)
       .then((r) => {
-        if (live && r) setOwn({ key, models: r.models })
+        if (!live || !r) return
+        if (key === null) useOrbital.setState({ models: r.models, contextWindows: r.contextWindows })
+        else setOwn({ key, models: r.models })
       })
       .catch(() => {})
     return () => {
       live = false
     }
-  }, [key, dir, machine, own?.key])
+  }, [enabled, key, dir, machine])
 
   return key !== null && own?.key === key ? own.models : catalog
 }

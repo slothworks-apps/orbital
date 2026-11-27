@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- New session and the model switcher show the models your Claude Code offers right now: a model added by a CLI update appears without reloading the window.
 
 ## [0.50.0] — 2026-11-23
 ### Added
