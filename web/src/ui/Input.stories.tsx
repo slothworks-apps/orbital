@@ -37,7 +37,7 @@ type Story = StoryObj<typeof meta>
 
 export const Playground: Story = {}
 
-const VARIANTS: NonNullable<InputProps['variant']>[] = ['field', 'inline', 'bare', 'chip', 'combobox', 'in-list']
+const VARIANTS: NonNullable<InputProps['variant']>[] = ['field', 'inline', 'bare', 'chip', 'combobox', 'in-list', 'in-list-touch']
 
 export const Variants: Story = {
   render: (args) => (

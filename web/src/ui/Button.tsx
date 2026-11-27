@@ -33,7 +33,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'outline-soft'
     | 'outline-touch'
     | 'outline-quiet'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action' | 'labs' | 'labs-row' | 'block-chip' | 'block-half' | 'copy' | 'copy-touch' | 'report-action' | 'view' | 'view-touch' | 'in-list'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch' | 'row-action' | 'labs' | 'labs-row' | 'block-chip' | 'block-half' | 'copy' | 'copy-touch' | 'report-action' | 'view' | 'view-touch' | 'in-list' | 'in-list-touch'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -214,6 +214,8 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   'view-touch': 'min-h-11 px-[13px] py-[7px] fs-12.5',
   // canvas 72b's Use ⏎ beside the Custom ID field typed in a list row: 32px tall, 12px sides at 12px, 7px radius.
   'in-list': 'h-8 whitespace-nowrap px-3 fs-12',
+  // The same Use in the phone's sheet: 72d draws no frame for it, so 72b's button at 40px for a finger.
+  'in-list-touch': 'h-10 whitespace-nowrap px-3 fs-12',
 }
 
 export function Button({
@@ -237,7 +239,7 @@ export function Button({
         ? 'rounded-[6px]'
         : size === 'field'
           ? 'rounded-[9px]'
-          : size === 'sm' || size === 'icon' || size === 'row' || size === 'in-list' || size === 'command' || size === 'login-row' || size === 'login-card' || size === 'copy'
+          : size === 'sm' || size === 'icon' || size === 'row' || size === 'in-list' || size === 'in-list-touch' || size === 'command' || size === 'login-row' || size === 'login-card' || size === 'copy'
             ? 'rounded-[7px]'
             : size === 'touch'
               ? 'rounded-[9px]'

@@ -3409,14 +3409,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   }
 
   app.get('/api/models', async (req, reply) => {
-    const raw = (req.query as Record<string, string>).claudeDir;
-    const models = modelsOf(raw);
-    if (!models) return reply.code(400).send({ error: 'unknown_claude_dir' });
-    const dirId = ctx.claudeDirs.resolveId(raw);
+    const dirId = ctx.claudeDirs.resolveId((req.query as Record<string, string>).claudeDir);
+    const models = dirId === null ? null : ctx.claudeDirs.context(dirId)?.models;
+    if (dirId === null || !models) return reply.code(400).send({ error: 'unknown_claude_dir' });
     return {
       models: await models.list(),
       contextWindows: models.learnedContextWindows(),
-      recentModels: dirId === null ? [] : recentModelsOf(dirId),
+      recentModels: recentModelsOf(dirId),
     };
   });
 

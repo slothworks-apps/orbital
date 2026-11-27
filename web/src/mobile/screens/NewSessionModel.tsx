@@ -1,9 +1,12 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { api, ApiError } from '../../lib/api'
-import { formatContextWindow } from '../../lib/format'
-import { modelByValue, modelCardSlots, recentModelCards } from '../../lib/models'
+import { useMemo, useState } from 'react'
+import { ApiError } from '../../lib/api'
+import { useCustomModel } from '../../lib/customModel'
+import { modelByValue, recentModelCards } from '../../lib/models'
 import type { OrbitalModel } from '../../lib/types'
-import { contextLabel } from '../../ui/ModelCards'
+import { CustomModelListField } from '../../ui/CustomModelField'
+import { ModelsUnread, cardMetaLabel, contextLabel } from '../../ui/ModelCards'
+import { RowCard } from '../../ui/ModelRow'
+import { useCardSlots } from '../../ui/useCardSlots'
 import { humanizeError } from '../composer'
 import { BottomSheet, FieldLabel, SheetPresence } from '../ui'
 
@@ -13,41 +16,25 @@ import { BottomSheet, FieldLabel, SheetPresence } from '../ui'
  */
 const UNMEASURED_ROW_PX = 358
 
-/** Canvas 72d's meta line: `DEFAULT · 1M` on the default, `1M CTX` on any other, nothing when unknown. */
-function cardMeta(model: OrbitalModel, isDefault: boolean): string {
-  if (!isDefault) return contextLabel(model) ?? ''
-  return model.contextWindow !== null ? `DEFAULT · ${formatContextWindow(model.contextWindow).toUpperCase()}` : 'DEFAULT'
-}
-
-/** How many cards the row holds, Other included: measured, and again whenever it resizes. */
-function useCardSlots(drawn: boolean) {
-  const row = useRef<HTMLDivElement>(null)
-  const [width, setWidth] = useState(0)
-  useLayoutEffect(() => {
-    const el = row.current
-    if (!el) return
-    setWidth(el.clientWidth)
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => setWidth(el.clientWidth))
-    observer.observe(el)
-    return () => observer.disconnect()
-    // The row is drawn only once the catalog has rows; measured from then.
-  }, [drawn])
-  return { row, slots: modelCardSlots(width > 0 ? width : UNMEASURED_ROW_PX) }
-}
+/** A grant of Settings → Devices, as its switch there names it. */
+const GRANT_NAMES: Record<string, string> = { spawn: 'Start sessions', manage: 'Upkeep of this Mac' }
 
 /**
  * Why a custom id could not be checked — the check never ran, so it says
  * nothing about the id. `POST /api/models/validate` is behind the `spawn`
  * grant this screen already needs; a Mac older than the recent-model cards
- * keeps it behind `manage`, off for a paired phone by default.
+ * keeps it behind `manage`, off for a paired phone by default. The refusal
+ * names the grant it wants, so the line names that one.
  */
 function checkFailure(err: unknown, mac: string): string {
   if (err instanceof ApiError && err.status === 403) {
     try {
-      const body = JSON.parse(err.message) as { error?: unknown }
+      const body = JSON.parse(err.message) as { error?: unknown; grant?: unknown }
       if (body.error === 'not_granted') {
-        return `${mac} does not let this phone check model IDs (Upkeep of this Mac, in its Settings → Devices).`
+        const grant = typeof body.grant === 'string' ? GRANT_NAMES[body.grant] : undefined
+        return grant
+          ? `${mac} does not let this phone check model IDs (${grant}, in its Settings → Devices).`
+          : `${mac} does not let this phone check model IDs (in its Settings → Devices).`
       }
     } catch {
       // Not the grant's refusal; said as it came.
@@ -94,7 +81,7 @@ export function NewSessionModel({
   mac: string
   onChange: (value: string) => void
 }) {
-  const { row, slots } = useCardSlots(models.length > 0)
+  const { ref: row, slots } = useCardSlots(models.length > 0, UNMEASURED_ROW_PX)
   const [open, setOpen] = useState(false)
   // Inputs that tapping a card or the sheet never changes, so the set holds
   // still while the user taps within one visit.
@@ -107,9 +94,7 @@ export function NewSessionModel({
     return (
       <div className="flex flex-col gap-1.5">
         <FieldLabel>MODEL</FieldLabel>
-        <p className="rounded-[12px] border border-line/18 bg-space/50 px-3.5 py-3 fs-11.5 leading-[1.4] text-ink-900/70">
-          The model list could not be read. The session uses whatever model Claude Code is set to.
-        </p>
+        <ModelsUnread />
       </div>
     )
   }
@@ -118,6 +103,7 @@ export function NewSessionModel({
   // Other holds whatever has no card: a model from the list, or a custom id.
   const holds = value !== null && !onCard
   const held = holds ? modelByValue(value, models) : undefined
+  const otherName = !holds ? 'Other' : held ? held.shortVersion : (value ?? '')
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -130,20 +116,28 @@ export function NewSessionModel({
         style={{ gridTemplateColumns: `repeat(${cards.length + 1}, minmax(0, 1fr))` }}
       >
         {cards.map((m) => (
-          <ModelCard
+          <RowCard
             key={m.value}
+            size="touch"
             name={m.shortVersion}
-            meta={cardMeta(m, m.value === defaultValue)}
-            selected={m.value === value}
+            sub={cardMetaLabel(m, defaultValue)}
+            title={m.shortVersion}
+            on={m.value === value}
+            dataModel={m.value}
             onClick={() => onChange(m.value)}
           />
         ))}
-        <ModelCard
-          other
-          name={!holds ? 'Other' : held ? held.shortVersion : (value ?? '')}
-          meta={!holds ? 'ALL MODELS' : held ? cardMeta(held, held.value === defaultValue) : 'CUSTOM ID'}
-          selected={holds}
-          opened={open}
+        <RowCard
+          size="touch"
+          radio={false}
+          name={otherName}
+          sub={!holds ? 'ALL MODELS' : held ? cardMetaLabel(held, defaultValue) : 'CUSTOM ID'}
+          title={otherName}
+          ariaLabel={`Other model: ${otherName}`}
+          on={holds}
+          lit={open}
+          caret="down"
+          aria={{ 'aria-haspopup': 'dialog', 'aria-expanded': open, 'aria-pressed': holds }}
           onClick={() => setOpen(true)}
         />
       </div>
@@ -167,62 +161,6 @@ export function NewSessionModel({
         )}
       </SheetPresence>
     </div>
-  )
-}
-
-/** Canvas 72d's card: 60 px tall, the name over one mono meta line, the dot in the corner when selected. */
-function ModelCard({
-  name,
-  meta,
-  selected,
-  other = false,
-  opened = false,
-  onClick,
-}: {
-  name: string
-  meta: string
-  selected: boolean
-  other?: boolean
-  /** Other while its sheet is up: a fainter accent border, not the selection's. */
-  opened?: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      {...(other
-        ? { 'aria-haspopup': 'dialog' as const, 'aria-expanded': opened, 'aria-pressed': selected, 'aria-label': `Other model: ${name}` }
-        : { role: 'radio', 'aria-checked': selected })}
-      title={name}
-      onClick={onClick}
-      className={[
-        'relative h-15 min-w-0 rounded-[12px] border px-3 py-[11px] text-left text-ink-100',
-        selected
-          ? 'border-accent/70 bg-accent/8 shadow-[0_0_20px_color-mix(in_oklab,var(--color-accent)_15%,transparent)]'
-          : opened
-            ? 'border-accent/50 bg-space/40'
-            : 'border-line/14 bg-space/40',
-      ].join(' ')}
-    >
-      <span
-        aria-hidden
-        className={['absolute right-2.5 top-3 block h-[7px] w-[7px] rounded-full bg-accent', selected ? '' : 'opacity-0'].join(' ')}
-      />
-      <span className="block truncate pr-2.5 font-mono fs-12">{name}</span>
-      <span
-        className={[
-          'mt-1.5 flex items-center gap-1 font-mono fs-9.5 tracking-[0.04em]',
-          selected ? 'text-accent' : 'text-ink-900/50',
-        ].join(' ')}
-      >
-        <span className="min-w-0 flex-1 truncate">{meta}</span>
-        {other && (
-          <span aria-hidden className="shrink-0 fs-9 text-ink-900/60">
-            ▾
-          </span>
-        )}
-      </span>
-    </button>
   )
 }
 
@@ -255,46 +193,36 @@ function ModelSheet({
 }) {
   const custom = value !== null && !modelByValue(value, models) ? value : null
   const [typing, setTyping] = useState(false)
-  const [draft, setDraft] = useState('')
-  const [checking, setChecking] = useState(false)
-  const [line, setLine] = useState<string | null>(null)
-  /** An id whose check could not run: Use again takes it unchecked, and Claude Code says at launch if it is wrong. */
-  const [unchecked, setUnchecked] = useState<string | null>(null)
-  /** Bumped by every edit and every check; an answer for an older one is dropped. */
-  const seq = useRef(0)
+  // A check still out when the sheet closes never lands: dropped on every
+  // way out, since the sheet stays mounted while it slides away.
+  const field = useCustomModel({
+    onValidated: (id) => onPick(id),
+    onCleared: () => {},
+    claudeDir: claudeDirId ?? undefined,
+    machine: machine ?? undefined,
+    describeFailure: (err) => `${checkFailure(err, mac)} Use it again to start with it unchecked.`,
+  })
 
-  const edit = (text: string) => {
-    seq.current += 1
-    setDraft(text)
-    setChecking(false)
-    setLine(null)
-    setUnchecked(null)
+  const use = () => {
+    const id = field.text.trim()
+    if (!id || field.status === 'checking') return
+    // An id the catalog lists is a pick from the list, with nothing to check;
+    // one already taken is taken again; one whose check could not run is
+    // taken unchecked on the second Use, and Claude Code says at launch if it is wrong.
+    if (modelByValue(id, models) || field.status === 'valid' || field.checkFailed) return pick(id)
+    void field.validate()
   }
-
-  const use = async () => {
-    const id = draft.trim()
-    if (!id || checking) return
-    // An id the catalog lists is a pick from the list, with nothing to check.
-    if (modelByValue(id, models) || id === unchecked) return onPick(id)
-    const mine = ++seq.current
-    setChecking(true)
-    setLine(null)
-    try {
-      const result = await api.validateModel(id, claudeDirId ?? undefined, machine ?? undefined)
-      if (mine !== seq.current) return
-      setChecking(false)
-      if (result.ok) onPick(id)
-      else setLine(result.reason)
-    } catch (err) {
-      if (mine !== seq.current) return
-      setChecking(false)
-      setUnchecked(id)
-      setLine(`${checkFailure(err, mac)} Use it again to start with it unchecked.`)
-    }
+  const pick = (next: string) => {
+    field.cancel()
+    onPick(next)
+  }
+  const dismiss = () => {
+    field.cancel()
+    onClose()
   }
 
   return (
-    <BottomSheet label="Model" onDismiss={onClose} variant="device" swipeToDismiss>
+    <BottomSheet label="Model" onDismiss={dismiss} variant="device" swipeToDismiss>
       <div className="flex items-baseline gap-2.5 px-1 pb-2">
         <h2 className="fs-18 font-bold">Model</h2>
         <span className="min-w-0 truncate font-mono fs-10.5 text-ink-900/60">
@@ -311,7 +239,7 @@ function ModelSheet({
               type="button"
               role="option"
               aria-selected={selected}
-              onClick={() => onPick(m.value)}
+              onClick={() => pick(m.value)}
               className={[
                 'flex h-[46px] shrink-0 items-center gap-2.5 border-b border-line/6 px-1.5 text-left text-ink-100',
                 selected ? 'bg-line/8' : '',
@@ -332,39 +260,12 @@ function ModelSheet({
       {/* Canvas 72d: Custom ID… under a hairline, last, never scrolled away. */}
       <div className="mt-1 border-t border-line/12">
         {typing ? (
-          // The field has no 72d frame; 72b's (TYPING A CUSTOM ID) at the row's mono size, 40 px for a finger.
-          <form
-            className="flex h-13 items-center gap-1.5 px-0.5"
-            onSubmit={(e) => {
-              e.preventDefault()
-              void use()
-            }}
-          >
-            <input
-              autoFocus
-              aria-label="Custom model ID"
-              placeholder="model ID"
-              value={draft}
-              onChange={(e) => edit(e.target.value)}
-              enterKeyHint="done"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              className="h-10 min-w-0 flex-1 rounded-[7px] border border-accent/50 bg-space/60 px-2.5 font-mono fs-13 text-ink-100 shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)] outline-none placeholder:text-ink-900/60"
-            />
-            <button
-              type="submit"
-              disabled={!draft.trim() || checking}
-              className="h-10 shrink-0 rounded-[7px] border border-line/18 px-3 fs-12 font-semibold text-ink-100 disabled:opacity-40"
-            >
-              {checking ? 'Checking…' : 'Use'}
-            </button>
-          </form>
+          <CustomModelListField field={field} onTake={use} autoFocus touch />
         ) : (
           <button
             type="button"
             onClick={() => {
-              edit(custom ?? '')
+              field.seed(custom ?? '', custom !== null)
               setTyping(true)
             }}
             className={['flex h-13 w-full items-center gap-2.5 px-1.5 text-left', custom ? 'bg-line/8' : ''].join(' ')}
@@ -374,11 +275,6 @@ function ModelSheet({
             </span>
             <span className="shrink-0 font-mono fs-10 tracking-[0.1em] text-ink-900/45">ANY ID ›</span>
           </button>
-        )}
-        {line && (
-          <p role="status" className="px-1.5 pb-1 font-mono fs-11 leading-[1.4] text-ink-900/70 [overflow-wrap:anywhere]">
-            {line}
-          </p>
         )}
       </div>
     </BottomSheet>

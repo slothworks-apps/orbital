@@ -75,6 +75,8 @@ column because it decides which models are offered. FIRST PROMPT spans both
 columns, so nothing in the dialog scrolls (63a). The two columns help every
 user, not only this feature.
 
+(Superseded for MODEL by spec 2026-11-27-recent-model-cards-design: the field is always one row of recent-model cards and Other.)
+
 MODEL stays tiles while every model plus Other fits in two rows of four.
 Past that it is one dropdown field, the shape of DEVICE, listing name and
 context, Other last. The list stops at eight and a half rows. The

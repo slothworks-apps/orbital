@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { KeyboardEvent as ReactKeyboardEvent, Ref } from 'react'
+import { useCustomModel } from '../lib/customModel'
 import { formatContextWindow } from '../lib/format'
-import { modelByValue, modelCardSlots, recentModelCards } from '../lib/models'
+import { modelByValue, recentModelCards } from '../lib/models'
 import type { OrbitalModel } from '../lib/types'
-import { CustomModelField } from './CustomModelField'
-import { ModelsUnread, contextLabel } from './ModelCards'
+import { CustomModelListField } from './CustomModelField'
+import { ModelsUnread, cardMetaLabel, contextLabel } from './ModelCards'
+import { useCardSlots } from './useCardSlots'
 import { useEscapeLayer } from './escapeLayer'
 import { usePresence } from './usePresence'
 import { POPUP_SHELL, usePopupPosition } from './usePopupPosition'
@@ -21,12 +23,16 @@ export interface ModelRowProps {
   defaultValue: string | null
   /** The selection: a catalog `value`, an id the catalog does not list (a custom ID), or null. */
   value: string | null
-  /** A catalog model was picked, from a card or from Other's list. */
+  /** A model was picked — from a card, from Other's list, or a custom ID typed there and validated. */
   onChange: (value: string) => void
-  /** A custom ID was typed in Other's list and validated. */
-  onCustom: (id: string) => void
   /** The Claude directory a custom ID is checked under; absent, the server's default. */
   claudeDir?: number
+  /**
+   * Whether Custom ID… is typed into with text not taken yet — not checked,
+   * being checked, or refused. The dialog holds Launch meanwhile, so ⌘⏎
+   * does not start on the previous model with the typed id left behind.
+   */
+  onPendingChange?: (pending: boolean) => void
 }
 
 /** canvas 72c: the gap between cards, and the list's distance under the row (top 64 = the 56 px row + 8). */
@@ -55,30 +61,17 @@ export function ModelRow({
   defaultValue,
   value,
   onChange,
-  onCustom,
   claudeDir,
+  onPendingChange,
 }: ModelRowProps) {
-  const rowRef = useRef<HTMLDivElement | null>(null)
   const otherRef = useRef<HTMLButtonElement | null>(null)
   const popupRef = useRef<HTMLDivElement | null>(null)
   const listboxId = `${useId()}-models`
   const optionId = useCallback((index: number) => `${listboxId}-${index}`, [listboxId])
 
-  const [width, setWidth] = useState(0)
   const hasModels = models.length > 0
-  useLayoutEffect(() => {
-    const el = rowRef.current
-    if (!el) return
-    setWidth(el.getBoundingClientRect().width)
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver((entries) => {
-      const next = entries[0]?.contentRect.width
-      if (next !== undefined) setWidth(next)
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [hasModels])
-  const slots = modelCardSlots(width)
+  // Unmeasured, the row holds the fewest cards rather than guessing a width.
+  const { ref: rowRef, slots } = useCardSlots(hasModels, 0)
 
   // Depends on nothing a click changes, so picking a card never reshuffles the row.
   const cards = useMemo(
@@ -104,22 +97,53 @@ export function ModelRow({
     setActiveIndex(index)
     setOpen(true)
   }
-  const close = useCallback((restoreFocus: boolean) => {
-    setOpen(false)
-    setTyping(false)
-    if (restoreFocus) otherRef.current?.focus()
-  }, [])
+
+  /**
+   * Custom ID…'s text, held here rather than in the field: closing the list
+   * — an outside press included — keeps what was typed for the next time it
+   * opens in this dialog. Any close drops a check still under way, so its
+   * answer never lands on a card picked since or pulls focus back.
+   */
+  const customId = useCustomModel({
+    onValidated: (id) => {
+      close(true)
+      if (id !== value) onChange(id)
+    },
+    onCleared: () => {},
+    claudeDir,
+  })
+  const cancelCheck = customId.cancel
+  const close = useCallback(
+    (restoreFocus: boolean) => {
+      setOpen(false)
+      setTyping(false)
+      cancelCheck()
+      if (restoreFocus) otherRef.current?.focus()
+    },
+    [cancelCheck],
+  )
+
+  const pending = open && typing && customId.text.trim() !== '' && customId.status !== 'valid'
+  const pendingRef = useRef(onPendingChange)
+  pendingRef.current = onPendingChange
+  useEffect(() => {
+    pendingRef.current?.(pending)
+  }, [pending])
+  useEffect(() => () => pendingRef.current?.(false), [])
 
   useEscapeLayer(open, () => close(true))
   // Registered after the list's, so it outranks it: Escape in the field goes back to the row (72b).
   useEscapeLayer(open && typing, () => {
     setTyping(false)
+    cancelCheck()
     otherRef.current?.focus()
   })
 
   const commit = (index: number) => {
     if (index === customIndex) {
       setActiveIndex(index)
+      // The Other card's custom ID, reopened, starts from that id, already taken; a draft kept from before stays.
+      if (!customId.text.trim() && custom && value) customId.seed(value, true)
       setTyping(true)
       return
     }
@@ -142,12 +166,11 @@ export function ModelRow({
       const target = e.target
       if (!(target instanceof Node)) return
       if (otherRef.current?.contains(target) || popupRef.current?.contains(target)) return
-      setOpen(false)
-      setTyping(false)
+      close(false)
     }
     document.addEventListener('pointerdown', onPointerDown, true)
     return () => document.removeEventListener('pointerdown', onPointerDown, true)
-  }, [open])
+  }, [open, close])
 
   function handleOtherKeyDown(e: ReactKeyboardEvent<HTMLButtonElement>) {
     if (!open) {
@@ -189,7 +212,7 @@ export function ModelRow({
   if (!hasModels) return <ModelsUnread />
 
   const otherName = !holds ? 'Other' : custom ? value : pickedRow!.shortVersion
-  const otherSub = !holds ? 'ALL MODELS' : custom ? 'CUSTOM ID' : cardSub(pickedRow!, defaultValue)
+  const otherSub = !holds ? 'ALL MODELS' : custom ? 'CUSTOM ID' : cardMetaLabel(pickedRow!, defaultValue)
   const otherTitle = !holds
     ? 'All models on this account, or a custom ID'
     : custom
@@ -210,7 +233,7 @@ export function ModelRow({
           <RowCard
             key={model.value}
             name={model.shortVersion}
-            sub={cardSub(model, defaultValue)}
+            sub={cardMetaLabel(model, defaultValue)}
             title={cardTitle(model)}
             on={value === model.value}
             dataModel={model.value}
@@ -294,16 +317,18 @@ export function ModelRow({
               {/* 72b: Custom ID… pinned under a hairline, 4px either side of it. */}
               <div className="mt-1 shrink-0 border-t border-line/10 pt-1">
                 {typing ? (
-                  <CustomModelField
-                    variant="in-list"
+                  <CustomModelListField
+                    field={customId}
                     autoFocus
-                    initial={custom && value ? { id: value, trusted: true } : undefined}
-                    onValidated={(id) => {
-                      close(true)
-                      if (id !== value) onCustom(id)
+                    onTake={() => {
+                      const id = customId.text.trim()
+                      if (!id) return
+                      // An id already valid (the one the Other card holds, reopened) is taken again as it is.
+                      if (customId.status === 'valid') {
+                        close(true)
+                        if (id !== value) onChange(id)
+                      } else void customId.validate()
                     }}
-                    onCleared={() => {}}
-                    claudeDir={claudeDir}
                   />
                 ) : (
                   <div
@@ -320,7 +345,7 @@ export function ModelRow({
                         custom ? 'text-ink-100' : 'text-ink-500/80',
                       ].join(' ')}
                     >
-                      {custom ? value : 'Custom ID…'}
+                      {custom ? value : customId.text.trim() || 'Custom ID…'}
                     </span>
                     <span className="shrink-0 font-mono fs-9.5 tracking-[0.1em] text-ink-900/45">ANY ID</span>
                     {custom && <Dot on />}
@@ -333,12 +358,6 @@ export function ModelRow({
         )}
     </>
   )
-}
-
-/** The card's context line (72c): `DEFAULT` leads it, so it is never the part an ellipsis cuts. */
-function cardSub(model: OrbitalModel, defaultValue: string | null): string {
-  if (model.value !== defaultValue) return contextLabel(model) ?? ' '
-  return model.contextWindow !== null ? `DEFAULT · ${formatContextWindow(model.contextWindow).toUpperCase()}` : 'DEFAULT'
 }
 
 function cardTitle(model: OrbitalModel): string {
@@ -358,29 +377,36 @@ function listRowClassName(active: boolean, selected: boolean): string {
   ].join(' ')
 }
 
-/** canvas 72b: the 7px accent dot marking the selection, on a card and on a row. */
-function Dot({ on, corner = false }: { on: boolean; corner?: boolean }) {
+/** canvas 72b: the 7px accent dot marking the selection, on a card and on a row; 72d's sits 10px in, 12px down. */
+function Dot({ on, corner, touch = false }: { on: boolean; corner?: boolean; touch?: boolean }) {
   return (
     <span
       aria-hidden
       className={[
         'block h-[7px] w-[7px] shrink-0 rounded-full bg-accent',
-        corner ? 'absolute right-2 top-2.5 transition-opacity duration-[180ms] ease-[ease]' : '',
+        corner
+          ? `absolute ${touch ? 'right-2.5 top-3' : 'right-2 top-2.5'} transition-opacity duration-[180ms] ease-[ease]`
+          : '',
         on ? 'opacity-100' : 'opacity-0',
       ].join(' ')}
     />
   )
 }
 
-interface RowCardProps {
+export interface RowCardProps {
   name: string
+  /** The context line; an empty one keeps its height. */
   sub: string
   title: string
   on: boolean
-  /** Other while its list is open: the accent edge at .5, not yet selected. */
+  /** Other while its list or sheet is open: the accent edge at .5, not yet selected. */
   lit?: boolean
   /** Other's ▾, turned over while its list is open. */
   caret?: 'down' | 'up'
+  /** `row` is the dialog's (canvas 72b), `touch` the phone's (72d). */
+  size?: 'row' | 'touch'
+  /** A card of the radio group; false for an Other that opens a sheet, which says its state through `aria`. */
+  radio?: boolean
   ariaLabel?: string
   dataModel?: string
   aria?: Record<string, string | boolean | undefined>
@@ -393,15 +419,31 @@ interface RowCardProps {
  * One card of the row (canvas 72b): 56 px tall, 10px inside a 10px radius,
  * the name in mono 11 over the context line in mono 9 at .04em, the dot in
  * the top right corner. Selected: the accent edge at .7 over an .08 wash
- * and a 20px glow, the context line in the accent.
+ * and a 20px glow, the context line in the accent. `touch` is 72d's: 60 px
+ * tall, 11px by 12px inside a 12px radius, the name in mono 12 over mono 9.5.
  */
-function RowCard({ name, sub, title, on, lit = false, caret, ariaLabel, dataModel, aria, onClick, onKeyDown, ref }: RowCardProps) {
+export function RowCard({
+  name,
+  sub,
+  title,
+  on,
+  lit = false,
+  caret,
+  size = 'row',
+  radio = true,
+  ariaLabel,
+  dataModel,
+  aria,
+  onClick,
+  onKeyDown,
+  ref,
+}: RowCardProps) {
+  const touch = size === 'touch'
   return (
     <button
       ref={ref}
       type="button"
-      role="radio"
-      aria-checked={on}
+      {...(radio ? { role: 'radio', 'aria-checked': on } : {})}
       aria-label={ariaLabel ?? name}
       title={title}
       data-active={on}
@@ -410,29 +452,32 @@ function RowCard({ name, sub, title, on, lit = false, caret, ariaLabel, dataMode
       onKeyDown={onKeyDown}
       {...aria}
       className={[
-        'relative box-border h-14 min-w-0 rounded-[10px] border p-2.5 text-left text-ink-100',
+        'relative box-border min-w-0 border text-left text-ink-100',
+        touch ? 'h-15 rounded-[12px] px-3 py-[11px]' : 'h-14 rounded-[10px] p-2.5',
         'transition-[border-color,background-color,box-shadow] duration-[180ms] ease-[ease]',
         on
           ? 'border-accent/70 bg-accent/8 shadow-[0_0_20px_color-mix(in_oklab,_var(--color-accent)_15%,_transparent)]'
           : lit
             ? 'border-accent/50 bg-space/40'
-            : 'border-line/14 bg-space/40 hover:bg-ink-50/5',
+            : 'border-line/14 bg-space/40',
       ].join(' ')}
     >
-      <Dot on={on} corner />
-      <span className="block truncate pr-2 font-mono fs-11">{name}</span>
+      <Dot on={on} corner touch={touch} />
+      <span className={['block truncate font-mono', touch ? 'pr-2.5 fs-12' : 'pr-2 fs-11'].join(' ')}>{name}</span>
       <span
         className={[
-          'mt-[5px] flex items-center gap-1 font-mono fs-9 tracking-[0.04em]',
+          'flex items-center gap-1 font-mono tracking-[0.04em]',
+          touch ? 'mt-1.5 fs-9.5' : 'mt-[5px] fs-9',
           on ? 'text-accent' : 'text-ink-900/50',
         ].join(' ')}
       >
-        <span className="min-w-0 flex-1 truncate">{sub}</span>
+        <span className="min-w-0 flex-1 truncate">{sub || '\u00a0'}</span>
         {caret && (
           <span
             aria-hidden
             className={[
-              'block flex-none fs-8 text-ink-900/60 transition-transform duration-200 ease-[ease]',
+              'block flex-none text-ink-900/60 transition-transform duration-200 ease-[ease]',
+              touch ? 'fs-9' : 'fs-8',
               caret === 'up' ? 'rotate-180' : '',
             ].join(' ')}
           >

@@ -37,7 +37,7 @@ describe('loadSessions', () => {
     const tags: Tag[] = [{ id: 1, name: 'orbital', hue: 200, is_default: 1 }]
     vi.mocked(api.listSessionPage).mockResolvedValue({ sessions: [session('a', 1)], ended: { count: 3, latestAt: 9 } })
     vi.mocked(api.listTags).mockResolvedValue(tags)
-    vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
+    vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {}, recentModels: [] })
     await expect(useOrbital.getState().loadSessions()).resolves.toEqual({ count: 3, latestAt: 9 })
     expect(api.listSessionPage).toHaveBeenCalledTimes(1)
     expect(api.listSessionPage).toHaveBeenCalledWith({ ended: 'exclude' })
@@ -55,7 +55,7 @@ describe('loadSessions', () => {
         : { sessions: [session('live', 2), session('done', 1, { status: 'ended' })] },
     )
     vi.mocked(api.listTags).mockResolvedValue([])
-    vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
+    vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {}, recentModels: [] })
     await expect(useOrbital.getState().loadSessions({ endedToo: true })).resolves.toBeNull()
     expect(useOrbital.getState().order).toEqual(['live', 'done'])
   })
@@ -69,7 +69,7 @@ describe('loadSessions and the question drafts', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.mocked(api.listTags).mockResolvedValue([])
-    vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
+    vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {}, recentModels: [] })
   })
 
   it('drops a draft only when the Mac that owns it answered without it', async () => {

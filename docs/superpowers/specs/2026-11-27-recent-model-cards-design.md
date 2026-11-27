@@ -7,6 +7,7 @@ domain: sessions
 related:
   - models-come-from-the-sdk
   - 2026-11-02-work-in-a-worktree-design
+  - a-member-is-granted-groups-of-the-allowlist
 tags:
   - new-session
   - models
@@ -52,6 +53,21 @@ once a year.
 - No history yet (a new install, a new account): the Settings default and
   then the catalog's own order fill the cards, which is what the dialog
   shows today for a short catalog.
+
+### Staying put while choosing
+
+- The cards follow the freshest data (the cached list, then the read made
+  on open, then the typed directory's preselection) until the first pick
+  in this open; after it the row does not change. A change before the
+  pick uses the row's fade.
+- Launch waits while Custom ID… holds text that is not yet taken (being
+  typed, being checked, or refused). A press outside closes the list but
+  keeps the typed text for the next open.
+- A check still out when the list or the sheet closes, or another model
+  is picked, is dropped.
+- After a profile or device switch, a pick the new account does not list
+  goes back to that account's preselection; it is never launched
+  unchecked under the other account.
 
 ### How many cards
 

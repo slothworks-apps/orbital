@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
@@ -105,6 +105,33 @@ describe('the phone New session model cards', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use' }))
     expect(launched).toBe('claude-x-1')
     expect(api.validateModel).toHaveBeenCalledTimes(1)
+  })
+
+  it('a check still out when a model is picked from the sheet never lands', async () => {
+    let settle: (v: Awaited<ReturnType<typeof api.validateModel>>) => void = () => {}
+    vi.mocked(api.validateModel).mockImplementation(() => new Promise((r) => (settle = r)))
+    render(<Host />)
+    openSheet()
+    fireEvent.click(screen.getByRole('button', { name: /Custom ID/ }))
+    fireEvent.change(screen.getByLabelText('Custom model ID'), { target: { value: 'claude-late-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Use' }))
+    fireEvent.click(screen.getByRole('option', { name: /Opus 5.5/ }))
+    expect(launched).toBe('opus')
+    await act(async () => {
+      settle({ ok: true, model: 'claude-late-1', resolvedModel: null, contextWindow: null })
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(launched).toBe('opus')
+  })
+
+  it('a refusal names the grant the Mac asks for', async () => {
+    vi.mocked(api.validateModel).mockRejectedValue(new ApiError(JSON.stringify({ error: 'not_granted', grant: 'spawn' }), 403))
+    render(<Host />)
+    openSheet()
+    fireEvent.click(screen.getByRole('button', { name: /Custom ID/ }))
+    fireEvent.change(screen.getByLabelText('Custom model ID'), { target: { value: 'claude-x-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Use' }))
+    expect(await screen.findByText(/Start sessions/)).toBeInTheDocument()
   })
 
   it('with no history from an older Mac, the default comes first', () => {

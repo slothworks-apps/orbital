@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api } from '../../lib/api'
 import { tagColor, type PermissionMode, type SessionDefaults } from '../../lib/types'
 import { timeAgo } from '../../lib/format'
-import { useClaudeDirCatalog } from '../../lib/useClaudeDirModels'
+import { useClaudeDirCatalog, useHeldCardSource } from '../../lib/useClaudeDirModels'
 import { modelByAnyId, modelNameForId } from '../../lib/models'
 import { useNow } from '../../lib/useNow'
 import { Composer, type ComposerControl } from '../../panels/Composer'
@@ -239,8 +239,9 @@ export function NewSessionScreen() {
   /** 44d's hint beside the row: where the choice came from. */
   const claudeDirHint =
     pickedDir !== null && pickedDir !== prefill?.id ? 'changed' : prefill?.from === 'last' ? 'last launch' : 'default'
-  /** The chosen directory's catalog and its recent models: each account has its own. */
-  const { models, recent } = useClaudeDirCatalog(claudeDirId, true, machine ?? undefined)
+  /** The chosen directory's catalog and its recent models: each account has its own. Read again on every visit. */
+  const catalog = useClaudeDirCatalog(claudeDirId, true, machine ?? undefined, { refresh: true })
+  const { models } = catalog
 
   const suggestions = useDirectorySuggestions(cwd, projects)
   const { rows, focused: dirFocused } = suggestions
@@ -248,6 +249,12 @@ export function NewSessionScreen() {
   const project = projects.find((p) => p.cwd === cwd.trim())
   const autoModel = defaults ? preselectModel({ defaults, project, models }) : (models[0]?.value ?? null)
   const model = pickedModel ?? autoModel
+  /** What the cards are drawn from, held once a model is picked (`useHeldCardSource`). */
+  const cardSource = useHeldCardSource(
+    { models, recent: catalog.recent, preselected: autoModel, standIn: catalog.standIn },
+    `${machine ?? ''}|${claudeDirId ?? ''}`,
+    pickedModel !== null,
+  )
   /** Canvas 72d's hint beside MODEL. */
   const modelHint = !cwd.trim()
     ? undefined
@@ -626,10 +633,10 @@ export function NewSessionScreen() {
               <ModeCards value={mode} onChange={setPickedMode} touch />
             </div>
             <NewSessionModel
-              models={models}
-              recent={recent}
+              models={cardSource.models}
+              recent={cardSource.recent}
               value={model}
-              preselected={autoModel}
+              preselected={cardSource.preselected}
               defaultValue={modelByAnyId(defaults?.model, models)?.value ?? null}
               lastLine={modelHint}
               account={choosesDir ? (dirs.find((d) => d.id === claudeDirId)?.name ?? null) : null}

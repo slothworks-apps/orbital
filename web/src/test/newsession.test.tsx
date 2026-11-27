@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import type { ApiSession, GroupMember, HarnessTemplate, OrbitalModel, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 
@@ -506,6 +506,54 @@ describe('NewSessionDialog — model group (4b)', () => {
     await waitFor(() =>
       expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-opus-4-6' }))
     )
+  })
+
+  it('drops a custom ID check still out when a card is picked meanwhile', async () => {
+    resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([])
+    let settle: (v: Awaited<ReturnType<typeof api.validateModel>>) => void = () => {}
+    vi.mocked(api.validateModel).mockImplementation(() => new Promise((r) => (settle = r)))
+    render(<NewSessionDialog open onClose={() => {}} />)
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'Other' }))
+    fireEvent.click(screen.getByRole('option', { name: /Custom ID…/ }))
+    const field = screen.getByLabelText('Custom model ID')
+    fireEvent.change(field, { target: { value: 'claude-late-1' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(api.validateModel).toHaveBeenCalledWith('claude-late-1')
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Haiku 4.5' }))
+    await act(async () => {
+      settle({ ok: true, model: 'claude-late-1', resolvedModel: 'claude-late-1', contextWindow: null })
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(screen.getByRole('radio', { name: 'Haiku 4.5' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: 'Other' })).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('holds Launch while a custom ID is typed and not taken, ⌘⏎ included', async () => {
+    resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([])
+    vi.mocked(api.createSession).mockResolvedValue('new-1')
+    render(<NewSessionDialog open onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+    const launch = screen.getByRole('button', { name: /Launch session/ })
+    await waitFor(() => expect(launch).toBeEnabled())
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Other' }))
+    fireEvent.click(screen.getByRole('option', { name: /Custom ID…/ }))
+    const field = screen.getByLabelText('Custom model ID')
+    fireEvent.change(field, { target: { value: 'claude-typed-1' } })
+    await waitFor(() => expect(launch).toBeDisabled())
+    fireEvent.keyDown(field, { key: 'Enter', metaKey: true })
+    await Promise.resolve()
+    expect(api.createSession).not.toHaveBeenCalled()
+
+    // Cleared, the row's selection launches again.
+    fireEvent.change(field, { target: { value: '' } })
+    await waitFor(() => expect(launch).toBeEnabled())
   })
 
   it('keeps a rejected custom ID out of the selection', async () => {
@@ -1060,6 +1108,29 @@ describe('NewSessionDialog — the Claude directory', () => {
     fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
     await waitFor(() =>
       expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ claudeDirId: 2 })),
+    )
+  })
+
+  it('takes a model the new profile does not offer back to the preselection, unchecked never', async () => {
+    vi.mocked(api.createSession).mockResolvedValue('s1')
+    vi.mocked(api.listProjects).mockResolvedValue([])
+    const work = { ...MODELS[0], value: 'work-only', shortVersion: 'Work 1' }
+    vi.mocked(api.listModels).mockImplementation(async (dir) =>
+      dir === 2
+        ? { models: [work], contextWindows: {}, recentModels: [] }
+        : { models: MODELS, contextWindows: {}, recentModels: [] },
+    )
+    resetStore({ models: MODELS, claudeDirs: dirs, defaultClaudeDir: 1, lastClaudeDir: 1 })
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+    fireEvent.click(await screen.findByRole('radio', { name: 'Haiku 4.5' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Work' }))
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Work 1' })).toHaveAttribute('aria-checked', 'true'))
+
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ claudeDirId: 2, model: 'work-only' })),
     )
   })
 

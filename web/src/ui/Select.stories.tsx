@@ -71,14 +71,6 @@ const CHIP_MODELS: SelectOption<string>[] = [
   { value: 'haiku', label: 'Haiku', sub: 'fastest' },
 ]
 
-const MODELS: SelectOption<string>[] = [
-  { value: 'default', label: 'Default', sub: 'whatever Claude Code is set to' },
-  { value: 'opus', label: 'Opus 4.6', sub: '1M ctx' },
-  { value: 'sonnet', label: 'Sonnet 4.5', sub: '200K ctx' },
-  { value: 'haiku', label: 'Haiku 4.5', sub: '200K ctx' },
-  { value: 'other', label: 'Other', sub: 'any model id Claude Code accepts' },
-]
-
 const THEMES: SelectOption<string>[] = COLOUR_THEMES.map((theme) => ({
   value: theme.id,
   label: theme.name,
@@ -128,7 +120,6 @@ const VARIANTS: Record<Variant, Omit<Partial<DemoProps>, 'onChange'> & Pick<Demo
   chip: { options: CHIP_MODELS, value: 'opus' },
   swatch: { options: THEMES, value: 'deep-field', font: 'sans', className: 'w-[300px]' },
   branch: { options: BRANCHES, value: 'HEAD', search: BRANCH_SEARCH, className: 'w-[300px]' },
-  model: { options: MODELS, value: 'opus', className: 'w-[300px]' },
 }
 
 const VARIANT_NAMES = Object.keys(VARIANTS) as Variant[]
@@ -237,4 +228,3 @@ export const OpenDevice = open('device')
 export const OpenChip = open('chip')
 export const OpenSwatch = open('swatch')
 export const OpenBranch = open('branch')
-export const OpenModel = open('model')

@@ -17,9 +17,9 @@ Every member of the group reaches one literal allowlist: the set of routes that 
 But what a member _is permitted_ to reach is not always what it _may_ reach. A member may lack the grant for some of the allowlisted routes. The grant groups on the allowlist partition the routes: every route belongs to exactly one group. The groups are:
 
 - `sessions` (default on): read and drive sessions.
-- `spawn` (default on): start sessions.
+- `spawn` (default on): start sessions, including checking a custom model id for one (moved from `manage` by spec 2026-11-27-recent-model-cards-design: the check is one stripped turn, less than the session the same grant starts).
 - `settings` (default on): settings, tags, tag rules, harness templates.
-- `manage` (default off): this device's upkeep (Claude directories, errors, branch status, model validation, retention preview, session tips).
+- `manage` (default off): this device's upkeep (Claude directories, errors, branch status, retention preview, session tips).
 - `ide` (default off): the IDE bridge of this device's sessions.
 
 The device grants each member the groups it trusts it to access. The user controls these grants in Settings → Devices, per member. A member removed from the group takes its grants along.

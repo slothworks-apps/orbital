@@ -81,7 +81,6 @@ const meta = {
     value: 'opus',
     defaultValue: 'sonnet',
     compact: false,
-    dense: false,
     disabled: false,
     onChange: fn(),
   },
@@ -97,7 +96,7 @@ type Story = StoryObj<typeof meta>
 
 export const Playground: Story = {}
 
-/** New session's full cards, Settings' `compact` ones, and New session's `dense` column — each with the Other card. */
+/** New session's full cards and Settings' `compact` ones, each with the Other card. */
 export const Variants: Story = {
   render: (args) => (
     <div className="flex flex-col items-start gap-8">
@@ -108,10 +107,6 @@ export const Variants: Story = {
       <div className="flex w-[320px] flex-col gap-1.5">
         <ModelCardsDemo {...args} compact other={{ active: false, onSelect: fn() }} />
         <span className="font-mono fs-10.5 text-ink-900/60">compact</span>
-      </div>
-      <div className="flex w-[420px] flex-col gap-1.5">
-        <ModelCardsDemo {...args} dense other={{ active: false, onSelect: fn() }} />
-        <span className="font-mono fs-10.5 text-ink-900/60">dense</span>
       </div>
     </div>
   ),

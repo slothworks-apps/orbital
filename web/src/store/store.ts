@@ -1594,7 +1594,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       settingsLoaded: true,
       models: modelsPayload.models,
       contextWindows: modelsPayload.contextWindows,
-      recentModels: modelsPayload.recentModels ?? [],
+      recentModels: modelsPayload.recentModels,
       errors: errorPage?.errors ?? [],
       errorsUnseen: errorPage?.unseen ?? 0,
       sessionsTotal,
@@ -1645,7 +1645,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     set((state) => ({
       models: modelsPayload.models,
       contextWindows: modelsPayload.contextWindows,
-      recentModels: modelsPayload.recentModels ?? [],
+      recentModels: modelsPayload.recentModels,
       // Read fresh from the Macs: a draft whose decision is gone from a Mac
       // that answered is settled; one on a Mac asleep or that did not answer is kept.
       decisionDrafts: draftsStillPending(state.decisionDrafts, state.pendingDecisions, state.sessions, pendingBefore, unanswered),

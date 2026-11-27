@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useEffect, useRef, useState } from 'react'
 import type { OrbitalModel } from '../lib/types'
-import { ModelRow, type ModelRowProps } from './ModelRow'
+import { ModelRow, RowCard, type ModelRowProps } from './ModelRow'
 
 const row = (value: string, shortVersion: string, contextWindow: number): OrbitalModel => ({
   value,
@@ -29,7 +29,7 @@ const MODELS: OrbitalModel[] = [
 ]
 const RECENT = ['opus-5-5', 'sonnet-5-5', 'fable-5-2', 'haiku-5-5', 'opus-4-8']
 
-interface DemoProps extends Omit<ModelRowProps, 'onChange' | 'onCustom'> {
+interface DemoProps extends Omit<ModelRowProps, 'onChange'> {
   /** The column's width: it decides how many cards the row holds (72c). */
   width?: number
   /** Opens Other's list on mount, so the catalogue shows it. */
@@ -48,7 +48,7 @@ function ModelRowDemo({ width = 418, openOnMount = false, value: initial, ...pro
   }, [openOnMount])
   return (
     <div ref={ref} style={{ width }} className={openOnMount ? 'min-h-[460px]' : undefined}>
-      <ModelRow {...props} value={value} onChange={setValue} onCustom={setValue} />
+      <ModelRow {...props} value={value} onChange={setValue} />
     </div>
   )
 }
@@ -102,3 +102,21 @@ export const Widths: Story = {
 
 /** Narrow: one recent model and Other. */
 export const Narrow: Story = { args: { width: 300 } }
+
+/** `RowCard` in both sizes: the dialog's row (72b) and the phone's `touch` (72d), resting, selected and Other lit. */
+export const CardSizes: Story = {
+  render: () => (
+    <div className="flex flex-col gap-6">
+      {(['row', 'touch'] as const).map((size) => (
+        <div key={size} className="flex flex-col gap-1.5">
+          <div className="grid w-[358px] grid-cols-3 gap-2">
+            <RowCard size={size} name="Sonnet 5.5" sub="DEFAULT · 1M" title="Sonnet 5.5" on onClick={() => {}} />
+            <RowCard size={size} name="Opus 5.5" sub="1M CTX" title="Opus 5.5" on={false} onClick={() => {}} />
+            <RowCard size={size} name="Other" sub="ALL MODELS" title="Other" on={false} lit caret="down" onClick={() => {}} />
+          </div>
+          <span className="font-mono fs-10.5 text-ink-900/60">{size}</span>
+        </div>
+      ))}
+    </div>
+  ),
+}

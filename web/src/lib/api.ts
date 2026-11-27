@@ -1176,7 +1176,7 @@ export const api = {
   async listModels(
     claudeDir?: number,
     machine?: string,
-  ): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number>; recentModels?: string[] }> {
+  ): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number>; recentModels: string[] }> {
     const params = new URLSearchParams()
     if (claudeDir !== undefined) params.set('claudeDir', String(claudeDir))
     if (machine !== undefined) params.set('machine', machine)

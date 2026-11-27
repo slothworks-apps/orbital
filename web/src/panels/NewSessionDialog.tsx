@@ -30,7 +30,7 @@ import {
   claudeDirOriginHint,
   type ClaudeDirOrigin,
 } from './ClaudeDirChoice'
-import { useClaudeDirCatalog } from '../lib/useClaudeDirModels'
+import { useClaudeDirCatalog, useHeldCardSource } from '../lib/useClaudeDirModels'
 import { permissionMode as permissionModeDescriptor } from '../lib/permissionModes'
 import type { PermissionMode, Tag } from '../lib/types'
 import {
@@ -76,6 +76,9 @@ export interface NewSessionDialogProps {
 /** Delay before firing `previewRule` after cwd/mode settle — avoids a
  * request per keystroke while typing a path. */
 const PREVIEW_DEBOUNCE_MS = 300
+
+/** `modelScope` of a prefill's model, until it settles on the account the dialog lands on. */
+const CARRIED_SCOPE = '\u0000carried'
 
 /**
  * The device the last launch from this dialog went to (canvas 50g: the
@@ -235,6 +238,16 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [model, setModel] = useState<string | null>(null)
   /** Once the user picks a model, a later cwd change must not move it. */
   const [modelOverridden, setModelOverridden] = useState(false)
+  /** A model was picked by hand in this open: the cards hold still from then on (`useHeldCardSource`). */
+  const [cardsHeld, setCardsHeld] = useState(false)
+  /**
+   * The account (`catalogScope`) the chosen model was picked, validated or
+   * carried under. `CARRIED_SCOPE` until a prefill's model has settled where
+   * it landed.
+   */
+  const [modelScope, setModelScope] = useState<string | null>(null)
+  /** Custom ID… holds text not taken yet (`ModelRow`'s `onPendingChange`): Launch waits for it. */
+  const [customPending, setCustomPending] = useState(false)
   /**
    * The progress list switch as the user set it this time; null follows the
    * directory's last launch (canvas 67f "remembers the last choice per
@@ -310,26 +323,35 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     planet: claudeDirPrefilled.planet,
     changed: claudeDirId !== claudeDirPrefilled.id,
   }
-  /** The chosen directory's catalog and its recent models: each account has its own; another device's default one's there. */
-  const catalog = useClaudeDirCatalog(remote ? null : claudeDirId, open, machine)
-  const models = catalog.models
-  /** The selection is an id the catalog does not list: Other holds it as a custom ID (canvas 72b). */
-  const otherActive = model !== null && !modelByValue(model, models)
   /**
-   * The model row fades out and in when the catalog changes under it — another
-   * profile, another device (canvas 72c: "switching profile still fades the
-   * row out and in"). The outgoing row keeps the catalog it was drawn with.
+   * The chosen directory's catalog and its recent models: each account has
+   * its own; another device's default one's there. Read again on every open,
+   * so a model a CLI update added shows without a reload.
    */
-  const catalogId = `${machine ?? ''}|${remote ? '' : (claudeDirId ?? '')}|${models.map((m) => m.value).join(',')}`
-  const catalogRecent = catalog.recent
-  const modelRow = useNoticeSwap(
-    useMemo(() => ({ id: catalogId, models, recent: catalogRecent }), [catalogId, models, catalogRecent]),
-  )
-  const rowCatalog = modelRow.shown?.id === catalogId ? catalog : (modelRow.shown ?? catalog)
+  const catalog = useClaudeDirCatalog(remote ? null : claudeDirId, open, machine, { refresh: true })
+  const models = catalog.models
+  /** The account the catalog is this device's directory's, or another device's. */
+  const catalogScope = `${machine ?? ''}|${remote ? '' : (claudeDirId ?? '')}`
   const pickModel = (next: string) => {
     setModelOverridden(true)
+    setCardsHeld(true)
+    setModelScope(catalogScope)
     setModel(next)
   }
+  // A prefill's model counts as taken under the account the dialog lands on with it.
+  if (modelScope === CARRIED_SCOPE) setModelScope(catalogScope)
+  /**
+   * A model picked under another profile or device that this catalog does not
+   * list: never launched unchecked. Once the catalog of the account now
+   * chosen is in, it goes back to the preselection.
+   */
+  const modelUnchecked =
+    modelOverridden && model !== null && !modelByValue(model, models) && modelScope !== null && modelScope !== CARRIED_SCOPE && modelScope !== catalogScope
+  useEffect(() => {
+    if (open && modelUnchecked && !catalog.standIn) setModelOverridden(false)
+  }, [open, modelUnchecked, catalog.standIn])
+  /** What holds Launch for the model: a custom ID typed and not taken, or a pick not checked under this account. */
+  const modelBlocked = customPending || modelUnchecked
 
   /** Whether the chosen member offers the progress list: its own Labs setting, from its session defaults. */
   const [memberProgress, setMemberProgress] = useState<{ device: string; offered: boolean } | null>(null)
@@ -396,6 +418,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       // preselection below, which sets the model and Other again — now and
       // once the device's own catalog lands.
       setModelOverridden(false)
+      setCardsHeld(false)
       loadProjects(id, { fallback: id === LOCAL_DEVICE ? lastLaunch(settings).cwd : '' })
     },
     [loadProjects, settings],
@@ -458,6 +481,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     if (p.model !== null) {
       setModel(p.model)
       setModelOverridden(true)
+      setModelScope(CARRIED_SCOPE)
     }
     if (p.claudeDirId !== null) {
       setClaudeDirId(p.claudeDirId)
@@ -498,6 +522,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setMadeTagId(null)
       setModel(null)
       setModelOverridden(false)
+      setCardsHeld(false)
+      setModelScope(null)
+      setCustomPending(false)
       setProgressPick(null)
       setPending(false)
       setWithHarness(false)
@@ -596,6 +623,22 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     const row = modelByAnyId(preferredModel, models)
     setModel(preferredModel && !row ? preferredModel : (row ?? models[0]).value)
   }, [open, modelOverridden, models, preferredModel])
+
+  /**
+   * What the cards are drawn from, held once a model is picked by hand. The
+   * row fades out and in when that changes under it — another profile,
+   * another device, this open's fresh read bringing other recent models
+   * (canvas 72c: "switching profile still fades the row out and in"). The
+   * outgoing row keeps what it was drawn with.
+   */
+  const cardSource = useHeldCardSource(
+    { models, recent: catalog.recent, preselected: preselectedModel, standIn: catalog.standIn },
+    catalogScope,
+    cardsHeld,
+  )
+  const catalogId = `${catalogScope}|${cardSource.models.map((m) => m.value).join(',')}|${cardSource.recent.join(',')}`
+  const modelRow = useNoticeSwap(useMemo(() => ({ id: catalogId, ...cardSource }), [catalogId, cardSource]))
+  const rowCatalog = modelRow.shown?.id === catalogId ? cardSource : (modelRow.shown ?? cardSource)
 
   // Debounced auto-match: re-preview whenever cwd or permission mode
   // changes, and (unless the user has manually overridden) adopt the match.
@@ -753,7 +796,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
    * spawns until the question is answered (47e "Trigger").
    */
   const handleLaunch = useCallback(async () => {
-    if (!cwd.trim() || pending || worktreeBlocked) return
+    if (!cwd.trim() || pending || worktreeBlocked || modelBlocked) return
     // Step 2 launches with the harness or not at all: a plain launch is step 1's.
     if (step2 && !harnessLaunch) return
     setPending(true)
@@ -778,7 +821,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       return
     }
     await launch()
-  }, [cwd, pending, worktreeBlocked, choosesDir, claudeDirId, launch, machine, step2, harnessLaunch])
+  }, [cwd, pending, worktreeBlocked, modelBlocked, choosesDir, claudeDirId, launch, machine, step2, harnessLaunch])
 
   /**
    * *Create and launch*. A directory just made has no `.mcp.json` to ask
@@ -870,7 +913,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             newline is stripped by JSX, which would run the count straight
             into the model name. */}
         {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
-        {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
+        {modelByValue(model, models)?.shortVersion ?? model ?? 'default model'} · {permissionMode}
         {/* 67f: the summary says whether the session starts with a list; one on a harness never does. */}
         {progressOffered && step2 ? ' · no progress list' : progressList ? ' · progress list' : null}
         {/* Spec § The footer summary: where the worktree comes from. */}
@@ -897,7 +940,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       ? 'Fix the worktree line in ‹ Back to launch'
       : worktreeBlocked
         ? 'Fetching origin for the worktree…'
-        : null
+        : modelBlocked
+          ? 'Take or clear the custom model ID in ‹ Back to launch'
+          : null
   const harnessShell = step2
     ? {
         title: 'With a harness',
@@ -940,7 +985,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               size="lg"
               onClick={() => void handleLaunch()}
               disabled={
-                pending || !harnessReady || !cwd.trim() || blocksLaunch(dirState) || worktreeBlocked
+                pending || !harnessReady || !cwd.trim() || blocksLaunch(dirState) || worktreeBlocked || modelBlocked
               }
             >
               Launch with harness <span className="font-mono fs-10 opacity-70">⌘⏎</span>
@@ -1063,7 +1108,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               variant="primary"
               size="lg"
               onClick={() => void handleLaunch()}
-              disabled={pending || !cwd.trim() || blocksLaunch(dirState) || worktreeBlocked}
+              disabled={pending || !cwd.trim() || blocksLaunch(dirState) || worktreeBlocked || modelBlocked}
             >
               Launch session <span className="font-mono fs-10 opacity-70">⌘⏎</span>
             </Button>
@@ -1309,11 +1354,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     <ModelRow
                       models={rowCatalog.models}
                       recent={rowCatalog.recent}
-                      preselected={preselectedModel}
+                      preselected={rowCatalog.preselected}
                       defaultValue={settings.default_model ?? null}
                       value={model}
                       onChange={pickModel}
-                      onCustom={pickModel}
+                      onPendingChange={setCustomPending}
                       claudeDir={choosesDir && claudeDirId !== null ? claudeDirId : undefined}
                     />
                   </div>
@@ -1453,7 +1498,6 @@ function existingTag(tags: Tag[], name: string): Tag | undefined {
   return wanted ? tags.find((t) => t.name.toLowerCase() === wanted) : undefined
 }
 
-/** The model dropdown's rows (63a): name and context window, Other last. */
 /**
  * The TAG row's last chip (canvas `Feature - Tag chips` 80c, spec
  * 2026-10-25-tag-toggles-and-order-design § 3): + New tag turns into a name
