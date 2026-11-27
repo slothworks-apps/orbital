@@ -38,8 +38,9 @@ function useCardSlots(drawn: boolean) {
 
 /**
  * Why a custom id could not be checked — the check never ran, so it says
- * nothing about the id. `POST /api/models/validate` is behind the `manage`
- * grant, off for a paired phone by default.
+ * nothing about the id. `POST /api/models/validate` is behind the `spawn`
+ * grant this screen already needs; a Mac older than the recent-model cards
+ * keeps it behind `manage`, off for a paired phone by default.
  */
 function checkFailure(err: unknown, mac: string): string {
   if (err instanceof ApiError && err.status === 403) {

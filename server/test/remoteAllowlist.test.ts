@@ -78,7 +78,7 @@ describe('remote allowlist', () => {
       ['POST', '/api/claude-dirs', 'manage'],
       ['PATCH', '/api/claude-dirs/2', 'manage'],
       ['DELETE', '/api/claude-dirs/2', 'manage'],
-      ['POST', '/api/models/validate', 'manage'],
+      ['POST', '/api/models/validate', 'spawn'],
       ['POST', '/api/branch-status/refresh', 'manage'],
       ['GET', '/api/sessions/retention-preview', 'manage'],
       ['GET', '/api/session-instructions/tips', 'manage'],

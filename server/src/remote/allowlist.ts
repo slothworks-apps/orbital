@@ -141,6 +141,9 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   // included: only for who may launch (spec 2026-11-09-harness-from-new-session-design).
   ['GET', '/api/sessions/harness-templates', 'spawn'],
   ['GET', '/api/models', 'spawn'],
+  // New session's Custom ID…: one stripped turn, less than the session the
+  // same grant may start (spec 2026-11-27-recent-model-cards-design § Phone).
+  ['POST', '/api/models/validate', 'spawn'],
   ['GET', '/api/commands', 'spawn'],
   // The New Session question about a project's `.mcp.json` servers; its
   // answers ride `POST /api/sessions` (spec 2026-10-08-mcpjson-approval-design).
@@ -206,7 +209,6 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['POST', '/api/errors/seen', 'manage'],
   ['GET', '/api/gh-status', 'manage'],
   ['POST', '/api/branch-status/refresh', 'manage'],
-  ['POST', '/api/models/validate', 'manage'],
   ['GET', '/api/sessions/retention-preview', 'manage'],
   ['GET', '/api/session-instructions/tips', 'manage'],
 

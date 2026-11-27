@@ -103,6 +103,13 @@ comes with `GET /api/models`, which is already on the allowlist. A phone
 ahead of its Mac gets no `recentModels` from an older Mac and falls back to
 the default-then-catalog order, so no `MAC_FEATURES` gate is needed.
 
+Custom ID… checks the id through `POST /api/models/validate`, which moves
+from the `manage` grant to `spawn`: the check is one stripped turn, less
+than the session the same grant starts. An older Mac still asks for
+`manage`; when the check cannot run at all (grant refused, older Mac,
+tunnel down) the phone says why and a second Use takes the id unchecked.
+An id the check rejects is never taken.
+
 ## Design
 
 Claude Design, `Feature - Model cards.dc.html` in the Orbital canvas
