@@ -381,6 +381,8 @@ export interface OrbitalState {
    * catalog — the exact-id fallback denominator for a session whose resolved
    * model matches no catalog row (fix: revived-session-shows-no-context-gauge). */
   contextWindows: Record<string, number>
+  /** The default directory's recently used model ids, newest first (`GET /api/models`). */
+  recentModels: string[]
   /**
    * The configured Claude directories, names only, and the two the New
    * session choice falls back to — read once from `GET /api/sessions/defaults`,
@@ -1501,6 +1503,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   rules: [],
   models: [],
   contextWindows: {},
+  recentModels: [],
   claudeDirs: [],
   defaultClaudeDir: null,
   lastClaudeDir: null,
@@ -1555,7 +1558,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         api.getSettings(),
         // Best-effort: a failed probe with nothing cached yields [], and every
         // surface that reads the catalog has an empty state for exactly that.
-        api.listModels().catch(() => ({ models: [] as OrbitalModel[], contextWindows: {} })),
+        api.listModels().catch(() => ({ models: [] as OrbitalModel[], contextWindows: {}, recentModels: [] as string[] })),
         // Also best-effort, and for a sharper reason than the catalog's: this
         // is the error surface. It failing must not be the thing that stops
         // the app from mounting and showing the other errors.
@@ -1591,6 +1594,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       settingsLoaded: true,
       models: modelsPayload.models,
       contextWindows: modelsPayload.contextWindows,
+      recentModels: modelsPayload.recentModels ?? [],
       errors: errorPage?.errors ?? [],
       errorsUnseen: errorPage?.unseen ?? 0,
       sessionsTotal,
@@ -1632,7 +1636,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       api.listSessionPage({ ended: 'exclude' }),
       opts.endedToo ? api.listSessionPage({ ended: 'only' }) : null,
       api.listTags(),
-      api.listModels().catch(() => ({ models: [] as OrbitalModel[], contextWindows: {} })),
+      api.listModels().catch(() => ({ models: [] as OrbitalModel[], contextWindows: {}, recentModels: [] as string[] })),
     ])
     const pendingBefore = get().pendingDecisions
     // A Mac that ignores `ended` answers both with every session; the map keeps one of each.
@@ -1641,6 +1645,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     set((state) => ({
       models: modelsPayload.models,
       contextWindows: modelsPayload.contextWindows,
+      recentModels: modelsPayload.recentModels ?? [],
       // Read fresh from the Macs: a draft whose decision is gone from a Mac
       // that answered is settled; one on a Mac asleep or that did not answer is kept.
       decisionDrafts: draftsStillPending(state.decisionDrafts, state.pendingDecisions, state.sessions, pendingBefore, unanswered),

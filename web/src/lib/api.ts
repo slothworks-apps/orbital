@@ -1176,16 +1176,17 @@ export const api = {
   async listModels(
     claudeDir?: number,
     machine?: string,
-  ): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number> }> {
+  ): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number>; recentModels?: string[] }> {
     const params = new URLSearchParams()
     if (claudeDir !== undefined) params.set('claudeDir', String(claudeDir))
     if (machine !== undefined) params.set('machine', machine)
     const query = params.toString()
-    const data = await request<{ models: OrbitalModel[]; contextWindows?: Record<string, number> }>(
+    // `recentModels` is absent from a Mac older than the recent-model cards.
+    const data = await request<{ models: OrbitalModel[]; contextWindows?: Record<string, number>; recentModels?: string[] }>(
       'GET',
       query ? `/api/models?${query}` : '/api/models',
     )
-    return { models: data.models, contextWindows: data.contextWindows ?? {} }
+    return { models: data.models, contextWindows: data.contextWindows ?? {}, recentModels: data.recentModels ?? [] }
   },
 
   async setSessionModel(id: string, model: string): Promise<{ ok: boolean }> {

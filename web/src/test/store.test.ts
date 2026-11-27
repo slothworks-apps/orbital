@@ -80,6 +80,7 @@ const initialSnapshot: OrbitalState = {
   rules: [],
   models: [],
   contextWindows: {},
+  recentModels: [],
   claudeDirs: [],
   defaultClaudeDir: null,
   lastClaudeDir: null,

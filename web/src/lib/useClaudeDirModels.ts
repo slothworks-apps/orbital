@@ -25,6 +25,12 @@ export function catalogRead(
   return { key: `d:${claudeDirId}`, dir: claudeDirId }
 }
 
+/** A directory's catalog and the model ids its sessions used last, newest first. */
+export interface ClaudeDirCatalog {
+  models: OrbitalModel[]
+  recent: string[]
+}
+
 /**
  * The model catalog of one Claude directory — each account has its own
  * models (spec 2026-10-04-multiple-claude-directories-design § 2). The
@@ -37,15 +43,16 @@ export function catalogRead(
  * instead, `claudeDirId` then being one of that device's directories, its
  * own account deciding what it offers; this device's stands in until it lands.
  */
-export function useClaudeDirModels(
+export function useClaudeDirCatalog(
   claudeDirId: number | null | undefined,
   enabled = true,
   machine?: string,
-): OrbitalModel[] {
+): ClaudeDirCatalog {
   const catalog = useOrbital(useShallow((s) => s.models))
+  const recentHere = useOrbital(useShallow((s) => s.recentModels))
   const several = useOrbital((s) => s.claudeDirs.length >= 2)
   const defaultDir = useOrbital((s) => s.defaultClaudeDir)
-  const [own, setOwn] = useState<{ key: string; models: OrbitalModel[] } | null>(null)
+  const [own, setOwn] = useState<{ key: string; models: OrbitalModel[]; recent: string[] } | null>(null)
   const read = enabled ? catalogRead(claudeDirId, machine, several, defaultDir) : null
   const key = read?.key ?? null
   const dir = read?.dir
@@ -61,8 +68,9 @@ export function useClaudeDirModels(
       .listModels(dir, machine)
       .then((r) => {
         if (!live || !r) return
-        if (key === null) useOrbital.setState({ models: r.models, contextWindows: r.contextWindows })
-        else setOwn({ key, models: r.models })
+        if (key === null) {
+          useOrbital.setState({ models: r.models, contextWindows: r.contextWindows, recentModels: r.recentModels ?? [] })
+        } else setOwn({ key, models: r.models, recent: r.recentModels ?? [] })
       })
       .catch(() => {})
     return () => {
@@ -70,5 +78,17 @@ export function useClaudeDirModels(
     }
   }, [enabled, key, dir, machine])
 
-  return key !== null && own?.key === key ? own.models : catalog
+  if (key !== null && own?.key === key) return { models: own.models, recent: own.recent }
+  // Another directory's read still out: the default's catalog stands in, but
+  // not its history, which belongs to another account.
+  return { models: catalog, recent: key === null ? recentHere : [] }
+}
+
+/** `useClaudeDirCatalog`'s models alone, for the surfaces with no recent cards. */
+export function useClaudeDirModels(
+  claudeDirId: number | null | undefined,
+  enabled = true,
+  machine?: string,
+): OrbitalModel[] {
+  return useClaudeDirCatalog(claudeDirId, enabled, machine).models
 }

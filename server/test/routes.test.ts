@@ -1227,6 +1227,22 @@ describe('REST routes', () => {
     expect(res.json().contextWindows).toEqual({ 'claude-fable-5': 1_000_000 });
   });
 
+  it('GET /api/models lists the directory\'s recent models, newest first, once each', async () => {
+    // Spec 2026-11-27-recent-model-cards-design § Which models are recent:
+    // the requested value when Orbital started it, the resolved id from the
+    // terminal, nothing from another account's sessions.
+    db.insert(sessions).values([
+      { id: 'r1', projectDir: '', cwd: '/w/r', source: 'web', lastAt: 900, model: 'opus[1m]', resolvedModel: 'claude-opus-5-5[1m]' },
+      { id: 'r2', projectDir: '', cwd: '/w/r', source: 'cli', lastAt: 800, resolvedModel: 'claude-fable-5-2' },
+      { id: 'r3', projectDir: '', cwd: '/w/r', source: 'web', lastAt: 700, model: 'opus[1m]' },
+      { id: 'r4', projectDir: '', cwd: '/w/r', source: 'web', lastAt: 950, model: 'haiku', claudeDirId: 2 },
+      { id: 'r5', projectDir: '', cwd: '/w/r', source: 'cli', lastAt: 600 },
+    ]).run();
+    const res = await app.inject({ method: 'GET', url: '/api/models' });
+    expect(res.json().recentModels.slice(0, 2)).toEqual(['opus[1m]', 'claude-fable-5-2']);
+    expect(res.json().recentModels).not.toContain('haiku');
+  });
+
   it('POST /api/models/validate rejects a body that is not one model id', async () => {
     const { app, modelCatalog } = makeApp();
     for (const payload of [{}, { model: '' }, { model: '   ' }, { model: 42 }, { model: 'claude opus' }, { model: 'x'.repeat(101) }]) {

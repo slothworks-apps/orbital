@@ -150,3 +150,55 @@ export function contextWindowFor(
     (session.resolvedModel ? models.find((m) => m.resolvedModel === session.resolvedModel) : undefined)
   return exact?.contextWindow ?? (session.resolvedModel ? (learned[session.resolvedModel] ?? null) : null)
 }
+
+/** The narrowest a model card gets (canvas 72c). */
+export const MODEL_CARD_MIN_PX = 96
+/** The gap between model cards (canvas 72c). */
+export const MODEL_CARD_GAP_PX = 8
+
+/**
+ * How many cards a row of `width` px holds, Other included: as many
+ * `MODEL_CARD_MIN_PX` cards as fit with `MODEL_CARD_GAP_PX` between them,
+ * never fewer than two (canvas 72c: ⌊(column + 8) / 104⌋).
+ */
+export function modelCardSlots(width: number): number {
+  return Math.max(2, Math.floor((width + MODEL_CARD_GAP_PX) / (MODEL_CARD_MIN_PX + MODEL_CARD_GAP_PX)))
+}
+
+/**
+ * The models that get a card of their own in front of Other — spec
+ * 2026-11-27-recent-model-cards-design § Which models are recent.
+ *
+ * `recent` is the account's history, newest first, as `GET /api/models`
+ * gives it: requested values or resolved ids, so each is matched with
+ * `modelByAnyId`. An id the catalog no longer lists gets no card. Free
+ * slots fill with the default, then the catalog's own order — which is all
+ * there is with no history. The `preselected` model always has a card: one
+ * that would not make the cut takes the last slot.
+ */
+export function recentModelCards({
+  models,
+  recent,
+  preselected,
+  defaultValue,
+  slots,
+}: {
+  models: OrbitalModel[]
+  recent: string[]
+  preselected: string | null
+  defaultValue: string | null
+  /** Cards in front of Other. */
+  slots: number
+}): OrbitalModel[] {
+  const picked: OrbitalModel[] = []
+  const add = (row: OrbitalModel | undefined) => {
+    if (row && !picked.includes(row)) picked.push(row)
+  }
+  for (const id of recent) add(modelByAnyId(id, models))
+  add(modelByValue(defaultValue, models))
+  for (const row of models) add(row)
+  const cards = picked.slice(0, Math.max(0, slots))
+  const pre = modelByAnyId(preselected, models)
+  if (pre && cards.length > 0 && !cards.includes(pre)) cards[cards.length - 1] = pre
+  return cards
+}

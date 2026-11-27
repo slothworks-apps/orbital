@@ -94,6 +94,7 @@ export function useSceneModel(): SceneModel {
           rules: [],
           models,
           contextWindows,
+          recentModels: [],
           claudeDirs,
           defaultClaudeDir: null,
           lastClaudeDir: null,

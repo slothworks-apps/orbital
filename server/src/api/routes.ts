@@ -517,6 +517,15 @@ export const PROJECTS_LIMIT = 500;
 export const PROJECTS_SCAN_ROWS = 5000;
 
 /**
+ * How many distinct models `GET /api/models` lists as the directory's recent
+ * ones — more than the widest row of cards holds (spec
+ * 2026-11-27-recent-model-cards-design § How many cards).
+ */
+export const RECENT_MODELS_LIMIT = 8;
+/** Sessions read, newest first, to find `RECENT_MODELS_LIMIT` distinct models. */
+export const RECENT_MODELS_SCAN_ROWS = 500;
+
+/**
  * A query parameter that bounds a read (`?limit=`, `?maxBytes=`): a positive
  * whole number, or null when it is absent or anything else — a bound the
  * caller got wrong is ignored rather than refused, so the read stays what it
@@ -3375,10 +3384,40 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return id === null ? null : (ctx.claudeDirs.context(id)?.models ?? null);
   }
 
+  /**
+   * The models this directory's sessions ran on, newest first, one entry per
+   * model: the requested SDK `value` when Orbital started the session, the
+   * resolved id when the terminal did. Feeds New session's recent cards
+   * (spec 2026-11-27-recent-model-cards-design § Which models are recent).
+   */
+  function recentModelsOf(claudeDirId: number): string[] {
+    const rows = db
+      .select({ model: sessions.model, resolvedModel: sessions.resolvedModel })
+      .from(sessions)
+      .where(eq(sessions.claudeDirId, claudeDirId))
+      .orderBy(desc(sessions.lastAt))
+      .limit(RECENT_MODELS_SCAN_ROWS)
+      .all();
+    const recent: string[] = [];
+    for (const row of rows) {
+      const id = row.model ?? row.resolvedModel;
+      if (!id || recent.includes(id)) continue;
+      recent.push(id);
+      if (recent.length === RECENT_MODELS_LIMIT) break;
+    }
+    return recent;
+  }
+
   app.get('/api/models', async (req, reply) => {
-    const models = modelsOf((req.query as Record<string, string>).claudeDir);
+    const raw = (req.query as Record<string, string>).claudeDir;
+    const models = modelsOf(raw);
     if (!models) return reply.code(400).send({ error: 'unknown_claude_dir' });
-    return { models: await models.list(), contextWindows: models.learnedContextWindows() };
+    const dirId = ctx.claudeDirs.resolveId(raw);
+    return {
+      models: await models.list(),
+      contextWindows: models.learnedContextWindows(),
+      recentModels: dirId === null ? [] : recentModelsOf(dirId),
+    };
   });
 
   // The "Other…" model card: checks an id `GET /api/models` does not list by
