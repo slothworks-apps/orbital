@@ -84,6 +84,16 @@ function blurbClassName(active: boolean): string {
   ].join(' ')
 }
 
+/** What stands in for the cards while Claude Code gave no model list. */
+export function ModelsUnread() {
+  return (
+    <p className="rounded-[10px] border border-line/14 bg-space/40 px-3.5 py-3 fs-11.5 leading-[1.4] text-ink-900/70">
+      The model list could not be read from Claude Code. Sessions still launch — they use whatever
+      model Claude Code is configured with.
+    </p>
+  )
+}
+
 /**
  * Selectable model cards, shared between `NewSessionDialog` (canvas 4b) and
  * `Settings` (4c) — the same "build it once" arrangement `ui/ModeCards.tsx`
@@ -113,14 +123,7 @@ export function ModelCards({
   dense = false,
   other,
 }: ModelCardsProps) {
-  if (models.length === 0) {
-    return (
-      <p className="rounded-[10px] border border-line/14 bg-space/40 px-3.5 py-3 fs-11.5 leading-[1.4] text-ink-900/70">
-        The model list could not be read from Claude Code. Sessions still launch — they use whatever
-        model Claude Code is configured with.
-      </p>
-    )
-  }
+  if (models.length === 0) return <ModelsUnread />
 
   return (
     <div

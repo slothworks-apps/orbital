@@ -13,8 +13,8 @@ import { humanizeError } from './composer'
 /**
  * The model 9d opens on: the directory's last model when the Mac remembers
  * one per project, else the Mac's default, else the catalog's first row.
- * Either may name a model the catalog no longer has; the phone has no
- * "Other…" card, so such an id falls through to the next choice.
+ * Either may name a model the catalog no longer has; such an id falls
+ * through to the next choice rather than opening on a custom id in Other.
  */
 export function preselectModel(input: {
   defaults: SessionDefaults

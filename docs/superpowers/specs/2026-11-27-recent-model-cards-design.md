@@ -2,7 +2,7 @@
 id: 2026-11-27-recent-model-cards-design
 title: New session — cards for the recently used models, the full list behind Other
 type: spec
-status: draft
+status: active
 domain: sessions
 related:
   - models-come-from-the-sdk

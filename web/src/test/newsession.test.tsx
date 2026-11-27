@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import type { ApiSession, GroupMember, HarnessTemplate, OrbitalModel, Tag } from '../lib/types'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
@@ -12,6 +12,34 @@ const MODELS: OrbitalModel[] = [
 ]
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
+
+/**
+ * jsdom lays nothing out, and the MODEL row counts its cards from its width
+ * (canvas 72c). This observer reports `modelRowWidth` for the row and nothing
+ * for anything else: 418 px, the 920 px dialog's column, holds three cards
+ * and Other.
+ */
+let modelRowWidth = 418
+class ModelRowObserver {
+  private readonly callback: ResizeObserverCallback
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback
+  }
+  observe(el: Element) {
+    if (el.getAttribute('role') !== 'radiogroup' || el.getAttribute('aria-label') !== 'Model') return
+    const entry = { target: el, contentRect: { width: modelRowWidth } } as unknown as ResizeObserverEntry
+    this.callback([entry], this)
+  }
+  unobserve() {}
+  disconnect() {}
+}
+const realResizeObserver = globalThis.ResizeObserver
+beforeAll(() => {
+  globalThis.ResizeObserver = ModelRowObserver
+})
+afterAll(() => {
+  globalThis.ResizeObserver = realResizeObserver
+})
 
 // Launching now goes through the store, which subscribes to the new session's
 // topic before its request goes out — so this file reaches the socket. Mocked
@@ -377,7 +405,7 @@ describe('NewSessionDialog — model group (4b)', () => {
       expect(screen.getByRole('radio', { name: 'Other' })).toHaveAttribute('aria-checked', 'true')
     )
     expect(screen.getByRole('radio', { name: 'Opus 5' })).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByLabelText('Model id')).toHaveValue('claude-opus-4-6')
+    expect(screen.getByRole('radio', { name: 'Other' })).toHaveTextContent('claude-opus-4-6')
     fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
     fireEvent.click(screen.getByRole('button', { name: /Launch session/ }))
     await waitFor(() =>
@@ -442,11 +470,11 @@ describe('NewSessionDialog — model group (4b)', () => {
       expect(screen.getByRole('radio', { name: 'Other' })).toHaveAttribute('aria-checked', 'true')
     )
     expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByLabelText('Model id')).toHaveValue('claude-mystery-1')
+    expect(screen.getByRole('radio', { name: 'Other' })).toHaveTextContent('claude-mystery-1')
     expect(screen.queryByText(/last used here/)).not.toBeInTheDocument()
   })
 
-  it('holds Launch until an Other id validates, and releases it for a catalog pick', async () => {
+  it('takes a custom ID typed in Other only once it validates, and launches with it', async () => {
     resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
     vi.mocked(api.listProjects).mockResolvedValue([])
     vi.mocked(api.createSession).mockResolvedValue('new-1')
@@ -454,38 +482,104 @@ describe('NewSessionDialog — model group (4b)', () => {
     vi.mocked(api.validateModel).mockImplementation(() => new Promise((r) => (settle = r)))
     render(<NewSessionDialog open onClose={() => {}} />)
     fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
-    const launch = screen.getByRole('button', { name: /Launch session/ })
-    await waitFor(() => expect(launch).toBeEnabled())
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+    )
 
     fireEvent.click(screen.getByRole('radio', { name: 'Other' }))
-    expect(launch).toBeDisabled()
-    // ⌘⏎ is held too, not only the button.
-    fireEvent.keyDown(document, { key: 'Enter', metaKey: true })
-
-    const field = screen.getByLabelText('Model id')
+    fireEvent.click(screen.getByRole('option', { name: /Custom ID…/ }))
+    const field = screen.getByLabelText('Custom model ID')
     fireEvent.change(field, { target: { value: 'claude-opus-4-6' } })
     fireEvent.keyDown(field, { key: 'Enter' })
     expect(api.validateModel).toHaveBeenCalledWith('claude-opus-4-6')
     expect(screen.getByText('checking…')).toBeInTheDocument()
-    expect(launch).toBeDisabled()
+    // Until it validates, the selection stands.
+    expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
 
     settle({ ok: true, model: 'claude-opus-4-6', resolvedModel: 'claude-opus-4-6', contextWindow: 200_000 })
-    await waitFor(() => expect(launch).toBeEnabled())
-    expect(api.createSession).not.toHaveBeenCalled()
-    // The footer names a custom id verbatim.
-    expect(screen.getAllByText(/claude-opus-4-6 · acceptEdits/).length).toBeGreaterThan(0)
+    const other = screen.getByRole('radio', { name: 'Other' })
+    await waitFor(() => expect(other).toHaveAttribute('aria-checked', 'true'))
+    expect(other).toHaveTextContent('claude-opus-4-6')
+    expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'false')
 
-    // Typing over a validated id takes it back.
-    fireEvent.change(field, { target: { value: 'claude-opus-4-6x' } })
-    expect(launch).toBeDisabled()
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Haiku 4.5' }))
-    expect(launch).toBeEnabled()
-    expect(screen.queryByLabelText('Model id')).not.toBeInTheDocument()
-    fireEvent.click(launch)
+    fireEvent.click(screen.getByRole('button', { name: /Launch session/ }))
     await waitFor(() =>
-      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'haiku' }))
+      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'claude-opus-4-6' }))
     )
+  })
+
+  it('keeps a rejected custom ID out of the selection', async () => {
+    resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
+    vi.mocked(api.listProjects).mockResolvedValue([])
+    vi.mocked(api.validateModel).mockResolvedValue({ ok: false, reason: 'There is no such model.' } as Awaited<
+      ReturnType<typeof api.validateModel>
+    >)
+    render(<NewSessionDialog open onClose={() => {}} />)
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'Other' }))
+    fireEvent.click(screen.getByRole('option', { name: /Custom ID…/ }))
+    const field = screen.getByLabelText('Custom model ID')
+    fireEvent.change(field, { target: { value: 'claude-nope' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(await screen.findByText('There is no such model.')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Other' })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  describe('with fewer cards than models (canvas 72c)', () => {
+    beforeEach(() => {
+      // 300 px holds two cards: one model and Other.
+      modelRowWidth = 300
+    })
+    afterEach(() => {
+      modelRowWidth = 418
+    })
+
+    it('shows a model picked from Other in the Other card, and launches with it', async () => {
+      resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
+      vi.mocked(api.listProjects).mockResolvedValue([])
+      vi.mocked(api.createSession).mockResolvedValue('new-1')
+      render(<NewSessionDialog open onClose={() => {}} />)
+      fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+      await waitFor(() =>
+        expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+      )
+      expect(screen.queryByRole('radio', { name: 'Haiku 4.5' })).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('radio', { name: 'Other' }))
+      // The whole catalog, in its own order.
+      expect(screen.getAllByRole('option').map((o) => o.getAttribute('data-model'))).toEqual(['opus[1m]', 'sonnet', 'haiku', null])
+      fireEvent.click(screen.getByRole('option', { name: /Haiku 4\.5/ }))
+      const other = screen.getByRole('radio', { name: 'Other' })
+      expect(other).toHaveAttribute('aria-checked', 'true')
+      expect(other).toHaveTextContent('Haiku 4.5')
+      // The row keeps its cards: the preselected one stays.
+      expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'false')
+
+      fireEvent.click(screen.getByRole('button', { name: /Launch session/ }))
+      await waitFor(() =>
+        expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'haiku' }))
+      )
+    })
+
+    it('selects the card of a model picked from Other that has one', async () => {
+      resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
+      vi.mocked(api.listProjects).mockResolvedValue([])
+      render(<NewSessionDialog open onClose={() => {}} />)
+      await waitFor(() =>
+        expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+      )
+      fireEvent.click(screen.getByRole('radio', { name: 'Other' }))
+      fireEvent.click(screen.getByRole('option', { name: /Haiku 4\.5/ }))
+      fireEvent.click(screen.getByRole('radio', { name: 'Other' }))
+      fireEvent.click(screen.getByRole('option', { name: /Sonnet 5/ }))
+      expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+      const other = screen.getByRole('radio', { name: 'Other' })
+      expect(other).toHaveAttribute('aria-checked', 'false')
+      expect(other).toHaveTextContent('Other')
+    })
   })
 
   it('launches with the chosen model', async () => {

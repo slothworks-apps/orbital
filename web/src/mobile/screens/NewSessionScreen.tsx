@@ -3,9 +3,10 @@ import type { DeviceOption } from '../../lib/devices'
 import { KindGlyph } from '../../ui/KindGlyph'
 import { useShallow } from 'zustand/react/shallow'
 import { api } from '../../lib/api'
-import { tagColor, type OrbitalModel, type PermissionMode, type SessionDefaults } from '../../lib/types'
+import { tagColor, type PermissionMode, type SessionDefaults } from '../../lib/types'
 import { timeAgo } from '../../lib/format'
-import { useClaudeDirModels } from '../../lib/useClaudeDirModels'
+import { useClaudeDirCatalog } from '../../lib/useClaudeDirModels'
+import { modelByAnyId, modelNameForId } from '../../lib/models'
 import { useNow } from '../../lib/useNow'
 import { Composer, type ComposerControl } from '../../panels/Composer'
 import { useAttachments } from '../../panels/useAttachments'
@@ -24,6 +25,7 @@ import { deviceAsleep, openingSettles, phoneDeviceOptions, phoneOpeningDevice, r
 import { isMacAsleep, useMobile } from '../state'
 import { BottomSheet, FieldLabel, MobileScreen, PrimaryButton, SecondaryButton, SheetPresence } from '../ui'
 import { ClaudeDirPicker } from './ClaudeDirPicker'
+import { NewSessionModel } from './NewSessionModel'
 import { McpjsonSheet } from './McpjsonSheet'
 import { PhotoButtons, SlashButton, attachPhoto } from './ComposerButtons'
 import { MissingDirectorySheet } from './MissingDirectorySheet'
@@ -237,8 +239,8 @@ export function NewSessionScreen() {
   /** 44d's hint beside the row: where the choice came from. */
   const claudeDirHint =
     pickedDir !== null && pickedDir !== prefill?.id ? 'changed' : prefill?.from === 'last' ? 'last launch' : 'default'
-  /** The chosen directory's catalog: each account has its own models. */
-  const models = useClaudeDirModels(claudeDirId, true, machine ?? undefined)
+  /** The chosen directory's catalog and its recent models: each account has its own. */
+  const { models, recent } = useClaudeDirCatalog(claudeDirId, true, machine ?? undefined)
 
   const suggestions = useDirectorySuggestions(cwd, projects)
   const { rows, focused: dirFocused } = suggestions
@@ -246,6 +248,12 @@ export function NewSessionScreen() {
   const project = projects.find((p) => p.cwd === cwd.trim())
   const autoModel = defaults ? preselectModel({ defaults, project, models }) : (models[0]?.value ?? null)
   const model = pickedModel ?? autoModel
+  /** Canvas 72d's hint beside MODEL. */
+  const modelHint = !cwd.trim()
+    ? undefined
+    : project?.lastModel
+      ? `last used here: ${modelNameForId(project.lastModel, models)}`
+      : 'no sessions here yet'
 
   /** The tag dot of a session the phone holds in each directory (9d). */
   const hueByCwd = useMemo(() => {
@@ -617,10 +625,19 @@ export function NewSessionScreen() {
               <FieldLabel>PERMISSION MODE</FieldLabel>
               <ModeCards value={mode} onChange={setPickedMode} touch />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel>MODEL</FieldLabel>
-              <ModelSegments models={models} value={model} onChange={setPickedModel} />
-            </div>
+            <NewSessionModel
+              models={models}
+              recent={recent}
+              value={model}
+              preselected={autoModel}
+              defaultValue={modelByAnyId(defaults?.model, models)?.value ?? null}
+              lastLine={modelHint}
+              account={choosesDir ? (dirs.find((d) => d.id === claudeDirId)?.name ?? null) : null}
+              claudeDirId={claudeDirId}
+              machine={machine}
+              mac={mac}
+              onChange={setPickedModel}
+            />
           </>
         )}
 
@@ -781,53 +798,5 @@ function DeviceSheet({
         <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
       </div>
     </BottomSheet>
-  )
-}
-
-/**
- * 9d's model picker: segments, not the desktop's cards — the phone names the
- * model and nothing more. 9d draws one row of four; the catalog comes from the
- * SDK and is often longer, so the segments wrap four to a row.
- */
-function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; value: string | null; onChange: (value: string) => void }) {
-  if (models.length === 0) {
-    return (
-      <p className="rounded-[12px] border border-line/18 bg-space/50 px-3.5 py-3 fs-11.5 leading-[1.4] text-ink-900/70">
-        The model list could not be read. The session uses whatever model Claude Code is set to.
-      </p>
-    )
-  }
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Model"
-      className="grid grid-cols-4 gap-px overflow-hidden rounded-[12px] border border-line/18 bg-line/12"
-    >
-      {models.map((m) => {
-        const active = m.value === value
-        return (
-          <button
-            key={m.value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            onClick={() => onChange(m.value)}
-            className={[
-              // The 1px gap over the container's fill draws 9d's separators, between rows too.
-              'h-11 min-w-0 truncate px-1 font-mono fs-12.5',
-              active
-                ? 'bg-[color-mix(in_oklab,var(--color-accent)_10%,var(--color-space))] font-semibold text-accent'
-                : 'bg-space text-ink-200/85',
-            ].join(' ')}
-          >
-            {m.shortVersion}
-          </button>
-        )
-      })}
-      {/* Fill the last row so the separators do not show through as a block. */}
-      {Array.from({ length: (4 - (models.length % 4)) % 4 }, (_, i) => (
-        <span key={`pad-${i}`} aria-hidden className="bg-space" />
-      ))}
-    </div>
   )
 }

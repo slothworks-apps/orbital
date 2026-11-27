@@ -1198,9 +1198,14 @@ export const api = {
   },
 
   /** Probes a model id the catalog does not list. An id Claude Code rejects is `ok: false`, not a throw. */
-  async validateModel(model: string, claudeDir?: number): Promise<ModelValidation> {
+  async validateModel(model: string, claudeDir?: number, machine?: string): Promise<ModelValidation> {
     // Checked under the account the session would run under; absent, the default directory's.
-    return request<ModelValidation>('POST', '/api/models/validate', claudeDir === undefined ? { model } : { model, claudeDir })
+    // `machine`: the phone's group federation routes by it and strips it.
+    return request<ModelValidation>('POST', '/api/models/validate', {
+      model,
+      ...(claudeDir !== undefined ? { claudeDir } : {}),
+      ...(machine !== undefined ? { machine } : {}),
+    })
   },
 
   // Errors API — the one shared error log, fed from both sides. See
