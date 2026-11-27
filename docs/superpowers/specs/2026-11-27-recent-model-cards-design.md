@@ -26,10 +26,13 @@ once a year.
 
 - The dialog always shows cards. The cards are the models this account
   used most recently, newest first, one card per model.
-- The last card is **Other**. It opens the full catalog of the account
-  (every row `GET /api/models` returns) as a dropdown, with the custom ID
-  field (canvas 63a) as its last entry. A model picked there is selected
-  for this launch; once a session runs on it, it is one of the recent cards
+- The last card is **Other**, a card with ▾. It opens the full catalog of
+  the account (every row `GET /api/models` returns, catalog order) as a
+  list, with **Custom ID…** pinned as its last row. That row turns into a
+  mono field in place and ⏎ takes the id; the ID field no longer opens
+  under the cards. A model picked there, or the typed id, shows in the
+  Other card, selected. A model that already has a card selects that card
+  instead. Once a session runs on a model from Other, it is a recent card
   next time.
 - Preselection does not change: this project's last model when
   `remember_model_per_project` allows it, then the Settings default, then
@@ -52,8 +55,17 @@ once a year.
 
 ### How many cards
 
-Open: as many as fit one row of the dialog's Model field next to Other
-(four today). To be settled in Claude Design together with the layout.
+Width decides, never the number of models (canvas 72c): cards are at
+least 96 px, and the row holds `⌊(column + 8) / 104⌋` cards, at least two,
+Other included. The 920 px dialog keeps today's four (three recent and
+Other), the 1120 px one gets five, a narrow window two. The field is one
+56 px row at every width and with any number of models. `DEFAULT` leads
+the context line (`DEFAULT · 1M`), so it is never the part that gets cut.
+
+### Out of scope
+
+The detail panel's model switcher (4a), Settings → default model, and
+editing or hiding models.
 
 ## Server
 
@@ -81,13 +93,18 @@ remote machine answers it for its own directories through the same route.
 ## Phone
 
 The phone's New session screen (`web/src/mobile/screens/NewSessionScreen.tsx`)
-lists the catalog the same way and gets the same cards: the recent list
+gets the same rule (canvas 72d): at 390 px that is two recent cards and
+Other, 60 px tall, nothing scrolls sideways. Other opens a bottom sheet in
+the 50o shell: the full list in catalog order, 46 px rows, the selected
+one with the dot, Custom ID… last as a 52 px row that opens the keyboard
+on a mono field. It replaces today's four-family segmented control.
+The recent list
 comes with `GET /api/models`, which is already on the allowlist. A phone
 ahead of its Mac gets no `recentModels` from an older Mac and falls back to
 the default-then-catalog order, so no `MAC_FEATURES` gate is needed.
 
 ## Design
 
-The look and placement come from Claude Design: the cards row, the Other
-card and its dropdown, and the empty-history state. Prompt handed to Claude
-Design on 2026-11-27; this spec links the artboard once it exists.
+Claude Design, `Feature - Model cards.dc.html` in the Orbital canvas
+artifact: 72a (the row in the dialog), 72b (every state at the 418 px
+column), 72c (widths and the count rule), 72d (phone).
