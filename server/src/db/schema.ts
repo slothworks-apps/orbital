@@ -157,7 +157,11 @@ export const sessions = sqliteTable(
      */
     progressListChoice: integer('progress_list_choice', { mode: 'boolean' }),
   },
-  (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
+  (table) => [
+    index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`),
+    // `GET /api/models`' recent models: one directory's sessions, newest first.
+    index('idx_sessions_claude_dir_last_at').on(table.claudeDirId, table.lastAt),
+  ],
 );
 
 /**

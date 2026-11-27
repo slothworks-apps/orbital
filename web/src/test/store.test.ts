@@ -80,6 +80,7 @@ const initialSnapshot: OrbitalState = {
   rules: [],
   models: [],
   contextWindows: {},
+  recentModels: [],
   claudeDirs: [],
   defaultClaudeDir: null,
   lastClaudeDir: null,
@@ -140,7 +141,7 @@ beforeEach(() => {
   vi.mocked(api.listTags).mockResolvedValue([])
   vi.mocked(api.listTagRules).mockResolvedValue([])
   vi.mocked(api.getSettings).mockResolvedValue({})
-  vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
+  vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {}, recentModels: [] })
   vi.mocked(api.listErrors).mockResolvedValue({ errors: [], unseen: 0 })
   // Every ENDED toggle saves; tests that care about the save assert on it,
   // the rest just need it not to reject.
@@ -196,6 +197,7 @@ describe('loadInitial', () => {
         { value: 'sonnet', resolvedModel: 'claude-sonnet-5', family: 'Sonnet', version: 'Sonnet 5', shortVersion: 'Sonnet 5', variant: null, blurb: 'Efficient', contextWindow: 200_000 },
       ],
       contextWindows: { 'claude-fable-5': 1_000_000 },
+      recentModels: [],
     })
     await useOrbital.getState().loadInitial()
     expect(useOrbital.getState().models).toHaveLength(1)

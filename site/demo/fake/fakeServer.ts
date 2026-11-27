@@ -317,7 +317,7 @@ export const ROUTES: Route[] = [
     method: 'GET',
     path: '/api/models',
     calledBy: 'store.loadInitial (model chips)',
-    answer: ({ server }) => ({ models: server.world.models, contextWindows: {} }) satisfies Answer<'listModels'>,
+    answer: ({ server }) => ({ models: server.world.models, contextWindows: {}, recentModels: [] }) satisfies Answer<'listModels'>,
   },
   {
     method: 'GET',

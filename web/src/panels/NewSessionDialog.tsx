@@ -19,8 +19,7 @@ import { useImageDrop } from './useImageDrop'
 import { promptWithFiles } from '../lib/attachedFiles'
 import { Chip } from '../ui/Chip'
 import { ModeCards } from '../ui/ModeCards'
-import { ModelCards, contextLabel } from '../ui/ModelCards'
-import { CustomModelField } from '../ui/CustomModelField'
+import { ModelRow } from '../ui/ModelRow'
 import { modelByValue, modelByAnyId } from '../lib/models'
 import { claudeDirPrefill, nextClaudeDir } from '../lib/claudeDirs'
 import { useClaudeDirMonograms } from '../ui/ClaudeDirMark'
@@ -31,9 +30,9 @@ import {
   claudeDirOriginHint,
   type ClaudeDirOrigin,
 } from './ClaudeDirChoice'
-import { useClaudeDirModels } from '../lib/useClaudeDirModels'
+import { useClaudeDirCatalog, useHeldCardSource } from '../lib/useClaudeDirModels'
 import { permissionMode as permissionModeDescriptor } from '../lib/permissionModes'
-import type { OrbitalModel, PermissionMode, Tag } from '../lib/types'
+import type { PermissionMode, Tag } from '../lib/types'
 import {
   answerSummary,
   decisionsOf,
@@ -52,7 +51,6 @@ import {
   LOCAL_DEVICE, deviceChips, deviceOf, deviceOptions, localTagOf, openingDevice, showDeviceRow,
 } from '../lib/devices'
 import { Select } from '../ui/Select'
-import type { SelectOption } from '../ui/Select'
 import { AutoHeight } from '../ui/AutoHeight'
 import { Collapse } from '../ui/Collapse'
 import { useNoticeSwap } from '../ui/useNoticeSwap'
@@ -79,21 +77,17 @@ export interface NewSessionDialogProps {
  * request per keystroke while typing a path. */
 const PREVIEW_DEBOUNCE_MS = 300
 
+/** `modelScope` of a prefill's model, until it settles on the account the dialog lands on. */
+const CARRIED_SCOPE = '\u0000carried'
+
 /**
  * The device the last launch from this dialog went to (canvas 50g: the
  * DEVICE field defaults to it). Kept in this browser rather than in the
  * settings table: a device id means something only to the device reading it.
  */
 const LAST_DEVICE_KEY = 'orbital.newSession.device'
-/**
- * Canvas 63a: the models stay tiles while every one of them plus Other fits
- * in two rows of four; past that, MODEL is one dropdown field.
- */
-const MODEL_TILES_MAX = 8
 /** Canvas 63a: the gap between a column's groups (`gap-[18px]`), which a folded WORKTREE takes back. */
 const WORKTREE_GAP_PX = 18
-/** The model dropdown's Other row — a value no model id can take. */
-const OTHER_MODEL = '\u0000other'
 
 function rememberedDevice(): string | null {
   try {
@@ -244,19 +238,22 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [model, setModel] = useState<string | null>(null)
   /** Once the user picks a model, a later cwd change must not move it. */
   const [modelOverridden, setModelOverridden] = useState(false)
+  /** A model was picked by hand in this open: the cards hold still from then on (`useHeldCardSource`). */
+  const [cardsHeld, setCardsHeld] = useState(false)
+  /**
+   * The account (`catalogScope`) the chosen model was picked, validated or
+   * carried under. `CARRIED_SCOPE` until a prefill's model has settled where
+   * it landed.
+   */
+  const [modelScope, setModelScope] = useState<string | null>(null)
+  /** Custom ID… holds text not taken yet (`ModelRow`'s `onPendingChange`): Launch waits for it. */
+  const [customPending, setCustomPending] = useState(false)
   /**
    * The progress list switch as the user set it this time; null follows the
    * directory's last launch (canvas 67f "remembers the last choice per
    * directory, as the model does").
    */
   const [progressPick, setProgressPick] = useState<boolean | null>(null)
-  /**
-   * The Other card is selected. `model` then stays null until the field
-   * validates an id, and Launch waits for it.
-   */
-  const [otherActive, setOtherActive] = useState(false)
-  /** A remembered custom id the field starts from, already trusted. */
-  const [customInitial, setCustomInitial] = useState<string | null>(null)
   const [projects, setProjects] = useState<DirectoryRow[]>([])
   /** Where the session runs (canvas 50g): `LOCAL_DEVICE` or a member's id. */
   const [device, setDevice] = useState<string>(LOCAL_DEVICE)
@@ -326,36 +323,35 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     planet: claudeDirPrefilled.planet,
     changed: claudeDirId !== claudeDirPrefilled.id,
   }
-  /** The chosen directory's catalog: each account has its own models; another device's default one's there. */
-  const models = useClaudeDirModels(remote ? null : claudeDirId, open, machine)
   /**
-   * Tiles or a dropdown, decided again with every catalog (63a). A switch
-   * fades the old picker out, with the catalog it had, then the new one in;
-   * the slot eases to its new height meanwhile.
+   * The chosen directory's catalog and its recent models: each account has
+   * its own; another device's default one's there. Read again on every open,
+   * so a model a CLI update added shows without a reload.
    */
-  const modelPickerId = models.length + 1 > MODEL_TILES_MAX ? 'dropdown' : 'tiles'
-  const modelPicker = useNoticeSwap(useMemo(() => ({ id: modelPickerId, models }), [modelPickerId, models]))
-  // The swap keeps the catalog it was given; only the outgoing picker draws from it.
-  const pickerModels = modelPicker.shown?.id === modelPickerId ? models : (modelPicker.shown?.models ?? models)
-  // Focus goes to the ID field in the render that mounts it, not on a later
-  // remount (another profile re-keys it), so it never pulls focus from there.
-  const [focusCustomModel, setFocusCustomModel] = useState(false)
-  useEffect(() => {
-    if (focusCustomModel) setFocusCustomModel(false)
-  }, [focusCustomModel])
+  const catalog = useClaudeDirCatalog(remote ? null : claudeDirId, open, machine, { refresh: true })
+  const models = catalog.models
+  /** The account the catalog is this device's directory's, or another device's. */
+  const catalogScope = `${machine ?? ''}|${remote ? '' : (claudeDirId ?? '')}`
   const pickModel = (next: string) => {
     setModelOverridden(true)
-    setOtherActive(false)
+    setCardsHeld(true)
+    setModelScope(catalogScope)
     setModel(next)
   }
-  const pickOtherModel = () => {
-    if (otherActive) return
-    setModelOverridden(true)
-    setOtherActive(true)
-    setCustomInitial(null)
-    setModel(null)
-    setFocusCustomModel(true)
-  }
+  // A prefill's model counts as taken under the account the dialog lands on with it.
+  if (modelScope === CARRIED_SCOPE) setModelScope(catalogScope)
+  /**
+   * A model picked under another profile or device that this catalog does not
+   * list: never launched unchecked. Once the catalog of the account now
+   * chosen is in, it goes back to the preselection.
+   */
+  const modelUnchecked =
+    modelOverridden && model !== null && !modelByValue(model, models) && modelScope !== null && modelScope !== CARRIED_SCOPE && modelScope !== catalogScope
+  useEffect(() => {
+    if (open && modelUnchecked && !catalog.standIn) setModelOverridden(false)
+  }, [open, modelUnchecked, catalog.standIn])
+  /** What holds Launch for the model: a custom ID typed and not taken, or a pick not checked under this account. */
+  const modelBlocked = customPending || modelUnchecked
 
   /** Whether the chosen member offers the progress list: its own Labs setting, from its session defaults. */
   const [memberProgress, setMemberProgress] = useState<{ device: string; offered: boolean } | null>(null)
@@ -422,6 +418,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       // preselection below, which sets the model and Other again — now and
       // once the device's own catalog lands.
       setModelOverridden(false)
+      setCardsHeld(false)
       loadProjects(id, { fallback: id === LOCAL_DEVICE ? lastLaunch(settings).cwd : '' })
     },
     [loadProjects, settings],
@@ -484,6 +481,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     if (p.model !== null) {
       setModel(p.model)
       setModelOverridden(true)
+      setModelScope(CARRIED_SCOPE)
     }
     if (p.claudeDirId !== null) {
       setClaudeDirId(p.claudeDirId)
@@ -524,9 +522,10 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setMadeTagId(null)
       setModel(null)
       setModelOverridden(false)
+      setCardsHeld(false)
+      setModelScope(null)
+      setCustomPending(false)
       setProgressPick(null)
-      setOtherActive(false)
-      setCustomInitial(null)
       setPending(false)
       setWithHarness(false)
       resetHarness()
@@ -613,22 +612,33 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const progressList = progressOffered && (progressPick ?? lastProgressListHere)
   //
   // An id no catalog row names — a model picked through Other that has run
-  // here, or a custom Settings default — preselects Other with that id
-  // already trusted: it has run or been validated before, so it is not
-  // probed again.
+  // here, or a custom Settings default — preselects Other holding that id
+  // as a custom ID, already trusted: it has run or been validated before,
+  // so it is not probed again.
+  const preferredModel = (rememberPerProject ? lastModelHere : null) || settings.default_model || null
+  /** The model that keeps a card of its own (spec 2026-11-27-recent-model-cards-design): a planet's, else the preselection. */
+  const preselectedModel = prefill?.model ?? preferredModel
   useEffect(() => {
     if (!open || modelOverridden || models.length === 0) return
-    const preferred = (rememberPerProject ? lastModelHere : null) || settings.default_model || null
-    const row = modelByAnyId(preferred, models)
-    if (preferred && !row) {
-      setOtherActive(true)
-      setCustomInitial(preferred)
-      setModel(preferred)
-    } else {
-      setOtherActive(false)
-      setModel((row ?? models[0]).value)
-    }
-  }, [open, modelOverridden, models, rememberPerProject, lastModelHere, settings.default_model])
+    const row = modelByAnyId(preferredModel, models)
+    setModel(preferredModel && !row ? preferredModel : (row ?? models[0]).value)
+  }, [open, modelOverridden, models, preferredModel])
+
+  /**
+   * What the cards are drawn from, held once a model is picked by hand. The
+   * row fades out and in when that changes under it — another profile,
+   * another device, this open's fresh read bringing other recent models
+   * (canvas 72c: "switching profile still fades the row out and in"). The
+   * outgoing row keeps what it was drawn with.
+   */
+  const cardSource = useHeldCardSource(
+    { models, recent: catalog.recent, preselected: preselectedModel, standIn: catalog.standIn },
+    catalogScope,
+    cardsHeld,
+  )
+  const catalogId = `${catalogScope}|${cardSource.models.map((m) => m.value).join(',')}|${cardSource.recent.join(',')}`
+  const modelRow = useNoticeSwap(useMemo(() => ({ id: catalogId, ...cardSource }), [catalogId, cardSource]))
+  const rowCatalog = modelRow.shown?.id === catalogId ? cardSource : (modelRow.shown ?? cardSource)
 
   // Debounced auto-match: re-preview whenever cwd or permission mode
   // changes, and (unless the user has manually overridden) adopt the match.
@@ -670,9 +680,6 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     setManualOverride(true)
     setTagId((current) => (current === id ? current : id))
   }
-
-  /** Other is selected but no id has validated yet. */
-  const awaitingCustomModel = otherActive && model === null
 
   const dirState = useDirectoryState(cwd, open, machine)
   const dirLine = directoryLine(dirState, remote ? deviceName : 'this Mac')
@@ -789,7 +796,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
    * spawns until the question is answered (47e "Trigger").
    */
   const handleLaunch = useCallback(async () => {
-    if (!cwd.trim() || pending || awaitingCustomModel || worktreeBlocked) return
+    if (!cwd.trim() || pending || worktreeBlocked || modelBlocked) return
     // Step 2 launches with the harness or not at all: a plain launch is step 1's.
     if (step2 && !harnessLaunch) return
     setPending(true)
@@ -814,7 +821,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       return
     }
     await launch()
-  }, [cwd, pending, awaitingCustomModel, worktreeBlocked, choosesDir, claudeDirId, launch, machine, step2, harnessLaunch])
+  }, [cwd, pending, worktreeBlocked, modelBlocked, choosesDir, claudeDirId, launch, machine, step2, harnessLaunch])
 
   /**
    * *Create and launch*. A directory just made has no `.mcp.json` to ask
@@ -906,7 +913,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             newline is stripped by JSX, which would run the count straight
             into the model name. */}
         {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
-        {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
+        {modelByValue(model, models)?.shortVersion ?? model ?? 'default model'} · {permissionMode}
         {/* 67f: the summary says whether the session starts with a list; one on a harness never does. */}
         {progressOffered && step2 ? ' · no progress list' : progressList ? ' · progress list' : null}
         {/* Spec § The footer summary: where the worktree comes from. */}
@@ -933,8 +940,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       ? 'Fix the worktree line in ‹ Back to launch'
       : worktreeBlocked
         ? 'Fetching origin for the worktree…'
-        : awaitingCustomModel
-          ? 'Check the custom model in ‹ Back to launch'
+        : modelBlocked
+          ? 'Take or clear the custom model ID in ‹ Back to launch'
           : null
   const harnessShell = step2
     ? {
@@ -978,7 +985,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               size="lg"
               onClick={() => void handleLaunch()}
               disabled={
-                pending || !harnessReady || !cwd.trim() || awaitingCustomModel || blocksLaunch(dirState) || worktreeBlocked
+                pending || !harnessReady || !cwd.trim() || blocksLaunch(dirState) || worktreeBlocked || modelBlocked
               }
             >
               Launch with harness <span className="font-mono fs-10 opacity-70">⌘⏎</span>
@@ -1101,7 +1108,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               variant="primary"
               size="lg"
               onClick={() => void handleLaunch()}
-              disabled={pending || !cwd.trim() || awaitingCustomModel || blocksLaunch(dirState) || worktreeBlocked}
+              disabled={pending || !cwd.trim() || blocksLaunch(dirState) || worktreeBlocked || modelBlocked}
             >
               Launch session <span className="font-mono fs-10 opacity-70">⌘⏎</span>
             </Button>
@@ -1332,54 +1339,30 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     </span>
                   )}
                 </FieldLabel>
-                {/* Bleeds 20px past the column so the selected tile's glow is not
+                {/* Bleeds 20px past the column so the selected card's glow is not
                     cut by the height transition's clip; the padding gives it back. */}
                 <AutoHeight className="-m-5">
                   <div
-                    // The outgoing picker lists the old catalog: it must not take a pick while it fades.
-                    inert={modelPicker.shown?.id !== modelPickerId}
+                    // The outgoing row lists the old catalog: it must not take a pick while it fades.
+                    inert={modelRow.shown?.id !== catalogId}
                     style={{ transitionDuration: `${NOTICE_FADE_MS}ms` }}
                     className={[
                       'p-5 transition-opacity ease-out motion-reduce:transition-none',
-                      modelPicker.visible ? 'opacity-100' : 'opacity-0',
+                      modelRow.visible ? 'opacity-100' : 'opacity-0',
                     ].join(' ')}
                   >
-                    {modelPicker.shown?.id === 'dropdown' ? (
-                      <Select
-                        variant="model"
-                        aria-label="Model"
-                        className="w-full"
-                        options={modelOptions(pickerModels)}
-                        value={otherActive ? OTHER_MODEL : (model ?? '')}
-                        placeholder="Default model"
-                        onChange={(next) => (next === OTHER_MODEL ? pickOtherModel() : pickModel(next))}
-                      />
-                    ) : (
-                      <ModelCards
-                        dense
-                        models={pickerModels}
-                        value={model}
-                        defaultValue={settings.default_model ?? null}
-                        onChange={pickModel}
-                        other={{ active: otherActive, onSelect: pickOtherModel }}
-                      />
-                    )}
+                    <ModelRow
+                      models={rowCatalog.models}
+                      recent={rowCatalog.recent}
+                      preselected={rowCatalog.preselected}
+                      defaultValue={settings.default_model ?? null}
+                      value={model}
+                      onChange={pickModel}
+                      onPendingChange={setCustomPending}
+                      claudeDir={choosesDir && claudeDirId !== null ? claudeDirId : undefined}
+                    />
                   </div>
                 </AutoHeight>
-                {otherActive && (
-                  <CustomModelField
-                    // Remounts when preselection swaps in another remembered id, or the
-                    // directory changes: the same id is checked again under the new account.
-                    key={`${claudeDirId ?? ''}:${customInitial ?? ''}`}
-                    size="lg"
-                    initial={customInitial ? { id: customInitial, trusted: true } : undefined}
-                    // Picked by hand (63a: "opens the ID field, focused"); a remembered id is not.
-                    autoFocus={focusCustomModel}
-                    onValidated={(id) => setModel(id)}
-                    onCleared={() => setModel(null)}
-                    claudeDir={choosesDir && claudeDirId !== null ? claudeDirId : undefined}
-                  />
-                )}
               </div>
 
               <div className="flex flex-col gap-2">
@@ -1513,18 +1496,6 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
 function existingTag(tags: Tag[], name: string): Tag | undefined {
   const wanted = name.trim().toLowerCase()
   return wanted ? tags.find((t) => t.name.toLowerCase() === wanted) : undefined
-}
-
-/** The model dropdown's rows (63a): name and context window, Other last. */
-function modelOptions(models: OrbitalModel[]): SelectOption<string>[] {
-  return [
-    ...models.map((m) => ({
-      value: m.value,
-      label: m.shortVersion,
-      sub: contextLabel(m) ?? undefined,
-    })),
-    { value: OTHER_MODEL, label: 'Other', sub: 'ANY ID' },
-  ]
 }
 
 /**

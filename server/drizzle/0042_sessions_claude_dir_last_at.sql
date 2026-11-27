@@ -1,0 +1,1 @@
+CREATE INDEX `idx_sessions_claude_dir_last_at` ON `sessions` (`claude_dir_id`,`last_at`);

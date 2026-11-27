@@ -36,8 +36,10 @@ UI, the phone as a member); each is narrow or heals on its own.
 - **MCP server names** with `.`, `:` or a space cannot be managed from
   another device: a channel's path segments are held to `SAFE_SEGMENT`.
 - **Custom model check.** `POST /api/models/validate` is not on the
-  member allowlist, so New session checks a custom model id against this
-  device even when the session will run on another.
+  member allowlist, so the desktop's New session checks a custom model id
+  against this device even when the session will run on another. The
+  phone is not affected: it reaches each device on its own link and sends
+  the check to the device that will run the session.
 
 ## Desktop UI (`web/src`)
 

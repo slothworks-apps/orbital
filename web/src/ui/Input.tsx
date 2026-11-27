@@ -37,14 +37,23 @@ const fieldClass = (
 ) =>
   [
     'w-full text-ink-100 focus:outline-none',
-    variant === 'combobox' || variant === 'ringed' ? 'placeholder:text-ink-900/45' : 'placeholder:text-ink-900/70',
-    variant === 'bare' || variant === 'chip' || variant === 'combobox' || variant === 'ringed'
+    variant === 'combobox' || variant === 'ringed' || variant === 'in-list' || variant === 'in-list-touch' ? 'placeholder:text-ink-900/45' : 'placeholder:text-ink-900/70',
+    variant === 'bare' || variant === 'chip' || variant === 'combobox' || variant === 'ringed' || variant === 'in-list' || variant === 'in-list-touch'
       ? ''
       : `focus:ring-1 ${invalid ? 'focus:ring-red-400/70' : 'focus:ring-ink-300'}`,
     variant === 'combobox'
       ? comboboxClass(seam)
       : variant === 'ringed'
       ? ringedClass(lit ?? false)
+      : variant === 'in-list' || variant === 'in-list-touch'
+      ? // In-list variant: a field that takes a list row's place (canvas 72b's
+        // Custom ID…, typed in place) — 32px tall, 10px sides, 7px radius at
+        // 12px, the accent edge and ring worn whenever it shows: it only shows focused.
+        // In-list-touch is the phone sheet's (72d draws no frame for it): 72b's
+        // field at 40px for a finger, at the sheet rows' 13px mono.
+        `block ${variant === 'in-list-touch' ? 'h-10 fs-13' : 'h-8 fs-12'} rounded-[7px] border bg-space/60 px-2.5 shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)] ${
+          invalid ? 'border-red-400/60' : 'border-accent/50'
+        }`
       : variant === 'bare'
       ? // Bare variant: no box at all — the caller's frame draws the edge
         // (canvas 50a's device name over a dashed underline), 14px semibold.
@@ -101,7 +110,7 @@ const ringedClass = (lit: boolean) =>
       : 'border-line/18',
   ].join(' ')
 
-type InputVariant = 'field' | 'inline' | 'bare' | 'chip' | 'combobox' | 'ringed'
+type InputVariant = 'field' | 'inline' | 'bare' | 'chip' | 'combobox' | 'ringed' | 'in-list' | 'in-list-touch'
 
 /** The edge of a combobox field an open list hangs from. */
 export type InputSeam = 'top' | 'bottom'
@@ -111,7 +120,8 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   /**
    * 'field' (default) is the standard bordered input; 'inline' is for editing a value in place (borderless until
    * focused); 'bare' has no box of its own, for a field whose frame is drawn around it; 'chip' is 'bare' in a
-   * chip's type, for a field inside a chip; 'combobox' is a field with a suggestion list hanging from it.
+   * chip's type, for a field inside a chip; 'combobox' is a field with a suggestion list hanging from it;
+   * 'in-list' is a field typed into in place of a list row, 'in-list-touch' the same on the phone.
    */
   variant?: InputVariant
   ref?: Ref<HTMLInputElement>

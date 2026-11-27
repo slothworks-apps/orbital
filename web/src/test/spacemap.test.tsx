@@ -95,6 +95,7 @@ function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
     rules: [],
     models: [],
     contextWindows: {},
+    recentModels: [],
     claudeDirs: [],
     defaultClaudeDir: null,
     lastClaudeDir: null,
